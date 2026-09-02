@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: starpick-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: starpick
+      POSTGRES_USER: starpick
+      POSTGRES_PASSWORD: starpick
+    ports:
+      - "5432:5432"
+    volumes:
+      - starpick-postgres-data:/var/lib/postgresql
+
+volumes:
+  starpick-postgres-data:
