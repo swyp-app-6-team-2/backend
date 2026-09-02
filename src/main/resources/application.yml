@@ -14,6 +14,15 @@ spring:
         format_sql: true
     open-in-view: false
 
+jwt:
+  secret: starpick-jwt-secret-key-must-be-at-least-32-characters-long
+  access-token-expiration: 1800000       # 30분
+  refresh-token-expiration: 1209600000   # 14일
+  signup-token-expiration: 300000        # 5분
+
+google:
+  client-id: ${GOOGLE_CLIENT_ID}
+
 logging:
   level:
     org.hibernate.SQL: debug

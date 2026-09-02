@@ -1,4 +1,4 @@
-package com.star_pick.starpick.user.entity;
+package com.star_pick.starpick.domain.user.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -45,4 +45,9 @@ public class User {
     private LocalDateTime createdAt;
 
     private LocalDateTime deletedAt;
+
+    public void updateLastLogin(Provider provider, LocalDateTime loginAt) {
+        this.lastLoginProvider = provider;
+        this.lastLoginAt = loginAt;
+    }
 }

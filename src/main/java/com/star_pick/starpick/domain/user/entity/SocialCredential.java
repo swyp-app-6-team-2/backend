@@ -1,4 +1,4 @@
-package com.star_pick.starpick.user.entity;
+package com.star_pick.starpick.domain.user.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
