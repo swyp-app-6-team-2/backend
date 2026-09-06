@@ -25,6 +25,9 @@ dependencies {
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
 	implementation 'com.google.api-client:google-api-client:2.9.0'
 	implementation(platform("me.paulschwarz:spring-dotenv-bom:5.1.0"))
+	// developmentOnly 는 implementation 을 extend 하지 않아 BOM 의 버전 제약이 전달되지 않는다.
+	// 이 platform 이 없으면 springboot4-dotenv 가 버전 없이 남아 bootJar/bootRun 이 실패한다.
+	developmentOnly(platform("me.paulschwarz:spring-dotenv-bom:5.1.0"))
 	developmentOnly("me.paulschwarz:springboot4-dotenv")
 	implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
