@@ -1,0 +1,30 @@
+# 테스트 전용 설정.
+# 클래스패스에서 test resources가 main resources보다 앞서므로,
+# 이 파일이 src/main/resources/application.yml 을 "대체"한다(병합이 아니다).
+#
+# spring.datasource.* 를 의도적으로 두지 않는다.
+# 접속 정보는 TestcontainersConfiguration 의 @ServiceConnection 이 제공하며,
+# 컨테이너를 import 하지 않은 테스트는 조용히 로컬 DB에 붙는 대신 시끄럽게 실패해야 한다.
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+jwt:
+  secret: starpick-test-only-jwt-secret-key-not-for-any-real-environment
+  access-token-expiration: 1800000
+  refresh-token-expiration: 1209600000
+  signup-token-expiration: 300000
+
+google:
+  client-id: test-google-client-id
+
+logging:
+  level:
+    org.hibernate.SQL: warn
