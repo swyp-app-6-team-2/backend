@@ -9,7 +9,7 @@
 spring:
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: validate
     show-sql: false
     open-in-view: false
     properties:

@@ -12,8 +12,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /**
  * Entity 매핑이 실제 PostgreSQL 스키마로 만들어졌는지 확인한다.
  *
- * <p>migration 도구가 없어 스키마를 ddl-auto 가 만든다. 제약은 Entity 매핑에 명시하고
- * 통합 테스트로 확인한다는 규칙(CLAUDE.md §3)을 이행하는 테스트다.
+ * <p>스키마는 Flyway 가 만들고 {@code ddl-auto: validate} 는 컬럼과 타입만 본다. validate 가 보지
+ * 않는 nullable·UNIQUE·인덱스·FK 를 여기서 실제 스키마를 조회해 확인한다.
  */
 @IntegrationTest
 class RecipeSchemaTest {

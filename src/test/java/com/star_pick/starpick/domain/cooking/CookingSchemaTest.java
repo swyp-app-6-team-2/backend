@@ -12,8 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /**
  * cook_history 매핑이 실제 PostgreSQL 스키마로 만들어졌는지 확인한다.
  *
- * <p>migration 도구가 없어 스키마를 ddl-auto 가 만든다. 제약은 Entity 매핑에 명시하고
- * 통합 테스트로 확인한다는 규칙(CLAUDE.md §3)을 이행하는 테스트다.
+ * <p>{@code ddl-auto: validate} 가 보지 않는 nullable·UNIQUE·인덱스·FK 를 실제 스키마로 확인한다.
  */
 @IntegrationTest
 class CookingSchemaTest {
@@ -76,8 +75,8 @@ class CookingSchemaTest {
     @Test
     @DisplayName("cook_history.recipe_id 에는 FK 가 없다 — 도메인 경계 규칙의 의도된 결과")
     void recipeIdHasNoForeignKey() {
-        // Cooking 은 Recipe Entity 를 참조할 수 없고 스칼라 컬럼에는 JPA 가 FK 를 만들지 않는다.
-        // FK 는 migration 도구 도입(#11) 때 추가한다. 그때까지 허용하는 빈틈은 cooking.md §3.4 참고.
+        // FK 를 넣으면 Recipe 삭제의 행 잠금이 FK 검사를 막지 못해 삭제 쪽이 실패한다(실측).
+        // 잠금 전략과 함께 정할 후속 과제다. 허용하는 빈틈은 cooking.md §3.4 참고.
         Integer count = jdbcTemplate.queryForObject("""
                 select count(*)
                 from information_schema.table_constraints tc
