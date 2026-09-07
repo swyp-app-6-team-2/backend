@@ -59,6 +59,9 @@ public class RecipeUpdateRequest {
     private Optional<String> memo;
 
     @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private Optional<String> coverImageKey;
+
+    @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Optional<@NotNull(message = "재료 목록은 null 일 수 없습니다.")
             List<@Valid @NotNull RecipeIngredientRequest>> ingredients;
 
@@ -73,6 +76,7 @@ public class RecipeUpdateRequest {
                 && cookTimeMinutes == null
                 && servings == null
                 && memo == null
+                && coverImageKey == null
                 && ingredients == null
                 && steps == null;
     }

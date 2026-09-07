@@ -23,6 +23,14 @@ jwt:
 google:
   client-id: ${GOOGLE_CLIENT_ID}
 
+gcs:
+  # 기본값을 두지 않는다. 설정 누락을 fail-fast 로 잡기 위한 의도이며 google.client-id 와 같다.
+  bucket: ${GCS_BUCKET}
+  # 업로드 URL 15분은 API 공통 계약으로 확정된 값이다.
+  upload-url-expiration-minutes: 15
+  # 조회 URL 이 더 긴 이유: 상세 화면을 열어둔 채 한참 뒤에 스크롤해도 이미지가 깨지지 않아야 한다.
+  view-url-expiration-minutes: 60
+
 logging:
   level:
     org.hibernate.SQL: debug

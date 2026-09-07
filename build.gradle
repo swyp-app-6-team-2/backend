@@ -24,7 +24,13 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-restclient'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
-	implementation 'com.google.api-client:google-api-client:2.9.0'
+	// BOM 이 이 좌표도 관리하므로 strictly 로 고정한다. 사람이 매번 확인하는 대신
+	// 버전이 밀리면 빌드가 실패하게 만든다(소셜 로그인 ID Token 검증이 이 버전에 의존).
+	implementation('com.google.api-client:google-api-client') {
+		version { strictly '2.9.0' }
+	}
+	implementation platform('com.google.cloud:libraries-bom:26.83.0')
+	implementation 'com.google.cloud:google-cloud-storage'
 	implementation(platform("me.paulschwarz:spring-dotenv-bom:5.1.0"))
 	// developmentOnly 는 implementation 을 extend 하지 않아 BOM 의 버전 제약이 전달되지 않는다.
 	// 이 platform 이 없으면 springboot4-dotenv 가 버전 없이 남아 bootJar/bootRun 이 실패한다.

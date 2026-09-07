@@ -25,6 +25,12 @@ jwt:
 google:
   client-id: test-google-client-id
 
+# 실제 GCS 클라이언트 Bean 을 만들지 않는다. 만들면 자격증명을 찾다 컨텍스트가 깨진다.
+# ObjectStorage 자리에는 TestcontainersConfiguration 이 FakeObjectStorage 를 등록한다.
+# gcs.bucket 같은 값은 꺼진 GcsConfig 의 Bean 메서드 안에서만 쓰이므로 더미 값이 필요 없다.
+gcs:
+  enabled: false
+
 logging:
   level:
     org.hibernate.SQL: warn

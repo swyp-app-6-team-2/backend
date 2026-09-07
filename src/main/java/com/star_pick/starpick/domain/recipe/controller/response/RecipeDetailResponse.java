@@ -12,8 +12,8 @@ import java.util.List;
  *
  * <p>Ingredient·Step 의 내부 식별자와 표시 순서는 노출하지 않는다.
  *
- * <p>{@code coverImageUrl} 은 이미지 업로드 단계, {@code source} 는 Ingestion 단계에서 채워진다.
- * 그때까지 MANUAL Recipe 만 존재하므로 둘 다 항상 null 이다.
+ * <p>{@code coverImageUrl} 은 저장된 Key 로 만든 조회용 서명 URL 이다. 대표 이미지가 없거나
+ * 서명에 실패하면 null 이다. {@code source} 는 Ingestion 단계에서 채워지며 그때까지 항상 null 이다.
  */
 public record RecipeDetailResponse(
         Long recipeId,
@@ -37,13 +37,18 @@ public record RecipeDetailResponse(
     public record RecipeSourceResponse(String sourceType, String originalUrl) {
     }
 
-    /** 트랜잭션 안에서 호출해야 한다. open-in-view 가 꺼져 있어 지연 로딩 컬렉션을 밖에서 읽을 수 없다. */
-    public static RecipeDetailResponse from(Recipe recipe) {
+    /**
+     * 트랜잭션 안에서 호출해야 한다. open-in-view 가 꺼져 있어 지연 로딩 컬렉션을 밖에서 읽을 수 없다.
+     *
+     * <p>{@code coverImageUrl} 을 인자로 받는 이유: 조회용 URL 을 만들려면 Upload 를 호출해야
+     * 하는데, 응답 DTO 가 다른 도메인의 Service 를 호출하지 않도록 Service 에서 만들어 넘긴다.
+     */
+    public static RecipeDetailResponse from(Recipe recipe, String coverImageUrl) {
         return new RecipeDetailResponse(
                 recipe.getId(),
                 recipe.getTitle(),
                 recipe.getCategoryCode(),
-                null,
+                coverImageUrl,
                 recipe.getCookTimeMinutes(),
                 recipe.getServings(),
                 recipe.getMemo(),
