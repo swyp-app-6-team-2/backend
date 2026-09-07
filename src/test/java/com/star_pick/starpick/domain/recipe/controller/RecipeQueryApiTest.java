@@ -5,14 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.star_pick.starpick.domain.recipe.domain.Recipe;
-import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
-import com.star_pick.starpick.domain.recipe.domain.RecipeIngredient;
-import com.star_pick.starpick.domain.recipe.domain.RecipeStep;
 import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
-import java.util.List;
+import com.star_pick.starpick.support.TestFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,6 +30,9 @@ class RecipeQueryApiTest {
     private JwtProvider jwtProvider;
 
     @Autowired
+    private TestFixtures fixtures;
+
+    @Autowired
     private RecipeRepository recipeRepository;
 
     private String accessToken;
@@ -44,17 +43,6 @@ class RecipeQueryApiTest {
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }
 
-    private Long saveRecipe(Long ownerId, boolean withChildren) {
-        Recipe recipe = Recipe.createManual(ownerId, "김치찌개", RecipeCategory.KOREAN, 30, 2, "조금 맵게");
-        if (withChildren) {
-            recipe.replaceIngredients(List.of(
-                    RecipeIngredient.of("김치", "1/4포기"),
-                    RecipeIngredient.of("두부", null)));
-            recipe.replaceSteps(List.of(RecipeStep.of("물을 끓인다"), RecipeStep.of("김치를 넣는다")));
-        }
-        return recipeRepository.save(recipe).getId();
-    }
-
     private org.springframework.test.web.servlet.ResultActions read(Long recipeId) throws Exception {
         return mockMvc.perform(get("/api/v1/recipes/{recipeId}", recipeId)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken));
@@ -63,7 +51,7 @@ class RecipeQueryApiTest {
     @Test
     @DisplayName("소유한 레시피의 상세를 반환한다")
     void returnsDetail() throws Exception {
-        Long recipeId = saveRecipe(OWNER_ID, true);
+        Long recipeId = fixtures.saveRecipeWithChildren(OWNER_ID);
 
         read(recipeId)
                 .andExpect(status().isOk())
@@ -86,7 +74,7 @@ class RecipeQueryApiTest {
     @Test
     @DisplayName("값이 없는 단일 필드도 키가 null 로 존재한다")
     void nullableKeysArePresent() throws Exception {
-        Long recipeId = saveRecipe(OWNER_ID, false);
+        Long recipeId = fixtures.saveRecipe(OWNER_ID);
 
         String body = read(recipeId).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
@@ -99,7 +87,7 @@ class RecipeQueryApiTest {
     @Test
     @DisplayName("재료와 조리 순서가 없으면 빈 배열이다")
     void emptyChildrenAreEmptyArrays() throws Exception {
-        Long recipeId = saveRecipe(OWNER_ID, false);
+        Long recipeId = fixtures.saveRecipe(OWNER_ID);
 
         read(recipeId)
                 .andExpect(status().isOk())
@@ -111,7 +99,7 @@ class RecipeQueryApiTest {
     @Test
     @DisplayName("내부 식별자와 표시 순서는 노출하지 않는다")
     void doesNotExposeInternals() throws Exception {
-        Long recipeId = saveRecipe(OWNER_ID, true);
+        Long recipeId = fixtures.saveRecipeWithChildren(OWNER_ID);
 
         read(recipeId)
                 .andExpect(status().isOk())
@@ -135,7 +123,7 @@ class RecipeQueryApiTest {
     @Test
     @DisplayName("다른 사용자의 레시피도 똑같이 404 다 — 소유 여부를 노출하지 않는다")
     void otherUsersRecipeIsNotFound() throws Exception {
-        Long recipeId = saveRecipe(OTHER_ID, true);
+        Long recipeId = fixtures.saveRecipeWithChildren(OTHER_ID);
 
         read(recipeId)
                 .andExpect(status().isNotFound())
@@ -155,7 +143,7 @@ class RecipeQueryApiTest {
     @Test
     @DisplayName("토큰이 없으면 401 이다")
     void rejectsAnonymous() throws Exception {
-        Long recipeId = saveRecipe(OWNER_ID, false);
+        Long recipeId = fixtures.saveRecipe(OWNER_ID);
 
         mockMvc.perform(get("/api/v1/recipes/{recipeId}", recipeId))
                 .andExpect(status().isUnauthorized())

@@ -16,6 +16,7 @@ import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.IntegrationTest;
+import com.star_pick.starpick.support.TestFixtures;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,9 @@ class RecipeCoverImageApiTest {
     private JwtProvider jwtProvider;
 
     @Autowired
+    private TestFixtures fixtures;
+
+    @Autowired
     private RecipeRepository recipeRepository;
 
     @Autowired
@@ -69,14 +73,8 @@ class RecipeCoverImageApiTest {
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }
 
-    private String uploadedKey(Long userId, UploadPurpose purpose) {
-        String objectKey = uploadService.issueUploadUrl(userId, purpose, "image/jpeg").objectKey();
-        objectStorage.putObject(objectKey);
-        return objectKey;
-    }
-
     private String uploadedCoverKey() {
-        return uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        return fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
     }
 
     private ResultActions create(String coverImageKeyJson) throws Exception {
@@ -111,10 +109,6 @@ class RecipeCoverImageApiTest {
                 "select cover_image_key from recipe where id = ?", String.class, recipeId);
     }
 
-    private boolean isAttached(String objectKey) {
-        return uploadObjectRepository.findById(objectKey).orElseThrow().isAttached();
-    }
-
     // ---------- 생성 ----------
 
     @Test
@@ -127,7 +121,7 @@ class RecipeCoverImageApiTest {
 
         Long recipeId = jdbcTemplate.queryForObject("select id from recipe", Long.class);
         assertThat(storedCoverKey(recipeId)).isEqualTo(objectKey);
-        assertThat(isAttached(objectKey)).isTrue();
+        assertThat(fixtures.isAttached(objectKey)).isTrue();
     }
 
     @Test
@@ -229,7 +223,7 @@ class RecipeCoverImageApiTest {
                 """.formatted(newKey)).andExpect(status().isOk());
 
         assertThat(storedCoverKey(recipeId)).isEqualTo(newKey);
-        assertThat(isAttached(newKey)).isTrue();
+        assertThat(fixtures.isAttached(newKey)).isTrue();
         assertThat(uploadObjectRepository.findById(oldKey)).isEmpty();
         // 커밋 후 삭제 등록(afterCommit)이 실제로 실행됐는지 확인한다.
         assertThat(objectStorage.contains(oldKey)).isFalse();
@@ -281,7 +275,7 @@ class RecipeCoverImageApiTest {
     void rejectsOtherUsersKeyOnUpdate() throws Exception {
         String objectKey = uploadedCoverKey();
         Long recipeId = recipeWithAttachedCover(objectKey);
-        String othersKey = uploadedKey(OTHER_ID, UploadPurpose.RECIPE_COVER);
+        String othersKey = fixtures.uploadedKey(OTHER_ID, UploadPurpose.RECIPE_COVER);
 
         update(recipeId, """
                 {"coverImageKey":"%s"}

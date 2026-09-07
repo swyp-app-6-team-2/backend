@@ -6,13 +6,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.star_pick.starpick.domain.recipe.domain.Recipe;
-import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
-import com.star_pick.starpick.domain.recipe.domain.RecipeIngredient;
-import com.star_pick.starpick.domain.recipe.domain.RecipeStep;
 import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
+import com.star_pick.starpick.support.TestFixtures;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -42,6 +39,9 @@ class RecipeUpdateApiTest {
     private JwtProvider jwtProvider;
 
     @Autowired
+    private TestFixtures fixtures;
+
+    @Autowired
     private RecipeRepository recipeRepository;
 
     @Autowired
@@ -54,16 +54,7 @@ class RecipeUpdateApiTest {
     void setUp() {
         recipeRepository.deleteAll();
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
-        recipeId = saveRecipe(OWNER_ID);
-    }
-
-    private Long saveRecipe(Long ownerId) {
-        Recipe recipe = Recipe.createManual(ownerId, "김치찌개", RecipeCategory.KOREAN, 30, 2, "조금 맵게");
-        recipe.replaceIngredients(List.of(
-                RecipeIngredient.of("김치", "1/4포기"),
-                RecipeIngredient.of("두부", null)));
-        recipe.replaceSteps(List.of(RecipeStep.of("물을 끓인다"), RecipeStep.of("김치를 넣는다")));
-        return recipeRepository.save(recipe).getId();
+        recipeId = fixtures.saveRecipeWithChildren(OWNER_ID);
     }
 
     private ResultActions update(Long targetId, String body) throws Exception {
@@ -252,7 +243,7 @@ class RecipeUpdateApiTest {
     @Test
     @DisplayName("다른 사용자의 레시피는 404 다")
     void otherUsersRecipeIsNotFound() throws Exception {
-        Long otherRecipeId = saveRecipe(OTHER_ID);
+        Long otherRecipeId = fixtures.saveRecipeWithChildren(OTHER_ID);
 
         update(otherRecipeId, "{\"title\":\"부대찌개\"}")
                 .andExpect(status().isNotFound())
