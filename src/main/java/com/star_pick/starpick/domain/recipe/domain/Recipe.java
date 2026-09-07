@@ -60,7 +60,7 @@ public class Recipe {
     @Column(nullable = false, updatable = false)
     private RegistrationMethod registrationMethod;
 
-    /** 3단계(이미지 업로드)에서 연결한다. 이번 범위에서는 항상 null 이다. */
+    /** Upload 가 발급한 저장소 객체 이름. null 이면 대표 이미지가 없다. URL 이 아니라 Key 를 저장한다. */
     private String coverImageKey;
 
     private Integer cookTimeMinutes;
@@ -141,6 +141,17 @@ public class Recipe {
     /** null 이면 메모를 제거한다. */
     public void changeMemo(String memo) {
         this.memo = memo;
+        markUpdated();
+    }
+
+    /**
+     * null 이면 대표 이미지를 제거한다.
+     *
+     * <p>Key 의 유효성(소유자·용도·업로드 완료·미연결)은 Upload 가 판단한다. 여기서는 이미
+     * 검증된 값을 받는다고 본다.
+     */
+    public void changeCoverImage(String coverImageKey) {
+        this.coverImageKey = coverImageKey;
         markUpdated();
     }
 

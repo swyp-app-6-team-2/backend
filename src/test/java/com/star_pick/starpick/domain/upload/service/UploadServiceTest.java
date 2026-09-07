@@ -1,0 +1,268 @@
+package com.star_pick.starpick.domain.upload.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.star_pick.starpick.domain.upload.controller.response.UploadUrlIssueResponse;
+import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
+import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
+import com.star_pick.starpick.support.FakeObjectStorage;
+import com.star_pick.starpick.support.IntegrationTest;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+/** 연결·해제 규칙 검증. 다른 도메인이 의존하는 계약이라 경계 조건을 모두 확인한다. */
+@IntegrationTest
+class UploadServiceTest {
+
+    private static final Long OWNER_ID = 1L;
+    private static final Long OTHER_USER_ID = 2L;
+
+    @Autowired
+    private UploadService uploadService;
+
+    @Autowired
+    private UploadObjectRepository uploadObjectRepository;
+
+    @Autowired
+    private FakeObjectStorage objectStorage;
+
+    @BeforeEach
+    void setUp() {
+        uploadObjectRepository.deleteAll();
+        objectStorage.clear();
+    }
+
+    private String issueAndUpload(Long userId, UploadPurpose purpose) {
+        String objectKey = uploadService
+                .issueUploadUrl(userId, purpose, "image/jpeg")
+                .objectKey();
+        objectStorage.putObject(objectKey);
+        return objectKey;
+    }
+
+    @Test
+    @DisplayName("발급하면 미연결 UploadObject 가 남고 objectKey 에 용도·사용자가 들어간다")
+    void issuesUrlAndSavesUnattachedObject() {
+        UploadUrlIssueResponse response =
+                uploadService.issueUploadUrl(OWNER_ID, UploadPurpose.RECIPE_COVER, "image/jpeg");
+
+        assertThat(response.objectKey()).startsWith("recipe-covers/1/").endsWith(".jpg");
+        assertThat(response.uploadUrl()).isNotBlank();
+        assertThat(response.uploadHeaders())
+                .containsEntry("Content-Type", "image/jpeg")
+                .containsEntry("x-goog-if-generation-match", "0");
+        assertThat(response.expiresAt()).isNotNull();
+
+        assertThat(uploadObjectRepository.findById(response.objectKey()))
+                .get()
+                .satisfies(saved -> {
+                    assertThat(saved.getUserId()).isEqualTo(OWNER_ID);
+                    assertThat(saved.getPurpose()).isEqualTo(UploadPurpose.RECIPE_COVER);
+                    assertThat(saved.isAttached()).isFalse();
+                });
+    }
+
+    @Test
+    @DisplayName("형식마다 확장자가 다르다")
+    void usesExtensionMatchingContentType() {
+        assertThat(uploadService.issueUploadUrl(OWNER_ID, UploadPurpose.RECIPE_COVER, "image/png")
+                .objectKey()).endsWith(".png");
+        assertThat(uploadService.issueUploadUrl(OWNER_ID, UploadPurpose.RECIPE_COVER, "image/webp")
+                .objectKey()).endsWith(".webp");
+    }
+
+    @Test
+    @DisplayName("업로드까지 마친 본인 Key 는 연결된다")
+    void attachesUploadedKey() {
+        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+
+        AttachOutcome outcome =
+                uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
+
+        assertThat(outcome).isEqualTo(AttachOutcome.ATTACHED);
+        assertThat(uploadObjectRepository.findById(objectKey))
+                .get()
+                .satisfies(saved -> assertThat(saved.isAttached()).isTrue());
+    }
+
+    @Test
+    @DisplayName("발급만 받고 업로드하지 않은 Key 는 연결되지 않는다")
+    void rejectsKeyThatWasNeverUploaded() {
+        String objectKey = uploadService
+                .issueUploadUrl(OWNER_ID, UploadPurpose.RECIPE_COVER, "image/jpeg")
+                .objectKey();
+
+        AttachOutcome outcome =
+                uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
+
+        assertThat(outcome).isEqualTo(AttachOutcome.INVALID);
+    }
+
+    @Test
+    @DisplayName("남의 Key 는 연결되지 않는다")
+    void rejectsOtherUsersKey() {
+        String objectKey = issueAndUpload(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
+
+        AttachOutcome outcome =
+                uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
+
+        assertThat(outcome).isEqualTo(AttachOutcome.INVALID);
+    }
+
+    @Test
+    @DisplayName("다른 용도로 발급된 Key 는 연결되지 않는다")
+    void rejectsKeyIssuedForAnotherPurpose() {
+        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.INGESTION_INPUT);
+
+        AttachOutcome outcome =
+                uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
+
+        assertThat(outcome).isEqualTo(AttachOutcome.INVALID);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 Key 는 연결되지 않는다")
+    void rejectsUnknownKey() {
+        AttachOutcome outcome =
+                uploadService.attach(OWNER_ID, "recipe-covers/1/unknown.jpg", UploadPurpose.RECIPE_COVER);
+
+        assertThat(outcome).isEqualTo(AttachOutcome.INVALID);
+    }
+
+    @Test
+    @DisplayName("이미 연결된 Key 를 다시 연결하면 ALREADY_ATTACHED 다")
+    void rejectsAlreadyAttachedKey() {
+        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
+
+        AttachOutcome outcome =
+                uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
+
+        assertThat(outcome).isEqualTo(AttachOutcome.ALREADY_ATTACHED);
+    }
+
+    @Test
+    @DisplayName("해제하면 UploadObject 가 사라진다")
+    void releasesOwnKey() {
+        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+
+        uploadService.releaseAndDeleteFile(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
+
+        assertThat(uploadObjectRepository.findById(objectKey)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("남의 Key 는 해제되지 않는다")
+    void doesNotReleaseOtherUsersKey() {
+        String objectKey = issueAndUpload(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
+
+        uploadService.releaseAndDeleteFile(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
+
+        assertThat(uploadObjectRepository.findById(objectKey)).isPresent();
+    }
+
+    @Test
+    @DisplayName("다른 용도의 Key 는 해제되지 않는다")
+    void doesNotReleaseKeyOfAnotherPurpose() {
+        // 호출 도메인이 실수로 다른 용도의 Key 를 넘겨도, 아직 참조 중인 행이 지워지면 안 된다.
+        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.COOK_HISTORY_PHOTO);
+
+        uploadService.releaseAndDeleteFile(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
+
+        assertThat(uploadObjectRepository.findById(objectKey)).isPresent();
+    }
+
+    @Test
+    @DisplayName("없는 Key 를 해제해도 예외가 나지 않는다")
+    void releaseIsIdempotent() {
+        uploadService.releaseAndDeleteFile(OWNER_ID, "recipe-covers/1/unknown.jpg", UploadPurpose.RECIPE_COVER);
+        uploadService.releaseAndDeleteFile(OWNER_ID, null, UploadPurpose.RECIPE_COVER);
+
+        assertThat(uploadObjectRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("objectKey 가 null 이면 조회 URL 도 null 이다")
+    void viewUrlOfNullKeyIsNull() {
+        assertThat(uploadService.getViewUrl(OWNER_ID, null)).isNull();
+        assertThat(uploadService.getViewUrl(OWNER_ID, "recipe-covers/1/a.jpg"))
+                .isEqualTo(FakeObjectStorage.VIEW_URL_PREFIX + "recipe-covers/1/a.jpg");
+    }
+
+    @Test
+    @DisplayName("발급 대상이 아닌 사용자에게는 조회 URL 을 주지 않는다")
+    void viewUrlOfAnotherUsersKeyIsNull() {
+        // objectKey 에 userId 가 들어 있어 DB 조회 없이 발급 대상을 판별한다. 소비 도메인이
+        // 사용자 입력을 그대로 넘겨도 남의 이미지 URL 이 나가지 않아야 한다.
+        String othersKey = issueAndUpload(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
+
+        assertThat(uploadService.getViewUrl(OWNER_ID, othersKey)).isNull();
+        assertThat(uploadService.getViewUrl(OTHER_USER_ID, othersKey)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("형식이 어긋난 objectKey 로는 조회 URL 을 주지 않는다")
+    void viewUrlOfMalformedKeyIsNull() {
+        assertThat(uploadService.getViewUrl(OWNER_ID, "recipe-covers/1")).isNull();
+        assertThat(uploadService.getViewUrl(OWNER_ID, "a/b/c/d.jpg")).isNull();
+    }
+
+    @Test
+    @DisplayName("서명이 실패하면 UploadObject 를 남기지 않는다")
+    void doesNotSaveWhenSigningFails() {
+        // 서명을 먼저 하고 저장하므로, 서명이 깨지면 미연결 행이 쌓이지 않는다.
+        objectStorage.startFailing();
+
+        assertThatThrownBy(() -> uploadService
+                .issueUploadUrl(OWNER_ID, UploadPurpose.RECIPE_COVER, "image/jpeg"))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(uploadObjectRepository.count()).isZero();
+    }
+
+    @Test
+    @DisplayName("조회 URL 서명이 실패하면 예외 대신 null 을 준다")
+    void viewUrlDegradesToNullOnStorageFailure() {
+        // 이미지 한 장 때문에 레시피 조회 전체를 실패시키지 않는다는 결정을 고정한다.
+        objectStorage.startFailing();
+
+        assertThat(uploadService.getViewUrl(OWNER_ID, "recipe-covers/1/a.jpg")).isNull();
+    }
+
+    @Test
+    @DisplayName("저장소 삭제가 실패해도 예외를 던지지 않는다")
+    void storageDeleteSwallowsFailure() {
+        // 이미 커밋된 DB 변경과 성공 응답을 되돌릴 수 없으므로 삭제 실패는 삼킨다.
+        objectStorage.startFailing();
+
+        uploadService.deleteFromStorageBestEffort("recipe-covers/1/a.jpg");
+    }
+
+    @Test
+    @DisplayName("저장소 삭제는 두 번 호출하거나 null 을 넘겨도 안전하다")
+    void storageDeleteIsIdempotent() {
+        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+
+        uploadService.deleteFromStorageBestEffort(objectKey);
+        uploadService.deleteFromStorageBestEffort(objectKey);
+        uploadService.deleteFromStorageBestEffort(null);
+
+        assertThat(objectStorage.contains(objectKey)).isFalse();
+    }
+
+    @Test
+    @DisplayName("저장소 확인이 실패하면 연결은 예외를 전파한다")
+    void attachPropagatesStorageFailure() {
+        // 확인에 실패한 것을 "이미지가 유효하지 않다"로 돌려주면 사용자에게 거짓을 말하게 되고,
+        // 저장은 실패했는데 성공으로 보이는 상태가 더 나쁘다. 그래서 여기만 실패를 감추지 않는다.
+        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        objectStorage.startFailing();
+
+        assertThatThrownBy(() ->
+                uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER))
+                .isInstanceOf(RuntimeException.class);
+    }
+}

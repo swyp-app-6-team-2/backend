@@ -10,9 +10,13 @@ import com.star_pick.starpick.domain.recipe.domain.RecipeStep;
 import com.star_pick.starpick.domain.recipe.controller.response.RecipeDetailResponse;
 import com.star_pick.starpick.domain.recipe.exception.RecipeErrorCode;
 import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
+import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
+import com.star_pick.starpick.domain.upload.service.AttachOutcome;
+import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import java.util.List;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,11 +27,13 @@ public class RecipeService {
 
     private final RecipeRepository recipeRepository;
 
+    private final UploadService uploadService;
+
     /**
      * 직접 입력한 Recipe 를 저장한다.
      *
-     * <p>Recipe 와 재료·조리 순서를 하나의 트랜잭션에서 처리한다. 대표 이미지 연결은
-     * 이미지 업로드 단계에서 이 트랜잭션에 합류한다.
+     * <p>Recipe, 재료·조리 순서, 대표 이미지 연결을 하나의 트랜잭션에서 처리한다. 연결이
+     * 실패하면 예외가 나가 Recipe 도 저장되지 않는다.
      */
     @Transactional
     public Long createManual(Long userId, RecipeCreateRequest request) {
@@ -41,6 +47,7 @@ public class RecipeService {
 
         recipe.replaceIngredients(toIngredients(request.ingredients()));
         recipe.replaceSteps(toSteps(request.steps()));
+        changeCover(recipe, userId, request.coverImageKey());
 
         return recipeRepository.save(recipe).getId();
     }
@@ -51,7 +58,7 @@ public class RecipeService {
         Recipe recipe = recipeRepository.findByIdAndUserId(recipeId, userId)
                 .orElseThrow(() -> new BusinessException(RecipeErrorCode.RECIPE_NOT_FOUND));
 
-        return RecipeDetailResponse.from(recipe);
+        return RecipeDetailResponse.from(recipe, uploadService.getViewUrl(userId, recipe.getCoverImageKey()));
     }
 
     /**
@@ -90,6 +97,42 @@ public class RecipeService {
         }
         if (request.getSteps() != null) {
             recipe.replaceSteps(toSteps(request.getSteps().orElseThrow()));
+        }
+        if (request.getCoverImageKey() != null) {
+            changeCover(recipe, userId, request.getCoverImageKey().orElse(null));
+        }
+    }
+
+    /**
+     * 대표 이미지 연결·교체·제거. 생성과 수정이 같은 규칙을 쓴다.
+     *
+     * <p>저장된 값과 같은 Key 면 아무것도 하지 않는다. 수정 화면이 폼 전체를 다시 보내면서
+     * 바뀌지 않은 Key 를 그대로 실어 보내는 흔한 경우인데, 그대로 연결을 요청하면 "이미
+     * 연결됨"으로 판정되어 정상적인 수정이 409 로 실패한다. 생성 시에는 기존 Key 가 없으므로
+     * 미전달이면 no-op, 값이 있으면 연결만 일어난다.
+     */
+    private void changeCover(Recipe recipe, Long userId, String newKey) {
+        String currentKey = recipe.getCoverImageKey();
+        if (Objects.equals(currentKey, newKey)) {
+            return;
+        }
+        if (newKey != null) {
+            attachCover(userId, newKey);
+        }
+        if (currentKey != null) {
+            uploadService.releaseAndDeleteFile(userId, currentKey, UploadPurpose.RECIPE_COVER);
+        }
+        recipe.changeCoverImage(newKey);
+    }
+
+    private void attachCover(Long userId, String coverImageKey) {
+        AttachOutcome outcome =
+                uploadService.attach(userId, coverImageKey, UploadPurpose.RECIPE_COVER);
+
+        switch (outcome) {
+            case INVALID -> throw new BusinessException(RecipeErrorCode.RECIPE_COVER_INVALID);
+            case ALREADY_ATTACHED -> throw new BusinessException(RecipeErrorCode.RECIPE_COVER_ALREADY_USED);
+            case ATTACHED -> { }
         }
     }
 
