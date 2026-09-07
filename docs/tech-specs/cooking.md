@@ -159,6 +159,7 @@ Cooking은 다음 순서로 관련 데이터를 정리한다.
 3. CookHistory를 제거한다.
 
 **Recipe가 호출하는 Cooking의 공개 UseCase는 CookHistory 생성·조회를 담당하는 Service와 다른 Bean이어야 한다.** 생성·조회 Service는 소유권 확인을 위해 이미 Recipe를 주입받고 있어, 같은 Bean에 삭제 정리까지 얹으면 두 Service가 서로를 생성자 주입해 애플리케이션이 기동하지 못한다. 정리 전용 Bean을 따로 두어 의존 방향을 한쪽으로 유지한다.
+구현에서는 `CookHistoryCleanupService.deleteByRecipe(userId, recipeId)`가 이 UseCase다(2026-09-07).
 
 커밋 후 삭제할 `photoKey`를 먼저 확보해야 하므로 CookHistory 삭제를
 `ON DELETE CASCADE`에만 맡기지 않는다. 어느 단계에서든 실패하면 Recipe와 Cooking의 DB 변경을 모두 롤백한다.

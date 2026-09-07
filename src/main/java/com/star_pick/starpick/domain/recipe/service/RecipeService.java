@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.recipe.service;
 
+import com.star_pick.starpick.domain.cooking.service.CookHistoryCleanupService;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeCreateRequest;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeUpdateRequest;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeIngredientRequest;
@@ -28,6 +29,8 @@ public class RecipeService {
     private final RecipeRepository recipeRepository;
 
     private final UploadService uploadService;
+
+    private final CookHistoryCleanupService cookHistoryCleanupService;
 
     /**
      * 직접 입력한 Recipe 를 저장한다.
@@ -114,6 +117,28 @@ public class RecipeService {
         if (request.getCoverImageKey() != null) {
             changeCover(recipe, userId, request.getCoverImageKey().orElse(null));
         }
+    }
+
+    /**
+     * Recipe 를 영구 삭제한다. 순서는 {@code docs/tech-specs/recipe.md} §3.4 가 정한 계약이다.
+     *
+     * <p>순서는 "지울 대상을 알아낸 뒤에 지운다"는 한 가지 규칙에서 나온다. 커밋 후 저장소에서
+     * 지울 Key 를 Recipe 행과 CookHistory 행에서만 알 수 있어, 행을 먼저 없애면 그 Key 를 잃는다.
+     *
+     * <p>재료·조리 순서는 {@code cascade = ALL, orphanRemoval = true} 로 Recipe 가 소유하므로
+     * 함께 지워진다. Cooking 은 도메인 경계 때문에 FK 가 없어 직접 지워야 한다.
+     *
+     * <p>RecipeSource 와 RecipeSourceImage 는 아직 Entity 가 없다(Ingestion 단계). 생기면 대표
+     * 이미지와 같은 자리에서 원본 이미지 Key 도 함께 확보해야 한다.
+     */
+    @Transactional
+    public void deleteRecipe(Long userId, Long recipeId) {
+        Recipe recipe = recipeRepository.findByIdAndUserIdForUpdate(recipeId, userId)
+                .orElseThrow(() -> new BusinessException(RecipeErrorCode.RECIPE_NOT_FOUND));
+
+        uploadService.releaseAndDeleteFile(userId, recipe.getCoverImageKey(), UploadPurpose.RECIPE_COVER);
+        cookHistoryCleanupService.deleteByRecipe(userId, recipeId);
+        recipeRepository.delete(recipe);
     }
 
     /**

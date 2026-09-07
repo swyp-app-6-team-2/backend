@@ -4,6 +4,7 @@ import com.star_pick.starpick.domain.upload.service.ObjectStorage;
 import com.star_pick.starpick.domain.upload.service.SignedPutUrl;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -73,8 +74,8 @@ public class FakeObjectStorage implements ObjectStorage {
     }
 
     @Override
-    public void delete(String objectKey) {
+    public void delete(Collection<String> objectKeys) {
         failIfConfigured();
-        uploaded.remove(objectKey);
+        uploaded.removeAll(objectKeys);
     }
 }

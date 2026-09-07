@@ -8,6 +8,8 @@ import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.IntegrationTest;
+import com.star_pick.starpick.support.TestFixtures;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,18 +31,13 @@ class UploadServiceTest {
     @Autowired
     private FakeObjectStorage objectStorage;
 
+    @Autowired
+    private TestFixtures fixtures;
+
     @BeforeEach
     void setUp() {
         uploadObjectRepository.deleteAll();
         objectStorage.clear();
-    }
-
-    private String issueAndUpload(Long userId, UploadPurpose purpose) {
-        String objectKey = uploadService
-                .issueUploadUrl(userId, purpose, "image/jpeg")
-                .objectKey();
-        objectStorage.putObject(objectKey);
-        return objectKey;
     }
 
     @Test
@@ -77,7 +74,7 @@ class UploadServiceTest {
     @Test
     @DisplayName("업로드까지 마친 본인 Key 는 연결된다")
     void attachesUploadedKey() {
-        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        String objectKey = fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
 
         AttachOutcome outcome =
                 uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
@@ -104,7 +101,7 @@ class UploadServiceTest {
     @Test
     @DisplayName("남의 Key 는 연결되지 않는다")
     void rejectsOtherUsersKey() {
-        String objectKey = issueAndUpload(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
+        String objectKey = fixtures.uploadedKey(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
 
         AttachOutcome outcome =
                 uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
@@ -115,7 +112,7 @@ class UploadServiceTest {
     @Test
     @DisplayName("다른 용도로 발급된 Key 는 연결되지 않는다")
     void rejectsKeyIssuedForAnotherPurpose() {
-        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.INGESTION_INPUT);
+        String objectKey = fixtures.uploadedKey(OWNER_ID, UploadPurpose.INGESTION_INPUT);
 
         AttachOutcome outcome =
                 uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
@@ -135,7 +132,7 @@ class UploadServiceTest {
     @Test
     @DisplayName("이미 연결된 Key 를 다시 연결하면 ALREADY_ATTACHED 다")
     void rejectsAlreadyAttachedKey() {
-        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        String objectKey = fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
         uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
 
         AttachOutcome outcome =
@@ -147,7 +144,7 @@ class UploadServiceTest {
     @Test
     @DisplayName("해제하면 UploadObject 가 사라진다")
     void releasesOwnKey() {
-        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        String objectKey = fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
 
         uploadService.releaseAndDeleteFile(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
 
@@ -157,7 +154,7 @@ class UploadServiceTest {
     @Test
     @DisplayName("남의 Key 는 해제되지 않는다")
     void doesNotReleaseOtherUsersKey() {
-        String objectKey = issueAndUpload(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
+        String objectKey = fixtures.uploadedKey(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
 
         uploadService.releaseAndDeleteFile(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
 
@@ -168,7 +165,7 @@ class UploadServiceTest {
     @DisplayName("다른 용도의 Key 는 해제되지 않는다")
     void doesNotReleaseKeyOfAnotherPurpose() {
         // 호출 도메인이 실수로 다른 용도의 Key 를 넘겨도, 아직 참조 중인 행이 지워지면 안 된다.
-        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.COOK_HISTORY_PHOTO);
+        String objectKey = fixtures.uploadedKey(OWNER_ID, UploadPurpose.COOK_HISTORY_PHOTO);
 
         uploadService.releaseAndDeleteFile(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER);
 
@@ -197,7 +194,7 @@ class UploadServiceTest {
     void viewUrlOfAnotherUsersKeyIsNull() {
         // objectKey 에 userId 가 들어 있어 DB 조회 없이 발급 대상을 판별한다. 소비 도메인이
         // 사용자 입력을 그대로 넘겨도 남의 이미지 URL 이 나가지 않아야 한다.
-        String othersKey = issueAndUpload(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
+        String othersKey = fixtures.uploadedKey(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
 
         assertThat(uploadService.getViewUrl(OWNER_ID, othersKey)).isNull();
         assertThat(uploadService.getViewUrl(OTHER_USER_ID, othersKey)).isNotNull();
@@ -233,22 +230,56 @@ class UploadServiceTest {
     }
 
     @Test
+    @DisplayName("여러 Key 를 한 번에 해제하면 소유·용도가 맞는 것만 사라진다")
+    void releasesOnlyOwnedKeysInBatch() {
+        String mine = fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        String alsoMine = fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        String othersKey = fixtures.uploadedKey(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
+        String otherPurpose = fixtures.uploadedKey(OWNER_ID, UploadPurpose.COOK_HISTORY_PHOTO);
+
+        uploadService.releaseAndDeleteFiles(
+                OWNER_ID, List.of(mine, alsoMine, othersKey, otherPurpose), UploadPurpose.RECIPE_COVER);
+
+        assertThat(uploadObjectRepository.findById(mine)).isEmpty();
+        assertThat(uploadObjectRepository.findById(alsoMine)).isEmpty();
+        assertThat(uploadObjectRepository.findById(othersKey)).isPresent();
+        assertThat(uploadObjectRepository.findById(otherPurpose)).isPresent();
+
+        // 실제로 지운 Key 만 저장소에서 사라진다.
+        assertThat(objectStorage.contains(mine)).isFalse();
+        assertThat(objectStorage.contains(alsoMine)).isFalse();
+        assertThat(objectStorage.contains(othersKey)).isTrue();
+        assertThat(objectStorage.contains(otherPurpose)).isTrue();
+    }
+
+    @Test
+    @DisplayName("빈 목록이나 지울 것이 없는 목록을 넘겨도 안전하다")
+    void batchReleaseIsSafeWhenNothingMatches() {
+        String othersKey = fixtures.uploadedKey(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
+
+        uploadService.releaseAndDeleteFiles(OWNER_ID, List.of(), UploadPurpose.RECIPE_COVER);
+        uploadService.releaseAndDeleteFiles(OWNER_ID, List.of(othersKey), UploadPurpose.RECIPE_COVER);
+
+        assertThat(objectStorage.contains(othersKey)).isTrue();
+    }
+
+    @Test
     @DisplayName("저장소 삭제가 실패해도 예외를 던지지 않는다")
     void storageDeleteSwallowsFailure() {
         // 이미 커밋된 DB 변경과 성공 응답을 되돌릴 수 없으므로 삭제 실패는 삼킨다.
         objectStorage.startFailing();
 
-        uploadService.deleteFromStorageBestEffort("recipe-covers/1/a.jpg");
+        uploadService.deleteFromStorageBestEffort(List.of("recipe-covers/1/a.jpg"));
     }
 
     @Test
-    @DisplayName("저장소 삭제는 두 번 호출하거나 null 을 넘겨도 안전하다")
+    @DisplayName("저장소 삭제는 두 번 호출하거나 빈 목록을 넘겨도 안전하다")
     void storageDeleteIsIdempotent() {
-        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        String objectKey = fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
 
-        uploadService.deleteFromStorageBestEffort(objectKey);
-        uploadService.deleteFromStorageBestEffort(objectKey);
-        uploadService.deleteFromStorageBestEffort(null);
+        uploadService.deleteFromStorageBestEffort(List.of(objectKey));
+        uploadService.deleteFromStorageBestEffort(List.of(objectKey));
+        uploadService.deleteFromStorageBestEffort(List.of());
 
         assertThat(objectStorage.contains(objectKey)).isFalse();
     }
@@ -258,7 +289,7 @@ class UploadServiceTest {
     void attachPropagatesStorageFailure() {
         // 확인에 실패한 것을 "이미지가 유효하지 않다"로 돌려주면 사용자에게 거짓을 말하게 되고,
         // 저장은 실패했는데 성공으로 보이는 상태가 더 나쁘다. 그래서 여기만 실패를 감추지 않는다.
-        String objectKey = issueAndUpload(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        String objectKey = fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
         objectStorage.startFailing();
 
         assertThatThrownBy(() ->

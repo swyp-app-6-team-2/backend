@@ -15,6 +15,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/recipes")
-@Tag(name = "레시피", description = "레시피 생성·조회·수정 API")
+@Tag(name = "레시피", description = "레시피 생성·조회·수정·삭제 API")
 public class RecipeController {
 
     private final RecipeService recipeService;
@@ -77,5 +78,21 @@ public class RecipeController {
 
         recipeService.updateRecipe(user.userId(), recipeId, request);
         return ApiResponse.ok("레시피가 수정되었습니다.", null);
+    }
+
+    @Operation(summary = "레시피 삭제",
+            description = """
+                    레시피를 영구 삭제합니다. 복구할 수 없습니다.
+                    - 재료, 조리 순서, 조리 완료 이력이 함께 삭제됩니다.
+                    - 대표 이미지와 조리 완료 사진도 저장소에서 삭제합니다.
+                    - 저장소 삭제가 실패해도 레시피 삭제 결과와 200 응답은 유지합니다.
+                    """)
+    @DeleteMapping("/{recipeId}")
+    public ApiResponse<Void> deleteRecipe(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable Long recipeId) {
+
+        recipeService.deleteRecipe(user.userId(), recipeId);
+        return ApiResponse.ok("레시피가 삭제되었습니다.", null);
     }
 }

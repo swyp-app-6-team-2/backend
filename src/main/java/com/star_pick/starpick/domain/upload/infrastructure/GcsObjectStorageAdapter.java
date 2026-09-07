@@ -9,6 +9,7 @@ import com.star_pick.starpick.domain.upload.service.SignedPutUrl;
 import java.net.URL;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -76,9 +77,13 @@ class GcsObjectStorageAdapter implements ObjectStorage {
         return storage.get(BlobId.of(bucket, objectKey)) != null;
     }
 
+    /** SDK 가 batch 요청 하나로 보낸다. 건별 성공 여부는 쓰지 않는다 — 이미 없는 것도 성공이다. */
     @Override
-    public void delete(String objectKey) {
-        storage.delete(BlobId.of(bucket, objectKey));
+    public void delete(Collection<String> objectKeys) {
+        if (objectKeys.isEmpty()) {
+            return;
+        }
+        storage.delete(objectKeys.stream().map(key -> BlobId.of(bucket, key)).toList());
     }
 
     private BlobInfo blobInfo(String objectKey) {
