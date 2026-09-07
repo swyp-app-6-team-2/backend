@@ -12,6 +12,9 @@ public interface RecipeRepository extends JpaRepository<Recipe, Long> {
 
     Optional<Recipe> findByIdAndUserId(Long id, Long userId);
 
+    /** 다른 도메인의 존재·소유권 확인용. Entity 를 읽지 않으므로 경계를 넘겨줄 것이 없다. */
+    boolean existsByIdAndUserId(Long id, Long userId);
+
     /**
      * 수정 대상 Recipe 를 잠근다.
      *

@@ -52,6 +52,19 @@ public class RecipeService {
         return recipeRepository.save(recipe).getId();
     }
 
+    /**
+     * 다른 도메인이 Recipe 존재와 소유권만 확인할 때 쓰는 경계. 없거나 다른 사용자의 것이면 동일하게 404 다.
+     *
+     * <p>Entity 를 반환하지 않는다. 반환하면 호출 도메인이 Recipe 내부 상태에 접근하게 되어
+     * 경계가 이름만 남는다(CLAUDE.md §4). 확인 결과만 필요한 호출자를 위한 메서드다.
+     */
+    @Transactional(readOnly = true)
+    public void requireOwnedRecipe(Long userId, Long recipeId) {
+        if (!recipeRepository.existsByIdAndUserId(recipeId, userId)) {
+            throw new BusinessException(RecipeErrorCode.RECIPE_NOT_FOUND);
+        }
+    }
+
     /** 소유한 Recipe 의 상세를 조회한다. 없거나 다른 사용자의 것이면 동일하게 404 다. */
     @Transactional(readOnly = true)
     public RecipeDetailResponse getRecipe(Long userId, Long recipeId) {
