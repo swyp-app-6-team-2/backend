@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** GET /api/v1/recipes/{recipeId} 통합 테스트. */
@@ -34,6 +35,9 @@ class RecipeQueryApiTest {
 
     @Autowired
     private RecipeRepository recipeRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private String accessToken;
 
@@ -148,5 +152,32 @@ class RecipeQueryApiTest {
         mockMvc.perform(get("/api/v1/recipes/{recipeId}", recipeId))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.data.code").value("AUTHENTICATION_REQUIRED"));
+    }
+
+    @Test
+    @DisplayName("재료와 조리 순서는 저장된 순서가 아니라 display_order 로 정렬된다")
+    void ordersChildrenByDisplayOrderNotInsertOrder() throws Exception {
+        // 삽입 순서와 display_order 를 일부러 어긋나게 만든다. 삽입 순서대로 읽어도 통과하는
+        // 테스트는 @OrderBy 가 사라져도 알아채지 못한다.
+        Long recipeId = fixtures.saveRecipe(OWNER_ID);
+        jdbcTemplate.update(
+                "insert into recipe_ingredient (recipe_id, name, amount_text, display_order) values (?, ?, ?, ?)",
+                recipeId, "두부", null, 1);
+        jdbcTemplate.update(
+                "insert into recipe_ingredient (recipe_id, name, amount_text, display_order) values (?, ?, ?, ?)",
+                recipeId, "김치", "1/4포기", 0);
+        jdbcTemplate.update(
+                "insert into recipe_step (recipe_id, content, display_order) values (?, ?, ?)",
+                recipeId, "김치를 넣는다", 1);
+        jdbcTemplate.update(
+                "insert into recipe_step (recipe_id, content, display_order) values (?, ?, ?)",
+                recipeId, "물을 끓인다", 0);
+
+        read(recipeId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ingredients[0].name").value("김치"))
+                .andExpect(jsonPath("$.data.ingredients[1].name").value("두부"))
+                .andExpect(jsonPath("$.data.steps[0].content").value("물을 끓인다"))
+                .andExpect(jsonPath("$.data.steps[1].content").value("김치를 넣는다"));
     }
 }

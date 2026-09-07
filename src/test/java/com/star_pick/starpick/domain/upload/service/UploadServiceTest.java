@@ -9,11 +9,19 @@ import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** 연결·해제 규칙 검증. 다른 도메인이 의존하는 계약이라 경계 조건을 모두 확인한다. */
 @IntegrationTest
@@ -33,6 +41,9 @@ class UploadServiceTest {
 
     @Autowired
     private TestFixtures fixtures;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @BeforeEach
     void setUp() {
@@ -295,5 +306,57 @@ class UploadServiceTest {
         assertThatThrownBy(() ->
                 uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER))
                 .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    @DisplayName("트랜잭션이 롤백되면 저장소 파일도 UploadObject 도 그대로 남는다")
+    void rollbackKeepsStorageObject() {
+        // 저장소 삭제는 커밋 이후에만 실행돼야 한다. 롤백 경로에서 파일이 사라지면
+        // DB 는 참조를 유지하는데 파일만 없는 상태가 된다.
+        String objectKey = fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            uploadService.releaseAndDeleteFiles(OWNER_ID, List.of(objectKey), UploadPurpose.RECIPE_COVER);
+            status.setRollbackOnly();
+        });
+
+        assertThat(objectStorage.contains(objectKey)).isTrue();
+        assertThat(uploadObjectRepository.findById(objectKey)).isPresent();
+    }
+
+    @Test
+    @Timeout(30)
+    @DisplayName("같은 Key 를 동시에 연결해도 정확히 하나만 성공한다")
+    void concurrentAttachOnlyOneWins() throws Exception {
+        // 조건부 UPDATE(attached_at IS NULL) 가 존재하는 이유다. SELECT 후 UPDATE 로 바꾸면
+        // 두 요청이 모두 "미연결"을 보고 둘 다 성공한다.
+        String objectKey = fixtures.uploadedKey(OWNER_ID, UploadPurpose.RECIPE_COVER);
+        int threads = 2;
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch go = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        List<Future<AttachOutcome>> results = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                results.add(executor.submit(() -> {
+                    ready.countDown();
+                    go.await(10, TimeUnit.SECONDS);
+                    return transactionTemplate.execute(status ->
+                            uploadService.attach(OWNER_ID, objectKey, UploadPurpose.RECIPE_COVER));
+                }));
+            }
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+
+            List<AttachOutcome> outcomes = new ArrayList<>();
+            for (Future<AttachOutcome> result : results) {
+                outcomes.add(result.get(20, TimeUnit.SECONDS));
+            }
+            assertThat(outcomes)
+                    .containsExactlyInAnyOrder(AttachOutcome.ATTACHED, AttachOutcome.ALREADY_ATTACHED);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(fixtures.isAttached(objectKey)).isTrue();
     }
 }

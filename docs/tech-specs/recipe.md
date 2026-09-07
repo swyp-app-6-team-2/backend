@@ -149,6 +149,8 @@ RecipeSource 1 ── 0..N RecipeSourceImage
 - `ingestionJobId` 없음: `MANUAL`
 - `ingestionJobId` 있음: Job의 입력 방식에 따라 `URL` 또는 `IMAGE`
 
+**Ingestion이 구현되기 전까지(현재) `ingestionJobId`는 요청 모델에 없다.** 전달해도 무시되고 `MANUAL`로 생성된다. 이 문서의 Ingestion 기반 생성 절차와 `INGESTION_JOB_*` 오류 계약은 Ingestion 단계에서 요청 모델에 필드를 추가할 때 유효해진다.
+
 Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출처·하위 데이터의 내부 ID와 표시 순서는 서버가 결정한다.
 
 최초 생성은 Recipe ID와 `201 Created`를 반환한다. 동일한 IngestionJob으로 재요청하고 기존 Recipe가 있으면 새로 생성하지 않고 기존 Recipe ID와 `200 OK`를 반환한다.
@@ -157,7 +159,7 @@ Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출
 
 #### 조회
 
-응답에는 Recipe 기본 정보, Ingredient, Step과 RecipeSource를 포함한다. 대표 이미지는 조회 가능한 URL로 반환한다.
+응답에는 Recipe 기본 정보, Ingredient, Step과 RecipeSource를 포함한다. Ingestion이 구현되기 전까지 `source`는 항상 `null`이다. 대표 이미지는 조회 가능한 URL로 반환한다.
 
 IMAGE 원본 목록, Ingredient와 Step의 내부 ID·표시 순서, CookHistory는 포함하지 않는다.
 
@@ -172,7 +174,7 @@ Ingredient와 Step은 개별 수정 API 없이 전체 교체한다.
 - 값이 있는 배열: 기존 데이터를 전달된 값으로 교체
 
 `coverImageKey`는 미전달 시 유지하고,
-`null`이면 대표 이미지를 제거한다. 새 Key를 전달하면 이미지를 교체하고 기존 이미지를 정리한다. GCS 삭제가 실패해도 이미 완료된 Recipe 수정은 유지한다.
+`null`이면 대표 이미지를 제거한다. 새 Key를 전달하면 이미지를 교체하고, 기존 이미지의 GCS 삭제는 DB 커밋 이후 한 번 시도한다([Image Upload Common Spec](./upload.md) §3.1). GCS 삭제가 실패해도 이미 완료된 Recipe 수정은 유지한다.
 
 Cover Key 오류는 생성과 같은 `RECIPE_COVER_INVALID`, `RECIPE_COVER_ALREADY_USED` 계약을 사용한다.
 
@@ -221,7 +223,7 @@ DB에는 `UNIQUE(recipe_source.ingestion_job_id)`와 `UNIQUE(recipe_source.recip
 
 수정과 삭제는 대상 Recipe 행을 비관적 쓰기 잠금하여 직렬화한다.
 
-수정 시 Recipe 기본 정보, RecipeIngredient와 RecipeStep 변경을 하나의 DB 트랜잭션에서 처리한다. 대표 이미지가 현재와 같은 Key면 이미지 작업을 생략하고, 다른 Key면 새 UploadObject 연결과 기존 UploadObject 제거도 같은 트랜잭션에서 처리한다.
+수정 시 Recipe 기본 정보, RecipeIngredient와 RecipeStep 변경을 하나의 DB 트랜잭션에서 처리한다. 대표 이미지가 현재와 같은 Key면 이미지 작업을 생략하고, 다른 Key면 새 UploadObject 연결과 기존 UploadObject 제거도 같은 트랜잭션에서 처리한다. 기존 파일의 GCS 삭제는 트랜잭션 안이 아니라 커밋 이후에 한 번 시도한다.
 `null`이면 새 Key 연결 없이 기존 이미지 참조와 UploadObject만 제거한다.
 
 삭제는 같은 DB 트랜잭션에서 다음 순서로 처리한다.

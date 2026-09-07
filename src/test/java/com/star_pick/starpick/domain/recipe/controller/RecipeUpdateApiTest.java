@@ -259,4 +259,64 @@ class RecipeUpdateApiTest {
                 .andExpect(jsonPath("$.data.categoryCode").value("WESTERN"))
                 .andExpect(jsonPath("$.data.servings").value(4));
     }
+
+    // ---------- 8단계 통합 검증에서 채운 공백 ----------
+
+    @Test
+    @DisplayName("토큰이 없으면 401 이고 아무것도 바뀌지 않는다")
+    void rejectsAnonymous() throws Exception {
+        mockMvc.perform(patch("/api/v1/recipes/{recipeId}", recipeId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"부대찌개\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.data.code").value("AUTHENTICATION_REQUIRED"));
+
+        read().andExpect(jsonPath("$.data.title").value("김치찌개"));
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 레시피는 404 다")
+    void missingRecipeIsNotFound() throws Exception {
+        update(999_999L, "{\"title\":\"부대찌개\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.data.code").value("RECIPE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("카테고리는 null 로 제거할 수 없다")
+    void rejectsNullCategoryCode() throws Exception {
+        update(recipeId, "{\"categoryCode\":null}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.data.code").value("REQUEST_VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.data.errors[0].field").value("categoryCode"))
+                .andExpect(jsonPath("$.data.errors[0].reason").value("카테고리는 비울 수 없습니다."));
+
+        read().andExpect(jsonPath("$.data.categoryCode").value("KOREAN"));
+    }
+
+    @Test
+    @DisplayName("조리 순서도 빈 배열이면 전체 삭제다")
+    void emptyStepsArrayDeletesAll() throws Exception {
+        update(recipeId, "{\"steps\":[]}").andExpect(status().isOk());
+
+        read()
+                .andExpect(jsonPath("$.data.steps.length()").value(0))
+                .andExpect(jsonPath("$.data.ingredients.length()").value(2));
+        assertThat(jdbcTemplate.queryForObject("select count(*) from recipe_step", Integer.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("다른 레시피가 이미 쓰는 대표 이미지 Key 는 수정에서도 409 다")
+    void rejectsAlreadyUsedCoverOnUpdate() throws Exception {
+        Long otherRecipeId = fixtures.saveRecipe(OWNER_ID);
+        String usedKey = fixtures.attachCover(OWNER_ID, otherRecipeId);
+
+        update(recipeId, "{\"coverImageKey\":\"" + usedKey + "\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.data.code").value("RECIPE_COVER_ALREADY_USED"));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select cover_image_key from recipe where id = ?", String.class, recipeId)).isNull();
+    }
 }
