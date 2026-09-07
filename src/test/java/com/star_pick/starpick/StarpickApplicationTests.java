@@ -1,9 +1,10 @@
 package com.star_pick.starpick;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
+import com.star_pick.starpick.support.IntegrationTest;
+
+@IntegrationTest
 class StarpickApplicationTests {
 
 	@Test
