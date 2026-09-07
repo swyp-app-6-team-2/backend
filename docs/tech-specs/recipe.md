@@ -1,6 +1,6 @@
 # Recipe Tech Spec
 
-> **문서 버전**: v1 Draft · **기준일**: 2026-09-04
+> **문서 버전**: v1 · **기준일**: 2026-09-07
 
 ## 한눈에 보기
 
@@ -227,6 +227,8 @@ DB에는 `UNIQUE(recipe_source.ingestion_job_id)`와 `UNIQUE(recipe_source.recip
 삭제는 같은 DB 트랜잭션에서 다음 순서로 처리한다.
 
 1. 대표 이미지와 원본 이미지 Key를 확보하고 해당 UploadObject를 제거한다.
+   현재 구현은 대표 이미지만 처리한다. RecipeSource와 RecipeSourceImage는 Ingestion 단계에서
+   Entity가 만들어질 때 이 자리에 함께 들어온다.
 2. Cooking에 관련 CookHistory 정리를 요청한다.
 3. Recipe가 소유한 하위 데이터와 Recipe를 제거한다.
 4. 모든 DB 변경을 커밋한다.

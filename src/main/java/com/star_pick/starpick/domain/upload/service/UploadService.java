@@ -4,6 +4,10 @@ import com.star_pick.starpick.domain.upload.controller.response.UploadUrlIssueRe
 import com.star_pick.starpick.domain.upload.domain.UploadObject;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -78,6 +82,15 @@ public class UploadService {
 
     /**
      * 연결을 해제하고, 커밋 이후에 저장소 파일 삭제를 한 번 시도한다.
+     * <b>호출자의 트랜잭션에 참여한다.</b> 단건은 {@link #releaseAndDeleteFiles} 의 특수한 경우다.
+     */
+    @Transactional
+    public void releaseAndDeleteFile(Long userId, String objectKey, UploadPurpose purpose) {
+        releaseAndDeleteFiles(userId, Collections.singletonList(objectKey), purpose);
+    }
+
+    /**
+     * 여러 Key 를 해제하고, 커밋 이후에 <b>한 번의 저장소 호출로</b> 파일을 지운다.
      * <b>호출자의 트랜잭션에 참여한다.</b>
      *
      * <p>소유자와 용도를 모두 확인한다. 호출부가 이미 검증했으리라는 전제에 기대면, 다른
@@ -87,21 +100,29 @@ public class UploadService {
      * 정해져 있기 때문이다. 호출부가 조립하게 두면 "제거는 했는데 파일 삭제 예약을 빠뜨림"이
      * 도메인마다 가능한 실수로 남는다.
      *
-     * <p><b>실제로 행을 지웠을 때만 파일 삭제를 예약한다.</b> 소유자·용도가 어긋나 아무것도
+     * <p><b>실제로 행을 지운 Key 만</b> 파일 삭제 대상에 넣는다. 소유자·용도가 어긋나 아무것도
      * 지우지 않았는데 파일만 지우면, DB에는 살아 있는 UploadObject가 없는 파일을 가리키게 된다.
+     *
+     * <p><b>저장소 호출을 건별로 하지 않는 이유.</b> {@code afterCommit} 이 도는 동안 트랜잭션
+     * 매니저는 아직 DB 커넥션을 반납하지 않는다. 건별로 부르면 저장소가 느릴 때 (건수 × 타임아웃)
+     * 동안 커넥션을 쥔 채로 있게 되는데, 호출부가 지우는 개수에는 상한이 없다(Recipe 삭제는 조리
+     * 이력 수만큼 사진을 지우고 이력에는 페이지네이션이 없다).
      */
     @Transactional
-    public void releaseAndDeleteFile(Long userId, String objectKey, UploadPurpose purpose) {
-        if (objectKey == null) {
-            return;
+    public void releaseAndDeleteFiles(Long userId, Collection<String> objectKeys, UploadPurpose purpose) {
+        List<String> released = new ArrayList<>();
+        for (String objectKey : objectKeys) {
+            if (objectKey != null && uploadObjectRepository.deleteOwned(objectKey, userId, purpose) == 1) {
+                released.add(objectKey);
+            }
         }
-        if (uploadObjectRepository.deleteOwned(objectKey, userId, purpose) == 0) {
+        if (released.isEmpty()) {
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                deleteFromStorageBestEffort(objectKey);
+                deleteFromStorageBestEffort(released);
             }
         });
     }
@@ -141,20 +162,17 @@ public class UploadService {
     }
 
     /**
-     * 커밋 이후에만 호출되도록 {@link #releaseAndDeleteFile} 안에서만 예약한다 — 공개하면
+     * 커밋 이후에만 호출되도록 {@link #releaseAndDeleteFiles} 안에서만 예약한다 — 공개하면
      * "커밋 후에 부르라"는 지킬 수 없는 규약이 호출부마다 생긴다.
      *
      * <p>실패해도 예외를 던지지 않는다. 이미 커밋된 DB 변경과 성공 응답을 되돌릴 수 없고,
      * 되돌려서도 안 되기 때문이다. 남은 파일은 버려진 객체로 취급한다.
      */
-    void deleteFromStorageBestEffort(String objectKey) {
-        if (objectKey == null) {
-            return;
-        }
+    void deleteFromStorageBestEffort(Collection<String> objectKeys) {
         try {
-            objectStorage.delete(objectKey);
+            objectStorage.delete(objectKeys);
         } catch (RuntimeException e) {
-            log.warn("저장소 객체 삭제에 실패했습니다. objectKey={}", objectKey, e);
+            log.warn("저장소 객체 {}개 삭제에 실패했습니다. objectKeys={}", objectKeys.size(), objectKeys, e);
         }
     }
 

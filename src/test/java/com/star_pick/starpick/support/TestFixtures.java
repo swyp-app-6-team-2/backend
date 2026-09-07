@@ -1,5 +1,6 @@
 package com.star_pick.starpick.support;
 
+import com.star_pick.starpick.domain.cooking.domain.CookHistory;
 import com.star_pick.starpick.domain.cooking.repository.CookHistoryRepository;
 import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
@@ -7,6 +8,7 @@ import com.star_pick.starpick.domain.recipe.domain.RecipeIngredient;
 import com.star_pick.starpick.domain.recipe.domain.RecipeStep;
 import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
+import com.star_pick.starpick.domain.upload.service.AttachOutcome;
 import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
 import com.star_pick.starpick.domain.upload.service.UploadService;
 import java.util.List;
@@ -77,6 +79,41 @@ public class TestFixtures {
                 RecipeIngredient.of("두부", null)));
         recipe.replaceSteps(List.of(RecipeStep.of("물을 끓인다"), RecipeStep.of("김치를 넣는다")));
         return recipeRepository.save(recipe).getId();
+    }
+
+    /**
+     * 업로드까지 마친 대표 이미지를 Recipe 에 연결하고 objectKey 를 돌려준다.
+     *
+     * <p>Recipe 를 통째로 만드는 헬퍼로 두지 않은 이유는, 삭제 테스트가 "커버가 있는 Recipe"와
+     * "자식까지 있는 Recipe"를 조합해서 써야 하기 때문이다.
+     */
+    public String attachCover(Long ownerId, Long recipeId) {
+        String objectKey = attachedKey(ownerId, UploadPurpose.RECIPE_COVER);
+        Recipe recipe = recipeRepository.findById(recipeId).orElseThrow();
+        recipe.changeCoverImage(objectKey);
+        recipeRepository.save(recipe);
+        return objectKey;
+    }
+
+    /** 완성 사진이 연결된 CookHistory 를 만든다. 사진 없는 기록이 필요하면 {@link #saveCookHistory} 를 쓴다. */
+    public String saveCookHistoryWithPhoto(Long ownerId, Long recipeId) {
+        String photoKey = attachedKey(ownerId, UploadPurpose.COOK_HISTORY_PHOTO);
+        cookHistoryRepository.save(CookHistory.create(recipeId, photoKey, "맛있었다"));
+        return photoKey;
+    }
+
+    /** 사진 없는 CookHistory. */
+    public void saveCookHistory(Long recipeId) {
+        cookHistoryRepository.save(CookHistory.create(recipeId, null, null));
+    }
+
+    /** 업로드까지 마친 뒤 연결까지 끝낸 Key. 연결이 실패하면 테스트가 아니라 픽스처가 잘못된 것이다. */
+    private String attachedKey(Long ownerId, UploadPurpose purpose) {
+        String objectKey = uploadedKey(ownerId, purpose);
+        if (uploadService.attach(ownerId, objectKey, purpose) != AttachOutcome.ATTACHED) {
+            throw new IllegalStateException("픽스처가 업로드를 연결하지 못했다: " + objectKey);
+        }
+        return objectKey;
     }
 
     private Recipe newRecipe(Long ownerId) {
