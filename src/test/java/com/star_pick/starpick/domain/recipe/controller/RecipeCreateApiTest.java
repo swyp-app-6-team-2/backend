@@ -8,8 +8,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
+import com.star_pick.starpick.support.TestFixtures;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,12 +39,20 @@ class RecipeCreateApiTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private TestFixtures fixtures;
+
     private String accessToken;
 
     @BeforeEach
     void setUp() {
         recipeRepository.deleteAll();
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
+    }
+
+    @AfterEach
+    void restoreIngredientActivity() {
+        fixtures.restoreIngredientActivity();
     }
 
     private org.springframework.test.web.servlet.ResultActions create(String body) throws Exception {
@@ -165,6 +175,67 @@ class RecipeCreateApiTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.data.code").value("REQUEST_VALIDATION_FAILED"))
                 .andExpect(jsonPath("$.data.errors[0].field").value("title"));
+    }
+
+    @Test
+    @DisplayName("마스터 ID를 저장하되 name 은 요청 snapshot 그대로 둔다")
+    void savesMasterReferenceWithoutOverwritingName() throws Exception {
+        Long masterId = fixtures.ingredientId("MET001");
+
+        create("""
+                {"title":"김치찌개","categoryCode":"KOREAN",
+                 "ingredients":[{"ingredientId":%d,"name":"사용자가 확인한 이름","amountText":"300g"}]}
+                """.formatted(masterId))
+                .andExpect(status().isCreated());
+
+        Map<String, Object> saved = jdbcTemplate.queryForMap("""
+                select ingredient_id, name, amount_text from recipe_ingredient
+                """);
+        assertThat(saved)
+                .containsEntry("ingredient_id", masterId)
+                .containsEntry("name", "사용자가 확인한 이름")
+                .containsEntry("amount_text", "300g");
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 마스터 ID가 하나라도 있으면 생성 전체를 400으로 실패시킨다")
+    void rejectsMissingMasterIngredient() throws Exception {
+        Long missingId = jdbcTemplate.queryForObject(
+                "select coalesce(max(id), 0) + 1 from ingredient", Long.class);
+
+        create("""
+                {"title":"김치찌개","categoryCode":"KOREAN",
+                 "ingredients":[{"ingredientId":%d,"name":"없는 재료"}]}
+                """.formatted(missingId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("선택한 재료를 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.data.code").value("RECIPE_INGREDIENT_INVALID"));
+
+        assertThat(recipeRepository.count()).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from recipe_ingredient", Integer.class)).isZero();
+    }
+
+    @Test
+    @DisplayName("같은 마스터 ID의 중복 사용과 비활성 ID를 허용한다")
+    void allowsDuplicateAndInactiveMasterIngredient() throws Exception {
+        Long inactiveId = fixtures.ingredientId("MET001");
+        jdbcTemplate.update(
+                "update ingredient set active = false where id = ?", inactiveId);
+
+        create("""
+                {"title":"김치찌개","categoryCode":"KOREAN",
+                 "ingredients":[
+                   {"ingredientId":%d,"name":"삼겹살","amountText":"300g"},
+                   {"ingredientId":%d,"name":"삼겹살","amountText":"100g"}
+                 ]}
+                """.formatted(inactiveId, inactiveId))
+                .andExpect(status().isCreated());
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from recipe_ingredient where ingredient_id = ?
+                """, Integer.class, inactiveId)).isEqualTo(2);
     }
 
     @Test

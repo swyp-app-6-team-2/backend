@@ -1,6 +1,7 @@
 package com.star_pick.starpick.domain.recipe.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -101,7 +102,27 @@ class RecipeQueryApiTest {
     }
 
     @Test
-    @DisplayName("내부 식별자와 표시 순서는 노출하지 않는다")
+    @DisplayName("마스터 참조 ingredientId를 노출하고 자유 입력 재료는 null로 보낸다")
+    void exposesMasterReferenceAndKeepsFreeInputNull() throws Exception {
+        Long recipeId = fixtures.saveRecipeWithChildren(OWNER_ID);
+        Long masterId = jdbcTemplate.queryForObject(
+                "select id from ingredient where code = 'ETC018'", Long.class);
+        jdbcTemplate.update("""
+                update recipe_ingredient
+                set ingredient_id = ?
+                where recipe_id = ? and display_order = 0
+                """, masterId, recipeId);
+
+        read(recipeId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.data.ingredients[0].ingredientId").value(masterId))
+                .andExpect(jsonPath(
+                        "$.data.ingredients[1].ingredientId").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("RecipeIngredient PK와 표시 순서는 노출하지 않는다")
     void doesNotExposeInternals() throws Exception {
         Long recipeId = fixtures.saveRecipeWithChildren(OWNER_ID);
 
@@ -109,7 +130,6 @@ class RecipeQueryApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.ingredients[0].id").doesNotExist())
                 .andExpect(jsonPath("$.data.ingredients[0].displayOrder").doesNotExist())
-                .andExpect(jsonPath("$.data.ingredients[0].ingredientId").doesNotExist())
                 .andExpect(jsonPath("$.data.steps[0].id").doesNotExist())
                 .andExpect(jsonPath("$.data.steps[0].displayOrder").doesNotExist());
     }

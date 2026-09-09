@@ -101,8 +101,8 @@ public class TestFixtures {
     public Long saveRecipeWithChildren(Long ownerId) {
         Recipe recipe = newRecipe(ownerId);
         recipe.replaceIngredients(List.of(
-                RecipeIngredient.of("김치", "1/4포기"),
-                RecipeIngredient.of("두부", null)));
+                RecipeIngredient.of(null, "김치", "1/4포기"),
+                RecipeIngredient.of(null, "두부", null)));
         recipe.replaceSteps(List.of(RecipeStep.of("물을 끓인다"), RecipeStep.of("김치를 넣는다")));
         return recipeRepository.save(recipe).getId();
     }

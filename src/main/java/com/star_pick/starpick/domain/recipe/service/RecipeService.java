@@ -1,6 +1,7 @@
 package com.star_pick.starpick.domain.recipe.service;
 
 import com.star_pick.starpick.domain.cooking.service.CookHistoryCleanupService;
+import com.star_pick.starpick.domain.ingredient.service.IngredientService;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeCreateRequest;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeUpdateRequest;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeIngredientRequest;
@@ -18,6 +19,8 @@ import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class RecipeService {
 
     private final RecipeRepository recipeRepository;
+
+    private final IngredientService ingredientService;
 
     private final UploadService uploadService;
 
@@ -178,8 +183,18 @@ public class RecipeService {
         if (requests == null) {
             return List.of();
         }
+
+        Set<Long> ingredientIds = requests.stream()
+                .map(RecipeIngredientRequest::ingredientId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (!ingredientService.existsAll(ingredientIds)) {
+            throw new BusinessException(RecipeErrorCode.RECIPE_INGREDIENT_INVALID);
+        }
+
         return requests.stream()
-                .map(request -> RecipeIngredient.of(request.name(), request.amountText()))
+                .map(request -> RecipeIngredient.of(
+                        request.ingredientId(), request.name(), request.amountText()))
                 .toList();
     }
 

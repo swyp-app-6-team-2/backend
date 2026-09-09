@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.star_pick.starpick.support.IntegrationTest;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,6 +87,30 @@ class RecipeSchemaTest {
                 """, String.class);
 
         assertThat(tables).containsExactly("recipe_ingredient", "recipe_step");
+    }
+
+    @Test
+    @DisplayName("recipe_ingredient.ingredient_id 는 ingredient.id 를 참조한다")
+    void recipeIngredientReferencesIngredientMaster() {
+        Map<String, Object> foreignKey = jdbcTemplate.queryForMap("""
+                select kcu.column_name, ccu.table_name as referenced_table,
+                       ccu.column_name as referenced_column
+                from information_schema.table_constraints tc
+                join information_schema.key_column_usage kcu
+                  on tc.constraint_schema = kcu.constraint_schema
+                 and tc.constraint_name = kcu.constraint_name
+                join information_schema.constraint_column_usage ccu
+                  on tc.constraint_schema = ccu.constraint_schema
+                 and tc.constraint_name = ccu.constraint_name
+                where tc.constraint_schema = 'public'
+                  and tc.constraint_type = 'FOREIGN KEY'
+                  and tc.constraint_name = 'fk_recipe_ingredient_ingredient'
+                """);
+
+        assertThat(foreignKey)
+                .containsEntry("column_name", "ingredient_id")
+                .containsEntry("referenced_table", "ingredient")
+                .containsEntry("referenced_column", "id");
     }
 
     @Test

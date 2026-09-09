@@ -19,7 +19,7 @@ import lombok.NoArgsConstructor;
  * Recipe 에 저장된 재료. Recipe 애그리거트의 일부이며 독립 CRUD 를 제공하지 않는다.
  *
  * <p>{@code name} 은 저장 당시 사용자가 확인한 표현의 스냅샷이다. 공통 Ingredient 마스터와의
- * 연결({@code ingredientId})은 선택이며 사용할 식재료 API 가 확정되기 전까지 채우지 않는다.
+ * 연결({@code ingredientId})은 선택이며 마스터 이름과 독립적으로 보존한다.
  */
 @Entity
 @Getter
@@ -37,7 +37,6 @@ public class RecipeIngredient {
     @JoinColumn(name = "recipe_id", nullable = false)
     private Recipe recipe;
 
-    /** 공통 Ingredient 마스터 연결용. 이번 범위에서는 채우지 않는다. */
     private Long ingredientId;
 
     @Column(nullable = false)
@@ -49,18 +48,20 @@ public class RecipeIngredient {
     @Column(nullable = false)
     private int displayOrder;
 
-    private RecipeIngredient(String name, String amountText) {
+    private RecipeIngredient(Long ingredientId, String name, String amountText) {
+        this.ingredientId = ingredientId;
         this.name = name;
         this.amountText = amountText;
     }
 
-    public static RecipeIngredient of(String name, String amountText) {
-        return new RecipeIngredient(name, amountText);
+    public static RecipeIngredient of(Long ingredientId, String name, String amountText) {
+        return new RecipeIngredient(ingredientId, name, amountText);
     }
 
     /** 표시 순서를 뺀 내용이 같은지. 교체 요청이 실제로 바꾸는 게 있는지 판단할 때 쓴다. */
     boolean hasSameContentAs(RecipeIngredient other) {
-        return Objects.equals(this.name, other.name)
+        return Objects.equals(this.ingredientId, other.ingredientId)
+                && Objects.equals(this.name, other.name)
                 && Objects.equals(this.amountText, other.amountText);
     }
 
