@@ -13,6 +13,7 @@ import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
 import com.star_pick.starpick.domain.upload.service.UploadService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * 여러 통합 테스트가 함께 쓰는 데이터 픽스처.
@@ -36,17 +37,42 @@ public class TestFixtures {
 
     private final CookHistoryRepository cookHistoryRepository;
 
+    private final JdbcTemplate jdbcTemplate;
+
     /**
      * 테스트 사이의 데이터를 비운다.
      *
      * <p>실제로 필요한 테이블만 골라 지우지 않고 항상 전부 지운다. 어떤 테스트가 어떤 테이블을
      * 남기는지는 나중에 바뀌는데, 그때 지우는 목록을 갱신하지 않으면 테스트 간 오염이 조용히 생긴다.
+     *
+     * <p><b>재료 마스터는 여기서 건드리지 않는다.</b> 이 메서드는 테스트가 만든 행을 지우는 것이고,
+     * 마스터는 migration 이 넣은 공유 시드라 지우면 안 된다. 시드를 일시적으로 바꾼 테스트는
+     * {@link #restoreIngredientActivity()} 로 되돌린다.
      */
     public void reset() {
         cookHistoryRepository.deleteAll();
         recipeRepository.deleteAll();
         uploadObjectRepository.deleteAll();
         objectStorage.clear();
+    }
+
+    /**
+     * {@code active} 를 바꾼 테스트가 공유 시드를 원래대로 되돌린다.
+     *
+     * <p>{@code @IntegrationTest} 가 JVM 전체에서 PostgreSQL 컨테이너 하나를 공유하므로, 비활성으로
+     * 바꾼 채 끝나면 이후 다른 클래스의 테스트가 순서에 따라 깨진다. 오염을 만든 클래스가
+     * {@code @AfterEach} 에서 호출한다.
+     *
+     * <p>{@code where active = false} 로 좁힌 것은 이미 활성인 행까지 매번 다시 쓰지 않기 위해서다.
+     */
+    public void restoreIngredientActivity() {
+        jdbcTemplate.update("update ingredient set active = true where active = false");
+    }
+
+    /** 재료 코드로 마스터 id 를 찾는다. 시드 id 는 고정값이 아니라 identity 라 코드로 조회해야 한다. */
+    public Long ingredientId(String code) {
+        return jdbcTemplate.queryForObject(
+                "select id from ingredient where code = ?", Long.class, code);
     }
 
     /**

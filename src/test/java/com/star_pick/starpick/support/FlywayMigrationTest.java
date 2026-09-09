@@ -39,7 +39,7 @@ class FlywayMigrationTest {
     }
 
     @Test
-    @DisplayName("migration 이 도메인 테이블 8개를 모두 만들었다")
+    @DisplayName("migration 이 도메인 테이블 9개를 모두 만들었다")
     void migrationCreatedAllTables() {
         // 정확히 일치는 쓸 수 없다. PostgresContainerTest 의 lock_probe 가 같은 컨테이너에 남는다.
         List<String> tables = jdbcTemplate.queryForList("""
@@ -48,6 +48,7 @@ class FlywayMigrationTest {
 
         assertThat(tables).contains(
                 "cook_history",
+                "ingredient",
                 "profiles",
                 "recipe",
                 "recipe_ingredient",
