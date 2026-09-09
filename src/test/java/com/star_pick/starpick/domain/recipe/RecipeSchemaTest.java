@@ -145,6 +145,18 @@ class RecipeSchemaTest {
         assertThat(count).isZero();
     }
 
+    /** 목록 조회의 유일한 필터가 user_id 다. 인덱스가 사라지면 매 조회가 seq scan 이 된다. */
+    @Test
+    @DisplayName("목록 조회용 인덱스가 (user_id, created_at, id) 로 만들어진다")
+    void listIndexExists() {
+        String definition = jdbcTemplate.queryForObject("""
+                select indexdef from pg_indexes
+                where tablename = 'recipe' and indexname = 'idx_recipe_user_id_created_at'
+                """, String.class);
+
+        assertThat(definition).contains("(user_id, created_at, id)");
+    }
+
     @Test
     @DisplayName("recipe.user_id 에는 FK 가 없다 — 도메인 경계 규칙의 의도된 결과")
     void userIdHasNoForeignKey() {

@@ -10,7 +10,10 @@ import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.domain.RecipeIngredient;
 import com.star_pick.starpick.domain.recipe.domain.RecipeStep;
 import com.star_pick.starpick.domain.recipe.controller.response.RecipeDetailResponse;
+import com.star_pick.starpick.domain.recipe.controller.response.RecipeListResponse;
+import com.star_pick.starpick.domain.recipe.domain.RecipeListSort;
 import com.star_pick.starpick.domain.recipe.exception.RecipeErrorCode;
+import com.star_pick.starpick.domain.recipe.repository.RecipeIngredientNameRow;
 import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.AttachOutcome;
@@ -18,10 +21,14 @@ import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,6 +78,60 @@ public class RecipeService {
         if (!recipeRepository.existsByIdAndUserId(recipeId, userId)) {
             throw new BusinessException(RecipeErrorCode.RECIPE_NOT_FOUND);
         }
+    }
+
+    /**
+     * 소유한 Recipe 를 페이지 단위로 조회한다.
+     *
+     * <p><b>{@code @Transactional} 을 붙이지 않는 것이 의도다.</b> 목록 조회와 재료명 조회는 각자
+     * 짧은 읽기 트랜잭션에서 끝나고, 조회 URL 서명은 커넥션을 쥐지 않은 채 수행한다. 서명은 키
+     * 파일 없는 ADC 구성에서 IAM 호출이 되는데(GcsConfig 주석) 저장소 클라이언트 타임아웃이
+     * 걸리지 않고 <b>페이지 크기가 곧 호출 횟수</b>라 커넥션을 쥔 채로 할 일이 아니다.
+     *
+     * <p>트랜잭션 밖이므로 {@code recipe.getIngredients()} 를 건드리면 안 된다. open-in-view 가
+     * 꺼져 있어 지연 로딩 컬렉션에 접근할 수 없다. 재료명은 별도 조회 결과만 사용한다.
+     */
+    public RecipeListResponse getRecipes(Long userId, int page, int size, RecipeListSort sort) {
+        Page<Recipe> found = recipeRepository.findByUserId(userId, PageRequest.of(page, size, toSort(sort)));
+
+        List<Long> recipeIds = found.getContent().stream().map(Recipe::getId).toList();
+        Map<Long, List<String>> ingredientNames = findIngredientNames(userId, recipeIds);
+
+        List<RecipeListResponse.RecipeSummary> summaries = found.getContent().stream()
+                .map(recipe -> new RecipeListResponse.RecipeSummary(
+                        recipe.getId(),
+                        recipe.getTitle(),
+                        recipe.getCategoryCode(),
+                        uploadService.getViewUrl(userId, recipe.getCoverImageKey()),
+                        ingredientNames.getOrDefault(recipe.getId(), List.of())))
+                .toList();
+
+        return new RecipeListResponse(found.getTotalElements(), summaries);
+    }
+
+    /** 빈 목록에 {@code in ()} 쿼리를 보내지 않는다. */
+    private Map<Long, List<String>> findIngredientNames(Long userId, List<Long> recipeIds) {
+        if (recipeIds.isEmpty()) {
+            return Map.of();
+        }
+        return recipeRepository.findIngredientNames(userId, recipeIds).stream()
+                .collect(Collectors.groupingBy(
+                        RecipeIngredientNameRow::recipeId,
+                        Collectors.mapping(RecipeIngredientNameRow::name, Collectors.toList())));
+    }
+
+    /**
+     * {@code created_at} 만으로 정렬하면 같은 시각의 행이 페이지 경계에서 중복되거나 누락된다.
+     * {@code id} 를 같은 방향의 동률 판정자로 넣어 순서를 고정한다.
+     */
+    private Sort toSort(RecipeListSort sort) {
+        // switch 로 두는 것이 의도다. 상수를 추가하면 여기서 컴파일 에러가 난다.
+        // else 로 묶으면 새 정렬 기준이 조용히 최신순으로 동작한다.
+        Sort.Direction direction = switch (sort) {
+            case LATEST -> Sort.Direction.DESC;
+            case OLDEST -> Sort.Direction.ASC;
+        };
+        return Sort.by(direction, "createdAt", "id");
     }
 
     /** 소유한 Recipe 의 상세를 조회한다. 없거나 다른 사용자의 것이면 동일하게 404 다. */
