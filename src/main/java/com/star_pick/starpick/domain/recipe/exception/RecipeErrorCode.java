@@ -17,6 +17,7 @@ import org.springframework.http.HttpStatus;
 public enum RecipeErrorCode implements ErrorCode {
 
     RECIPE_NOT_FOUND(HttpStatus.NOT_FOUND, "레시피를 찾을 수 없습니다."),
+    RECIPE_INGREDIENT_INVALID(HttpStatus.BAD_REQUEST, "선택한 재료를 찾을 수 없습니다."),
 
     /** 없거나, 남의 것이거나, 다른 용도로 발급됐거나, 실제로 업로드되지 않은 Cover Key. */
     RECIPE_COVER_INVALID(HttpStatus.BAD_REQUEST, "대표 이미지를 사용할 수 없습니다."),

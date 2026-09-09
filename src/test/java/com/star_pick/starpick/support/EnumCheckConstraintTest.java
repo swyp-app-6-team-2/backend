@@ -2,6 +2,7 @@ package com.star_pick.starpick.support;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.star_pick.starpick.domain.ingredient.domain.IngredientCategory;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.recipe.domain.RegistrationMethod;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
@@ -31,6 +32,7 @@ class EnumCheckConstraintTest {
     private record Constraint(String name, Class<? extends Enum<?>> enumType) { }
 
     private static final List<Constraint> CONSTRAINTS = List.of(
+            new Constraint("ck_ingredient_category_code", IngredientCategory.class),
             new Constraint("ck_recipe_category_code", RecipeCategory.class),
             new Constraint("ck_recipe_registration_method", RegistrationMethod.class),
             new Constraint("ck_upload_object_purpose", UploadPurpose.class),

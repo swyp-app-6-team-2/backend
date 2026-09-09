@@ -91,12 +91,15 @@ class RecipeUpdateRequestDeserializationTest {
     @DisplayName("배열 요소가 있으면 순서대로 담긴다")
     void arrayElementsArePreserved() {
         RecipeUpdateRequest request = read("""
-                {"ingredients": [{"name":"김치","amountText":"1/4포기"},{"name":"두부"}]}
+                {"ingredients": [
+                  {"ingredientId":1,"name":"김치","amountText":"1/4포기"},
+                  {"name":"두부"}
+                ]}
                 """);
 
         assertThat(request.getIngredients().orElseThrow())
                 .containsExactly(
-                        new RecipeIngredientRequest("김치", "1/4포기"),
-                        new RecipeIngredientRequest("두부", null));
+                        new RecipeIngredientRequest(1L, "김치", "1/4포기"),
+                        new RecipeIngredientRequest(null, "두부", null));
     }
 }

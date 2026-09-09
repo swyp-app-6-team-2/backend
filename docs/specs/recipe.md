@@ -157,11 +157,15 @@ Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출
 
 유효하지 않은 Cover Key는 `400 + RECIPE_COVER_INVALID`, 이미 연결된 Cover Key는 `409 + RECIPE_COVER_ALREADY_USED`로 처리한다.
 
+`ingredients[].ingredientId`에 존재하지 않는 재료를 보내면 `400 + RECIPE_INGREDIENT_INVALID`로 요청 전체를 실패시킨다. 비활성 재료와 중복 사용은 허용한다 — 규칙과 근거는 [Ingredient Spec](./ingredient.md) §8.3·§10.5가 소유한다.
+
 #### 조회
 
 응답에는 Recipe 기본 정보, Ingredient, Step과 RecipeSource를 포함한다. Ingestion이 구현되기 전까지 `source`는 항상 `null`이다. 대표 이미지는 조회 가능한 URL로 반환한다.
 
-IMAGE 원본 목록, Ingredient와 Step의 내부 ID·표시 순서, CookHistory는 포함하지 않는다.
+IMAGE 원본 목록, RecipeIngredient·RecipeStep의 PK와 표시 순서, CookHistory는 포함하지 않는다.
+
+**`ingredients[].ingredientId`는 예외로 노출한다.** 이것은 내부 PK가 아니라 공통 Ingredient 마스터 참조이며, 수정이 재료 배열을 전체 교체하므로 앱이 다시 보낼 수 있어야 한다. 마스터에서 고르지 않은 재료는 `null`이다. 계약은 [Ingredient Spec](./ingredient.md) §8.2가 소유한다.
 
 #### 수정
 
@@ -176,7 +180,7 @@ Ingredient와 Step은 개별 수정 API 없이 전체 교체한다.
 `coverImageKey`는 미전달 시 유지하고,
 `null`이면 대표 이미지를 제거한다. 새 Key를 전달하면 이미지를 교체하고, 기존 이미지의 GCS 삭제는 DB 커밋 이후 한 번 시도한다([Image Upload Common Spec](./upload.md) §3.1). GCS 삭제가 실패해도 이미 완료된 Recipe 수정은 유지한다.
 
-Cover Key 오류는 생성과 같은 `RECIPE_COVER_INVALID`, `RECIPE_COVER_ALREADY_USED` 계약을 사용한다.
+Cover Key 오류는 생성과 같은 `RECIPE_COVER_INVALID`, `RECIPE_COVER_ALREADY_USED` 계약을 사용한다. 재료 오류도 생성과 같은 `RECIPE_INGREDIENT_INVALID` 계약을 사용하며, 실패하면 기존 재료를 교체하지 않는다.
 
 #### 삭제
 

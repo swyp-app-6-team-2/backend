@@ -53,9 +53,9 @@ class RecipeTest {
         Recipe recipe = manualRecipe();
 
         recipe.replaceIngredients(List.of(
-                RecipeIngredient.of("김치", "1/4포기"),
-                RecipeIngredient.of("두부", "1모"),
-                RecipeIngredient.of("대파", null)));
+                RecipeIngredient.of(null, "김치", "1/4포기"),
+                RecipeIngredient.of(null, "두부", "1모"),
+                RecipeIngredient.of(null, "대파", null)));
 
         assertThat(recipe.getIngredients())
                 .extracting(RecipeIngredient::getName, RecipeIngredient::getDisplayOrder)
@@ -83,7 +83,7 @@ class RecipeTest {
     @DisplayName("빈 목록으로 교체하면 전부 삭제된다")
     void replaceWithEmptyListClears() {
         Recipe recipe = manualRecipe();
-        recipe.replaceIngredients(List.of(RecipeIngredient.of("김치", null)));
+        recipe.replaceIngredients(List.of(RecipeIngredient.of(null, "김치", null)));
 
         recipe.replaceIngredients(List.of());
 
@@ -94,13 +94,30 @@ class RecipeTest {
     @DisplayName("다시 교체하면 표시 순서가 새로 매겨진다")
     void replaceRenumbers() {
         Recipe recipe = manualRecipe();
-        recipe.replaceIngredients(List.of(RecipeIngredient.of("김치", null), RecipeIngredient.of("두부", null)));
+        recipe.replaceIngredients(List.of(
+                RecipeIngredient.of(null, "김치", null),
+                RecipeIngredient.of(null, "두부", null)));
 
-        recipe.replaceIngredients(List.of(RecipeIngredient.of("대파", null)));
+        recipe.replaceIngredients(List.of(RecipeIngredient.of(null, "대파", null)));
 
         assertThat(recipe.getIngredients())
                 .extracting(RecipeIngredient::getName, RecipeIngredient::getDisplayOrder)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple("대파", 0));
+    }
+
+    @Test
+    @DisplayName("name과 amountText가 같아도 ingredientId가 바뀌면 다른 내용이다")
+    void ingredientIdParticipatesInContentComparison() {
+        Recipe recipe = manualRecipe();
+        recipe.replaceIngredients(List.of(
+                RecipeIngredient.of(null, "김치", "1/4포기")));
+        RecipeIngredient before = recipe.getIngredients().get(0);
+
+        recipe.replaceIngredients(List.of(
+                RecipeIngredient.of(1L, "김치", "1/4포기")));
+
+        assertThat(recipe.getIngredients().get(0)).isNotSameAs(before);
+        assertThat(recipe.getIngredients().get(0).getIngredientId()).isEqualTo(1L);
     }
 
     @Test
@@ -120,7 +137,8 @@ class RecipeTest {
     void returnedCollectionsAreImmutable() {
         Recipe recipe = manualRecipe();
 
-        assertThatThrownBy(() -> recipe.getIngredients().add(RecipeIngredient.of("김치", null)))
+        assertThatThrownBy(() -> recipe.getIngredients().add(
+                        RecipeIngredient.of(null, "김치", null)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 }

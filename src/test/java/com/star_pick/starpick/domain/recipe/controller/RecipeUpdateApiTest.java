@@ -11,6 +11,7 @@ import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,7 @@ class RecipeUpdateApiTest {
     private int ingredientRowCount() {
         return jdbcTemplate.queryForObject("select count(*) from recipe_ingredient", Integer.class);
     }
+
 
     @Test
     @DisplayName("전달한 필드만 바뀌고 나머지는 유지된다")
@@ -166,6 +168,63 @@ class RecipeUpdateApiTest {
         read()
                 .andExpect(jsonPath("$.data.ingredients[0].name").value("두부"))
                 .andExpect(jsonPath("$.data.ingredients[1].name").value("김치"));
+    }
+
+    @Test
+    @DisplayName("name과 amountText가 같아도 ingredientId만 바뀌면 재료를 교체한다")
+    void ingredientIdOnlyChangeReplacesIngredients() throws Exception {
+        Long beforeId = jdbcTemplate.queryForObject("""
+                select id from recipe_ingredient
+                where recipe_id = ? and display_order = 0
+                """, Long.class, recipeId);
+        Long masterId = fixtures.ingredientId("ETC018");
+
+        update(recipeId, """
+                {"ingredients":[
+                  {"ingredientId":%d,"name":"김치","amountText":"1/4포기"},
+                  {"name":"두부"}
+                ]}
+                """.formatted(masterId))
+                .andExpect(status().isOk());
+
+        Map<String, Object> changed = jdbcTemplate.queryForMap("""
+                select id, ingredient_id, name, amount_text
+                from recipe_ingredient
+                where recipe_id = ? and display_order = 0
+                """, recipeId);
+        assertThat(changed.get("id")).isNotEqualTo(beforeId);
+        assertThat(changed)
+                .containsEntry("ingredient_id", masterId)
+                .containsEntry("name", "김치")
+                .containsEntry("amount_text", "1/4포기");
+        read().andExpect(jsonPath(
+                "$.data.ingredients[0].ingredientId").value(masterId));
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 ingredientId가 있으면 수정 전체를 실패시키고 기존 재료를 유지한다")
+    void rejectsMissingMasterIngredientWithoutReplacingExistingRows() throws Exception {
+        List<Long> before = jdbcTemplate.queryForList("""
+                select id from recipe_ingredient
+                where recipe_id = ? order by display_order
+                """, Long.class, recipeId);
+        Long missingId = jdbcTemplate.queryForObject(
+                "select coalesce(max(id), 0) + 1 from ingredient", Long.class);
+
+        update(recipeId, """
+                {"ingredients":[{"ingredientId":%d,"name":"없는 재료"}]}
+                """.formatted(missingId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("선택한 재료를 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.data.code").value("RECIPE_INGREDIENT_INVALID"));
+
+        assertThat(jdbcTemplate.queryForList("""
+                select id from recipe_ingredient
+                where recipe_id = ? order by display_order
+                """, Long.class, recipeId)).containsExactlyElementsOf(before);
+        read()
+                .andExpect(jsonPath("$.data.ingredients[0].name").value("김치"))
+                .andExpect(jsonPath("$.data.ingredients[1].name").value("두부"));
     }
 
     @Test
