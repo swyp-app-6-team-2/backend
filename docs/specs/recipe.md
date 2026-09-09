@@ -36,7 +36,7 @@ Recipe의 생명주기는 사용자가 최종 저장을 결정한 시점부터 �
 Recipe 도메인은 MVP에서 다음 기능을 제공한다.
 
 - 직접 입력 또는 Ingestion 결과를 이용한 Recipe 생성
-- Recipe 상세 조회·수정·삭제
+- Recipe 목록 조회와 상세 조회·수정·삭제
 - 재료·조리 순서와 생성 출처 보존
 - 동일한 Ingestion 결과를 이용한 Recipe 중복 생성 방지
 - 대표 이미지와 분석 원본 이미지의 연결·삭제 관리
@@ -44,6 +44,8 @@ Recipe 도메인은 MVP에서 다음 기능을 제공한다.
 ### 2.2. MVP 제외 범위
 
 - Ingredient와 Step의 독립적인 CRUD API
+- Recipe 검색·필터
+    - `01. 도메인 & 데이터 설계`의 전체 도메인 맵이 검색·필터링을 Discovery 책임으로 정의한다. 목록 조회는 Recipe가 제공하고, 조건을 거는 검색·필터는 Discovery가 담당한다.
 - Recipe 저장 한도와 Billing 연동
     - Billing Tech Spec이 확정되기 전에는 임시 검증 Service나 `403` 계약을 두지 않는다.
 
@@ -135,7 +137,8 @@ RecipeSource 1 ── 0..N RecipeSourceImage
 | Method   | Endpoint                     | 기능        |
 |----------|------------------------------|-----------|
 | `POST`   | `/api/v1/recipes`            | Recipe 생성 |
-| `GET`    | `/api/v1/recipes/{recipeId}` | Recipe 조회 |
+| `GET`    | `/api/v1/recipes`            | Recipe 목록 조회 |
+| `GET`    | `/api/v1/recipes/{recipeId}` | Recipe 상세 조회 |
 | `PATCH`  | `/api/v1/recipes/{recipeId}` | Recipe 수정 |
 | `DELETE` | `/api/v1/recipes/{recipeId}` | Recipe 삭제 |
 
@@ -159,7 +162,31 @@ Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출
 
 `ingredients[].ingredientId`에 존재하지 않는 재료를 보내면 `400 + RECIPE_INGREDIENT_INVALID`로 요청 전체를 실패시킨다. 비활성 재료와 중복 사용은 허용한다 — 규칙과 근거는 [Ingredient Spec](./ingredient.md) §8.3·§10.5가 소유한다.
 
-#### 조회
+#### 목록 조회
+
+사용자가 소유한 Recipe를 페이지 단위로 반환한다. 조건을 거는 검색·필터는 제공하지 않는다(§2.2).
+
+| 파라미터 | 타입 | 필수 | 기본값 | 제약 |
+|---------|------|-----|-------|------|
+| `page` | int | X | `0` | `0` 이상 |
+| `size` | int | X | `20` | `1` 이상 `100` 이하 |
+| `sort` | enum | X | `LATEST` | `LATEST`, `OLDEST` |
+
+정렬은 `LATEST`가 생성 시각 내림차순, `OLDEST`가 오름차순이다. 두 경우 모두 Recipe ID를 같은 방향의 동률 판정자로 함께 사용한다. 생성 시각이 같은 Recipe가 페이지 경계에 걸릴 때 중복되거나 누락되는 것을 막기 위함이다.
+
+응답은 `totalCount`와 `recipes` 배열로 구성한다. `totalCount`는 반환한 건수가 아니라 조건에 해당하는 전체 결과 수다. 저장한 Recipe가 없거나 페이지가 범위를 벗어나면 `recipes`는 빈 배열이고 `totalCount`는 실제 전체 수를 유지한다.
+
+배열의 각 항목은 목록 화면이 사용하는 다음 5개 필드만 포함한다.
+
+- `recipeId`, `title`, `categoryCode`
+- `coverImageUrl`: 대표 이미지의 조회 가능한 URL. 대표 이미지가 없거나 서명에 실패하면 `null`
+- `ingredientNames`: 재료명 배열. 표시 순서를 따르며 재료가 없으면 `[]`
+
+`memo`, `steps`, `source`, `cookTimeMinutes`, `servings`는 상세 조회 전용이며 목록에 포함하지 않는다. 조리 이력과 최근 조리 시각도 포함하지 않는다.
+
+`page`가 음수이거나 `size`가 범위를 벗어나면 `400 + REQUEST_VALIDATION_FAILED`, `sort`에 정의되지 않은 값이나 숫자가 아닌 `page`를 전달하면 `400 + INVALID_REQUEST_FORMAT`으로 처리한다.
+
+#### 상세 조회
 
 응답에는 Recipe 기본 정보, Ingredient, Step과 RecipeSource를 포함한다. Ingestion이 구현되기 전까지 `source`는 항상 `null`이다. 대표 이미지는 조회 가능한 URL로 반환한다.
 
@@ -222,6 +249,16 @@ DB에는 `UNIQUE(recipe_source.ingestion_job_id)`와 `UNIQUE(recipe_source.recip
 | 기존 RecipeSource가 없고 `consumedAt`이 존재함                            | `409 + INGESTION_JOB_ALREADY_CONSUMED` |
 | Job이 만료됨                                                         | `409 + INGESTION_JOB_EXPIRED`          |
 | Job이 만료 전이지만 `RESULT_READY`가 아님                                  | `409 + INGESTION_JOB_INVALID_STATE`    |
+
+#### Recipe 목록 조회
+
+목록 조회는 트랜잭션을 열지 않는다. Recipe 페이지 조회와 재료명 조회를 각각 짧은 읽기 트랜잭션에서 끝내고, 대표 이미지의 조회 URL 서명은 DB 커넥션을 쥐지 않은 상태에서 수행한다.
+
+서명을 트랜잭션 밖으로 분리하는 이유는 서명에 저장소 클라이언트 타임아웃이 적용되지 않고([Image Upload Common Spec](./upload.md) §3.4), **페이지 크기가 곧 외부 호출 횟수**이기 때문이다. 커넥션을 점유한 채 최대 `size`회의 외부 호출을 수행하지 않는다.
+
+재료명은 Recipe Entity의 지연 로딩 컬렉션이 아니라 Recipe ID 목록으로 한 번에 조회한다. 페이지의 Recipe마다 컬렉션을 조회하면 N+1이 되고, 트랜잭션 밖에서는 지연 로딩 자체가 불가능하다.
+
+두 읽기 트랜잭션 사이에 Recipe가 삭제되면 해당 Recipe의 재료명이 빈 배열로 반환될 수 있다. 같은 사용자가 두 지점에서 동시에 조작해야 발생하고 사용자에게 드러나는 피해가 없어 MVP에서 허용한다.
 
 #### Recipe 수정·삭제
 
