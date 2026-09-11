@@ -496,7 +496,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 ### 10.8. `recipe_ingredient.ingredient_id`에 FK를 건다
 
-- 저장소에는 FK가 있는 참조(`recipe_ingredient.recipe_id` 등)와 없는 참조(`cook_history.recipe_id`, `recipe.user_id`, `upload_object.user_id`)가 섞여 있다. 없는 쪽은 **의도한 설계가 아니다** — `cooking.md` §3.4가 *"스칼라 컬럼에는 JPA가 FK를 만들지 않는다. FK는 migration 도구 도입(#11) 시점에 추가한다"* 고 적어뒀고 #11에서 누락됐다([#23](https://github.com/swyp-app-6-team-2/backend/issues/23))
+- 저장소에는 FK가 있는 참조(`recipe_ingredient.recipe_id` 등)와 없는 참조(`cook_history.recipe_id`)가 섞여 있다. 없는 쪽은 **의도한 설계가 아니다** — `cooking.md` §3.4가 *"스칼라 컬럼에는 JPA가 FK를 만들지 않는다"* 고 적어뒀다
 - 도메인 경계 규칙(다른 도메인의 JPA Entity를 참조하지 않는다)은 **자바 코드**에서 스칼라 id로 지키고, DB 무결성은 FK로 지킨다. 두 축은 충돌하지 않는다
 - **기각한 대안:** `cook_history.recipe_id` 선례를 따라 FK를 두지 않음
 - **기각 이유:** `cook_history`가 FK를 미룬 이유는 Recipe 삭제 시 잠금·삭제 순서 때문이다. `ingredient`는 **삭제하지 않는 마스터**라(§10.5의 `active`) 그 문제가 발생하지 않는다. `recipe_ingredient` INSERT는 참조된 `ingredient` 행에 공유 락만 걸고 공유 락끼리는 경합하지 않는다

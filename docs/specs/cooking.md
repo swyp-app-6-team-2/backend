@@ -128,7 +128,7 @@ Recipe 존재와 소유권을 확인하고, 선택한 `photoKey` 연결과 CookH
 `UNIQUE(cook_history.photo_key)`는 같은 사진의 중복 연결을 막는 추가 방어선으로 사용한다. 해당 UNIQUE 위반만
 `409 + COOK_HISTORY_PHOTO_ALREADY_USED`로 변환하며, 제약 이름으로 판별한다. 무결성 위반을 뭉뚱그려 변환하면 무관한 오류까지 409가 된다.
 
-**`cook_history.recipe_id`에는 FK를 두지 않는다(2026-09-07 결정).** 도메인 경계 규칙상 Cooking은 Recipe Entity를 참조할 수 없고, 스칼라 컬럼에는 JPA가 FK를 만들지 않는다. FK는 migration 도구 도입(이슈 #11) 시점에 추가한다. `recipe.user_id`가 같은 이유로 FK 없는 스칼라다.
+**`cook_history.recipe_id`에는 FK를 두지 않는다(2026-09-07 결정).** 도메인 경계 규칙상 Cooking은 Recipe Entity를 참조할 수 없고, 스칼라 컬럼에는 JPA가 FK를 만들지 않는다.
 
 그 결과 Recipe 삭제와 CookHistory 생성이 경쟁하면 다음을 허용한다.
 
