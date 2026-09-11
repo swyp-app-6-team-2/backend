@@ -533,11 +533,12 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 **막지 않는 이유:** 마스터에 아이콘 컬럼을 두지 않았다. 서버가 내려주는 쪽으로 결정되면 응답에 `iconUrl` 필드를 추가하면 되고, 필드 추가는 하위호환이다. 앱은 이미 `code`로 아이콘을 찾을 수 있다.
 
-### 11.3. 다른 누락 FK — [#23](https://github.com/swyp-app-6-team-2/backend/issues/23)
+### 11.3. 다른 누락 FK — [#30](https://github.com/swyp-app-6-team-2/backend/issues/30)
 
-`cook_history.recipe_id`, `recipe.user_id`, `upload_object.user_id`에도 FK가 없다. 뒤의 둘은 테스트가 `users` 행 없이 임의의 `ownerId`로 Recipe를 저장하고 있어 FK를 걸면 통합 테스트가 깨진다.
-
-**이 범위 밖이다.** 이번에는 `recipe_ingredient.ingredient_id` FK만 추가한다.
+`recipe_ingredient.ingredient_id`와 별개로 `recipe.user_id`, `upload_object.user_id`에도 FK가
+없었다. **해결됐다**(2026-09-11, `V5__add_recipe_and_upload_object_user_foreign_keys.sql`). 테스트가
+`users` 행 없이 임의의 `ownerId`로 Recipe/UploadObject를 저장하던 문제는 `TestFixtures.seedUser`로
+정리했다.
 
 ---
 

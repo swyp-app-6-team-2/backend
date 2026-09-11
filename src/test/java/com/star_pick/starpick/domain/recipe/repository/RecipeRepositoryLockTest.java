@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.support.IntegrationTest;
+import com.star_pick.starpick.support.TestFixtures;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,11 +38,15 @@ class RecipeRepositoryLockTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private TestFixtures fixtures;
+
     private Long recipeId;
 
     @BeforeEach
     void setUp() {
         recipeRepository.deleteAll();
+        fixtures.seedUser(OWNER_ID);
         recipeId = recipeRepository.save(
                 Recipe.createManual(OWNER_ID, "김치찌개", RecipeCategory.KOREAN, null, null, null)).getId();
     }

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.star_pick.starpick.support.IntegrationTest;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +27,24 @@ class UploadObjectSchemaTest {
                 select is_nullable from information_schema.columns
                 where table_name = ? and column_name = ?
                 """, String.class, table, column);
+    }
+
+    /** 이름으로 FK 제약을 찾아 참조 컬럼·참조 대상을 돌려준다. */
+    private Map<String, Object> foreignKey(String constraintName) {
+        return jdbcTemplate.queryForMap("""
+                select kcu.column_name, ccu.table_name as referenced_table,
+                       ccu.column_name as referenced_column
+                from information_schema.table_constraints tc
+                join information_schema.key_column_usage kcu
+                  on tc.constraint_schema = kcu.constraint_schema
+                 and tc.constraint_name = kcu.constraint_name
+                join information_schema.constraint_column_usage ccu
+                  on tc.constraint_schema = ccu.constraint_schema
+                 and tc.constraint_name = ccu.constraint_name
+                where tc.constraint_schema = 'public'
+                  and tc.constraint_type = 'FOREIGN KEY'
+                  and tc.constraint_name = ?
+                """, constraintName);
     }
 
     @Test
@@ -56,17 +75,11 @@ class UploadObjectSchemaTest {
     }
 
     @Test
-    @DisplayName("user_id 에는 FK 가 없다 — 도메인 경계 규칙의 의도된 결과")
-    void userIdHasNoForeignKey() {
-        Integer count = jdbcTemplate.queryForObject("""
-                select count(*)
-                from information_schema.table_constraints tc
-                join information_schema.key_column_usage kcu
-                  on tc.constraint_name = kcu.constraint_name
-                where tc.constraint_type = 'FOREIGN KEY'
-                  and tc.table_name = 'upload_object' and kcu.column_name = 'user_id'
-                """, Integer.class);
-
-        assertThat(count).isZero();
+    @DisplayName("upload_object.user_id 는 users.user_id 를 참조한다")
+    void userIdReferencesUsers() {
+        assertThat(foreignKey("fk_upload_object_user"))
+                .containsEntry("column_name", "user_id")
+                .containsEntry("referenced_table", "users")
+                .containsEntry("referenced_column", "user_id");
     }
 }

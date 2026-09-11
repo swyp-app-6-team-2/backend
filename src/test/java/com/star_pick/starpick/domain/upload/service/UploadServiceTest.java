@@ -49,6 +49,7 @@ class UploadServiceTest {
     void setUp() {
         uploadObjectRepository.deleteAll();
         objectStorage.clear();
+        fixtures.seedUser(OWNER_ID);
     }
 
     @Test

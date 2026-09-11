@@ -70,6 +70,7 @@ class RecipeCoverImageApiTest {
         recipeRepository.deleteAll();
         uploadObjectRepository.deleteAll();
         objectStorage.clear();
+        fixtures.seedUser(OWNER_ID);
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }
 
