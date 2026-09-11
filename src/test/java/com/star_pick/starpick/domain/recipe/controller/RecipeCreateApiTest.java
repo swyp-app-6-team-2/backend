@@ -47,6 +47,7 @@ class RecipeCreateApiTest {
     @BeforeEach
     void setUp() {
         recipeRepository.deleteAll();
+        fixtures.seedUser(OWNER_ID);
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }
 

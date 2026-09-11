@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>{@link CookHistoryService} 와 반드시 다른 Bean 이다.</b> 생성·조회 Service 는 소유권 확인
  * 때문에 이미 {@code RecipeService} 를 주입받고 있어, 여기에 정리까지 얹으면 두 Service 가 서로를
- * 생성자 주입해 애플리케이션이 기동하지 못한다. 근거는 {@code docs/tech-specs/cooking.md} §3.4.
+ * 생성자 주입해 애플리케이션이 기동하지 못한다. 근거는 {@code docs/specs/cooking.md} §3.4.
  */
 @Service
 @RequiredArgsConstructor

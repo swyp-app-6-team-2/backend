@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
+import com.star_pick.starpick.support.TestFixtures;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,11 +37,15 @@ class UploadUrlIssueApiTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private TestFixtures fixtures;
+
     private String accessToken;
 
     @BeforeEach
     void setUp() {
         uploadObjectRepository.deleteAll();
+        fixtures.seedUser(OWNER_ID);
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }
 

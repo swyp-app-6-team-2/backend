@@ -29,6 +29,24 @@ class RecipeSchemaTest {
                 """, String.class, table, column);
     }
 
+    /** 이름으로 FK 제약을 찾아 참조 컬럼·참조 대상을 돌려준다. */
+    private Map<String, Object> foreignKey(String constraintName) {
+        return jdbcTemplate.queryForMap("""
+                select kcu.column_name, ccu.table_name as referenced_table,
+                       ccu.column_name as referenced_column
+                from information_schema.table_constraints tc
+                join information_schema.key_column_usage kcu
+                  on tc.constraint_schema = kcu.constraint_schema
+                 and tc.constraint_name = kcu.constraint_name
+                join information_schema.constraint_column_usage ccu
+                  on tc.constraint_schema = ccu.constraint_schema
+                 and tc.constraint_name = ccu.constraint_name
+                where tc.constraint_schema = 'public'
+                  and tc.constraint_type = 'FOREIGN KEY'
+                  and tc.constraint_name = ?
+                """, constraintName);
+    }
+
     @Test
     @DisplayName("Recipe 계열 테이블 3개가 만들어진다")
     void tablesExist() {
@@ -92,22 +110,7 @@ class RecipeSchemaTest {
     @Test
     @DisplayName("recipe_ingredient.ingredient_id 는 ingredient.id 를 참조한다")
     void recipeIngredientReferencesIngredientMaster() {
-        Map<String, Object> foreignKey = jdbcTemplate.queryForMap("""
-                select kcu.column_name, ccu.table_name as referenced_table,
-                       ccu.column_name as referenced_column
-                from information_schema.table_constraints tc
-                join information_schema.key_column_usage kcu
-                  on tc.constraint_schema = kcu.constraint_schema
-                 and tc.constraint_name = kcu.constraint_name
-                join information_schema.constraint_column_usage ccu
-                  on tc.constraint_schema = ccu.constraint_schema
-                 and tc.constraint_name = ccu.constraint_name
-                where tc.constraint_schema = 'public'
-                  and tc.constraint_type = 'FOREIGN KEY'
-                  and tc.constraint_name = 'fk_recipe_ingredient_ingredient'
-                """);
-
-        assertThat(foreignKey)
+        assertThat(foreignKey("fk_recipe_ingredient_ingredient"))
                 .containsEntry("column_name", "ingredient_id")
                 .containsEntry("referenced_table", "ingredient")
                 .containsEntry("referenced_column", "id");
@@ -158,17 +161,11 @@ class RecipeSchemaTest {
     }
 
     @Test
-    @DisplayName("recipe.user_id 에는 FK 가 없다 — 도메인 경계 규칙의 의도된 결과")
-    void userIdHasNoForeignKey() {
-        Integer count = jdbcTemplate.queryForObject("""
-                select count(*)
-                from information_schema.table_constraints tc
-                join information_schema.key_column_usage kcu
-                  on tc.constraint_name = kcu.constraint_name
-                where tc.constraint_type = 'FOREIGN KEY'
-                  and tc.table_name = 'recipe' and kcu.column_name = 'user_id'
-                """, Integer.class);
-
-        assertThat(count).isZero();
+    @DisplayName("recipe.user_id 는 users.user_id 를 참조한다")
+    void userIdReferencesUsers() {
+        assertThat(foreignKey("fk_recipe_user"))
+                .containsEntry("column_name", "user_id")
+                .containsEntry("referenced_table", "users")
+                .containsEntry("referenced_column", "user_id");
     }
 }

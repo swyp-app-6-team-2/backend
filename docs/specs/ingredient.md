@@ -496,7 +496,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 ### 10.8. `recipe_ingredient.ingredient_id`에 FK를 건다
 
-- 저장소에는 FK가 있는 참조(`recipe_ingredient.recipe_id` 등)와 없는 참조(`cook_history.recipe_id`, `recipe.user_id`, `upload_object.user_id`)가 섞여 있다. 없는 쪽은 **의도한 설계가 아니다** — `cooking.md` §3.4가 *"스칼라 컬럼에는 JPA가 FK를 만들지 않는다. FK는 migration 도구 도입(#11) 시점에 추가한다"* 고 적어뒀고 #11에서 누락됐다([#23](https://github.com/swyp-app-6-team-2/backend/issues/23))
+- 저장소에는 FK가 있는 참조(`recipe_ingredient.recipe_id` 등)와 없는 참조(`cook_history.recipe_id`)가 섞여 있다. 없는 쪽은 **의도한 설계가 아니다** — `cooking.md` §3.4가 *"스칼라 컬럼에는 JPA가 FK를 만들지 않는다"* 고 적어뒀다
 - 도메인 경계 규칙(다른 도메인의 JPA Entity를 참조하지 않는다)은 **자바 코드**에서 스칼라 id로 지키고, DB 무결성은 FK로 지킨다. 두 축은 충돌하지 않는다
 - **기각한 대안:** `cook_history.recipe_id` 선례를 따라 FK를 두지 않음
 - **기각 이유:** `cook_history`가 FK를 미룬 이유는 Recipe 삭제 시 잠금·삭제 순서 때문이다. `ingredient`는 **삭제하지 않는 마스터**라(§10.5의 `active`) 그 문제가 발생하지 않는다. `recipe_ingredient` INSERT는 참조된 `ingredient` 행에 공유 락만 걸고 공유 락끼리는 경합하지 않는다
@@ -533,11 +533,12 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 **막지 않는 이유:** 마스터에 아이콘 컬럼을 두지 않았다. 서버가 내려주는 쪽으로 결정되면 응답에 `iconUrl` 필드를 추가하면 되고, 필드 추가는 하위호환이다. 앱은 이미 `code`로 아이콘을 찾을 수 있다.
 
-### 11.3. 다른 누락 FK — [#23](https://github.com/swyp-app-6-team-2/backend/issues/23)
+### 11.3. 다른 누락 FK — [#30](https://github.com/swyp-app-6-team-2/backend/issues/30)
 
-`cook_history.recipe_id`, `recipe.user_id`, `upload_object.user_id`에도 FK가 없다. 뒤의 둘은 테스트가 `users` 행 없이 임의의 `ownerId`로 Recipe를 저장하고 있어 FK를 걸면 통합 테스트가 깨진다.
-
-**이 범위 밖이다.** 이번에는 `recipe_ingredient.ingredient_id` FK만 추가한다.
+`recipe_ingredient.ingredient_id`와 별개로 `recipe.user_id`, `upload_object.user_id`에도 FK가
+없었다. **해결됐다**(2026-09-11, `V5__add_recipe_and_upload_object_user_foreign_keys.sql`). 테스트가
+`users` 행 없이 임의의 `ownerId`로 Recipe/UploadObject를 저장하던 문제는 `TestFixtures.seedUser`로
+정리했다.
 
 ---
 
@@ -545,19 +546,21 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 **이것은 후속 작업이 아니라 구현 범위다.** `CLAUDE.md` §11·§12가 *"커밋을 제안하기 전에 로컬 Dev 콘솔에 반영할 것이 있는지 점검한다"* 를 규칙으로 두고 있고, 콘솔 파일은 `.git/info/exclude` 대상이라 고쳐도 커밋 내용이 달라지지 않는다. 미룰 이유가 없다.
 
-`src/main/resources/static/dev/index.html`의 재료 마스터 패널은 **2026-09-09에 롤백된 설계로 만들어져 있어 이 스펙대로 구현하면 동작하지 않는다.**
+**처리 완료(2026-09-09, PR #27)** — 아래 세 문제는 구현과 함께 콘솔에서 모두 고쳤다. 기록으로 남긴다.
 
-| 현재 코드 | 문제 |
+`src/main/resources/static/dev/index.html`의 재료 마스터 패널은 2026-09-09 오전에 롤백된 설계로 만들어져 있어 이 스펙대로 구현하면 동작하지 않았다.
+
+| 당시 코드 | 문제 |
 |---|---|
 | `ingredientCatalog = res.json.data.categories;` | 응답이 §7.2의 평탄한 배열(`data.ingredients`)이라 `undefined`가 된다. 이어지는 `.reduce`에서 TypeError |
 | `${it.iconEmoji ?? '  '}` | `iconEmoji`는 롤백된 필드다. 이 스펙의 응답에 없다 |
 | 힌트 문구 *"기동 시 `seed/ingredients.csv` 87건을 upsert 한다"* | §10.7에서 기각한 적재 방식이다 |
 
-평탄한 배열을 카테고리별로 묶어 렌더링하도록 고치고, `iconEmoji`를 제거하고, 문구를 Flyway migration 적재로 바꾼다. Recipe 폼의 `ingredientId` 입력칸은 이미 있어 그대로 쓴다.
+평탄한 배열을 카테고리별로 묶어 렌더링하도록 고치고, `iconEmoji`를 제거하고, 문구를 Flyway migration 적재로 바꿨다. Recipe 폼의 `ingredientId` 입력칸은 이미 있어 그대로 쓴다.
 
 ## 13. 이 작업이 끝난 뒤 필요한 문서 동기화
 
-구현 범위가 아니다. §8.2가 공개 계약을 바꾸므로 별도 작업으로 뒤따른다.
+구현 범위가 아니다. §8.2가 공개 계약을 바꾸므로 별도 작업으로 뒤따랐고, **2026-09-09에 아래를 전부 마쳤다.** API 명세 DB의 레시피 생성·수정·상세 조회 3행에도 `ingredientId`와 `RECIPE_INGREDIENT_INVALID`를 함께 반영했다.
 
 - 로컬 BE 문서 저장소 `02-1 Recipe API` — 요청·응답 재료 필드에 `ingredientId` 추가
 - 로컬 BE 문서 저장소 `01-1 Recipe` ERD — `INGREDIENT`가 3컬럼(`id`, `name`, `category_code`)으로 그려져 있다. `code`·`aliases`·`active`를 반영
