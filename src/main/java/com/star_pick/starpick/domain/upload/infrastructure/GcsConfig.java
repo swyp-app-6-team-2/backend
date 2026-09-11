@@ -39,7 +39,7 @@ public class GcsConfig {
      * 우리 구성에서는 google-auth-library 가 자기 transport 로 IAM 을 호출한다(기본 20초).
      *
      * <p>그럼에도 이 설정이 필요한 이유(잠금을 쥔 채 일어나는 유일한 호출이 {@code exists})는
-     * {@code docs/tech-specs/upload.md} §3.4 에 있다.
+     * {@code docs/specs/upload.md} §3.4 에 있다.
      */
     @Bean
     Storage storage() {

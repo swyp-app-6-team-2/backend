@@ -186,7 +186,7 @@ public class RecipeService {
     }
 
     /**
-     * Recipe 를 영구 삭제한다. 순서는 {@code docs/tech-specs/recipe.md} §3.4 가 정한 계약이다.
+     * Recipe 를 영구 삭제한다. 순서는 {@code docs/specs/recipe.md} §3.4 가 정한 계약이다.
      *
      * <p>순서는 "지울 대상을 알아낸 뒤에 지운다"는 한 가지 규칙에서 나온다. 커밋 후 저장소에서
      * 지울 Key 를 Recipe 행과 CookHistory 행에서만 알 수 있어, 행을 먼저 없애면 그 Key 를 잃는다.

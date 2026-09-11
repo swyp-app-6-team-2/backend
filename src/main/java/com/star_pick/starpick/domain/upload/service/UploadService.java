@@ -23,7 +23,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * 호출한다(CLAUDE.md §4, 다른 도메인의 Repository 직접 참조 금지).
  *
  * <p>메서드마다 트랜잭션 유무가 다르다. 서명과 존재 확인이 원격 호출이라, 어떤 것이 트랜잭션
- * 안에 들어가는지가 설계 판단이었다. 근거는 {@code docs/tech-specs/upload.md} §3.4.
+ * 안에 들어가는지가 설계 판단이었다. 근거는 {@code docs/specs/upload.md} §3.4.
  */
 @Slf4j
 @Service

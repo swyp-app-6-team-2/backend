@@ -545,19 +545,21 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 **이것은 후속 작업이 아니라 구현 범위다.** `CLAUDE.md` §11·§12가 *"커밋을 제안하기 전에 로컬 Dev 콘솔에 반영할 것이 있는지 점검한다"* 를 규칙으로 두고 있고, 콘솔 파일은 `.git/info/exclude` 대상이라 고쳐도 커밋 내용이 달라지지 않는다. 미룰 이유가 없다.
 
-`src/main/resources/static/dev/index.html`의 재료 마스터 패널은 **2026-09-09에 롤백된 설계로 만들어져 있어 이 스펙대로 구현하면 동작하지 않는다.**
+**처리 완료(2026-09-09, PR #27)** — 아래 세 문제는 구현과 함께 콘솔에서 모두 고쳤다. 기록으로 남긴다.
 
-| 현재 코드 | 문제 |
+`src/main/resources/static/dev/index.html`의 재료 마스터 패널은 2026-09-09 오전에 롤백된 설계로 만들어져 있어 이 스펙대로 구현하면 동작하지 않았다.
+
+| 당시 코드 | 문제 |
 |---|---|
 | `ingredientCatalog = res.json.data.categories;` | 응답이 §7.2의 평탄한 배열(`data.ingredients`)이라 `undefined`가 된다. 이어지는 `.reduce`에서 TypeError |
 | `${it.iconEmoji ?? '  '}` | `iconEmoji`는 롤백된 필드다. 이 스펙의 응답에 없다 |
 | 힌트 문구 *"기동 시 `seed/ingredients.csv` 87건을 upsert 한다"* | §10.7에서 기각한 적재 방식이다 |
 
-평탄한 배열을 카테고리별로 묶어 렌더링하도록 고치고, `iconEmoji`를 제거하고, 문구를 Flyway migration 적재로 바꾼다. Recipe 폼의 `ingredientId` 입력칸은 이미 있어 그대로 쓴다.
+평탄한 배열을 카테고리별로 묶어 렌더링하도록 고치고, `iconEmoji`를 제거하고, 문구를 Flyway migration 적재로 바꿨다. Recipe 폼의 `ingredientId` 입력칸은 이미 있어 그대로 쓴다.
 
 ## 13. 이 작업이 끝난 뒤 필요한 문서 동기화
 
-구현 범위가 아니다. §8.2가 공개 계약을 바꾸므로 별도 작업으로 뒤따른다.
+구현 범위가 아니다. §8.2가 공개 계약을 바꾸므로 별도 작업으로 뒤따랐고, **2026-09-09에 아래를 전부 마쳤다.** API 명세 DB의 레시피 생성·수정·상세 조회 3행에도 `ingredientId`와 `RECIPE_INGREDIENT_INVALID`를 함께 반영했다.
 
 - 로컬 BE 문서 저장소 `02-1 Recipe API` — 요청·응답 재료 필드에 `ingredientId` 추가
 - 로컬 BE 문서 저장소 `01-1 Recipe` ERD — `INGREDIENT`가 3컬럼(`id`, `name`, `category_code`)으로 그려져 있다. `code`·`aliases`·`active`를 반영
