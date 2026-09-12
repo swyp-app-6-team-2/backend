@@ -23,6 +23,17 @@ public interface ObjectStorage {
     boolean exists(String objectKey);
 
     /**
+     * 크기와 형식. 객체가 없으면 null.
+     *
+     * <p>바이트를 받기 전에 상한과 형식을 검사하는 데 쓴다. 둘을 함께 돌려주는 이유는
+     * {@link StoredObjectMetadata} 에 적었다.
+     */
+    StoredObjectMetadata metadata(String objectKey);
+
+    /** 객체 바이트. 객체가 없으면 null. */
+    byte[] read(String objectKey);
+
+    /**
      * 지운다. 이미 없는 Key 는 무시한다. 여러 개를 넘겨도 <b>원격 호출은 한 번</b>이다.
      *
      * <p>단건 오버로드를 두지 않는다. 호출부가 지우는 개수는 열려 있고, 건별로 부르면 저장소가

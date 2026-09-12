@@ -3,6 +3,9 @@ package com.star_pick.starpick.support;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.star_pick.starpick.domain.ingredient.domain.IngredientCategory;
+import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
+import com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus;
+import com.star_pick.starpick.domain.ingestion.domain.IngestionSourceType;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.recipe.domain.RegistrationMethod;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
@@ -33,6 +36,9 @@ class EnumCheckConstraintTest {
 
     private static final List<Constraint> CONSTRAINTS = List.of(
             new Constraint("ck_ingredient_category_code", IngredientCategory.class),
+            new Constraint("ck_ingestion_job_source_type", IngestionSourceType.class),
+            new Constraint("ck_ingestion_job_status", IngestionJobStatus.class),
+            new Constraint("ck_ingestion_job_failure_code", IngestionFailureCode.class),
             new Constraint("ck_recipe_category_code", RecipeCategory.class),
             new Constraint("ck_recipe_registration_method", RegistrationMethod.class),
             new Constraint("ck_upload_object_purpose", UploadPurpose.class),
@@ -66,11 +72,15 @@ class EnumCheckConstraintTest {
     void everyCheckConstraintIsRegistered() {
         // 위 테스트만 있으면 목록에 등록하지 않은 제약이 조용히 통과한다.
         // PostgreSQL 17+ 는 NOT NULL 을 contype 'n' 으로 따로 두므로 'c' 는 CHECK 뿐이다.
+        //
+        // ck_ingestion_job_input 은 enum 값 집합이 아니라 컬럼 조합 제약이라 제외한다.
+        // (IMAGE 면 input_url 이 없고 input_image_keys 가 1개 이상, 나머지는 그 반대)
         List<String> inDatabase = jdbcTemplate.queryForList("""
                 select conname from pg_constraint
                 where contype = 'c'
                   and connamespace = 'public'::regnamespace
                   and conname like 'ck\\_%'
+                  and conname <> 'ck_ingestion_job_input'
                 """, String.class);
 
         assertThat(inDatabase)
