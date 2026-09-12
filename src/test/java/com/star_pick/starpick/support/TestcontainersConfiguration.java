@@ -37,4 +37,9 @@ public class TestcontainersConfiguration {
     FakeObjectStorage objectStorage() {
         return new FakeObjectStorage();
     }
+
+    @Bean
+    FakeRecipeAnalyzer recipeAnalyzer() {
+        return new FakeRecipeAnalyzer();
+    }
 }
