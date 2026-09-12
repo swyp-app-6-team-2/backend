@@ -16,6 +16,10 @@ spring:
       hibernate:
         format_sql: false
 
+starpick:
+  ingredient:
+    icon-base-url: http://localhost
+
 jwt:
   secret: starpick-test-only-jwt-secret-key-not-for-any-real-environment
   access-token-expiration: 1800000

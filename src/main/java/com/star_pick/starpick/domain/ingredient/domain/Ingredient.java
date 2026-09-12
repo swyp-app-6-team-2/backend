@@ -40,4 +40,7 @@ public class Ingredient {
 
     @Column(nullable = false)
     private boolean active;
+
+    @Column(name = "icon_key", nullable = false)
+    private String iconKey;
 }
