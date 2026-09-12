@@ -1,21 +1,15 @@
 package com.star_pick.starpick.domain.ingestion.config;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
+/**
+ * Ingestion 설정값 활성화.
+ *
+ * <p>실행 스레드 풀은 여기서 빈으로 만들지 않는다. 이유는
+ * {@code IngestionWorker#ingestionExecutor} 에 있다.
+ */
 @Configuration
 @EnableConfigurationProperties(IngestionProperties.class)
 public class IngestionConfig {
-
-    @Bean
-    ThreadPoolTaskExecutor ingestionExecutor(IngestionProperties properties) {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(properties.worker().concurrency());
-        executor.setMaxPoolSize(properties.worker().concurrency());
-        executor.setQueueCapacity(0);
-        executor.setThreadNamePrefix("ingestion-");
-        return executor;
-    }
 }

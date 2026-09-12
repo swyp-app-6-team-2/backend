@@ -74,11 +74,11 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
                     .retrieve()
                     .body(GeminiGenerateContentResponse.class);
         } catch (ResourceAccessException e) {
-            throw failure(Kind.RETRYABLE, "Gemini 연결 또는 timeout 실패", null);
+            throw new RecipeAnalysisException(Kind.RETRYABLE, "Gemini 연결 또는 timeout 실패", null);
         } catch (RestClientResponseException e) {
             throw classifyHttpFailure(e);
         } catch (RestClientException e) {
-            throw failure(Kind.UNRECOVERABLE, "Gemini 응답을 해석할 수 없습니다.", null);
+            throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 응답을 해석할 수 없습니다.", null);
         }
     }
 
@@ -91,15 +91,15 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
     private RecipeAnalysisException classifyHttpFailure(RestClientResponseException e) {
         HttpStatusCode status = e.getStatusCode();
         if (status.is5xxServerError()) {
-            return failure(Kind.RETRYABLE, "Gemini 서버 오류: " + status.value(), null);
+            return new RecipeAnalysisException(Kind.RETRYABLE, "Gemini 서버 오류: " + status.value(), null);
         }
         if (status.value() == 429) {
             Duration retryAfter = retryAfter(e.getResponseBodyAsString());
             return retryAfter == null
-                    ? failure(Kind.UNRECOVERABLE, "Gemini 요청 한도 오류: 429", null)
-                    : failure(Kind.RETRYABLE, "Gemini 요청 한도 오류: 429", retryAfter);
+                    ? new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 요청 한도 오류: 429", null)
+                    : new RecipeAnalysisException(Kind.RETRYABLE, "Gemini 요청 한도 오류: 429", retryAfter);
         }
-        return failure(Kind.UNRECOVERABLE, "Gemini 요청 오류: " + status.value(), null);
+        return new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 요청 오류: " + status.value(), null);
     }
 
     private Duration retryAfter(String errorBody) {
@@ -124,39 +124,39 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
 
     private AnalysisOutcome convert(GeminiGenerateContentResponse response) {
         if (response == null) {
-            throw failure(Kind.UNRECOVERABLE, "Gemini 응답이 비었습니다.", null);
+            throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 응답이 비었습니다.", null);
         }
         if (response.promptFeedback() != null && response.promptFeedback().blockReason() != null) {
-            throw failure(Kind.CONTENT_BLOCKED, "Gemini가 입력을 차단했습니다.", null);
+            throw new RecipeAnalysisException(Kind.CONTENT_BLOCKED, "Gemini가 입력을 차단했습니다.", null);
         }
         if (response.candidates() == null || response.candidates().isEmpty()) {
-            throw failure(Kind.UNRECOVERABLE, "Gemini 후보 응답이 없습니다.", null);
+            throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 후보 응답이 없습니다.", null);
         }
         GeminiGenerateContentResponse.Candidate candidate = response.candidates().getFirst();
         String finishReason = candidate.finishReason();
         if (BLOCKED_FINISH_REASONS.contains(finishReason)) {
-            throw failure(Kind.CONTENT_BLOCKED, "Gemini가 응답을 차단했습니다.", null);
+            throw new RecipeAnalysisException(Kind.CONTENT_BLOCKED, "Gemini가 응답을 차단했습니다.", null);
         }
         if (!"STOP".equals(finishReason)) {
-            throw failure(Kind.UNRECOVERABLE, "Gemini 응답이 정상 종료되지 않았습니다.", null);
+            throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 응답이 정상 종료되지 않았습니다.", null);
         }
         if (candidate.content() == null || candidate.content().parts() == null
                 || candidate.content().parts().isEmpty()
                 || candidate.content().parts().getFirst().text() == null) {
-            throw failure(Kind.UNRECOVERABLE, "Gemini 응답 본문이 없습니다.", null);
+            throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 응답 본문이 없습니다.", null);
         }
 
         GeminiRecipeDraft raw;
         try {
             raw = jsonMapper.readValue(candidate.content().parts().getFirst().text(), GeminiRecipeDraft.class);
         } catch (Exception e) {
-            throw failure(Kind.UNRECOVERABLE, "Gemini 응답을 해석할 수 없습니다.", null);
+            throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 응답을 해석할 수 없습니다.", null);
         }
         Verdict verdict;
         try {
             verdict = Verdict.valueOf(raw.verdict());
         } catch (RuntimeException e) {
-            throw failure(Kind.UNRECOVERABLE, "Gemini 판정값을 해석할 수 없습니다.", null);
+            throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 판정값을 해석할 수 없습니다.", null);
         }
         TokenUsage usage = usage(response.usageMetadata());
         if (verdict != Verdict.RECIPE) {
@@ -185,9 +185,5 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
     private TokenUsage usage(GeminiGenerateContentResponse.UsageMetadata value) {
         return value == null ? new TokenUsage(null, null)
                 : new TokenUsage(value.promptTokenCount(), value.candidatesTokenCount());
-    }
-
-    private RecipeAnalysisException failure(Kind kind, String message, Duration retryAfter) {
-        return new RecipeAnalysisException(kind, message, retryAfter);
     }
 }

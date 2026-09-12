@@ -36,7 +36,6 @@ gcs:
 ingestion:
   daily-limit: 20
   worker:
-    enabled: false
     concurrency: 2
     poll-interval: 2s
   job:

@@ -22,10 +22,15 @@ public interface ObjectStorage {
     /** 발급만 받고 실제로 올리지 않은 Key 를 걸러내는 데 쓴다. */
     boolean exists(String objectKey);
 
-    /** 객체가 없으면 null. 바이트를 읽기 전 크기 상한을 검사하는 데 쓴다. */
-    Long size(String objectKey);
+    /**
+     * 크기와 형식. 객체가 없으면 null.
+     *
+     * <p>바이트를 받기 전에 상한과 형식을 검사하는 데 쓴다. 둘을 함께 돌려주는 이유는
+     * {@link StoredObjectMetadata} 에 적었다.
+     */
+    StoredObjectMetadata metadata(String objectKey);
 
-    /** 객체가 없으면 null. */
+    /** 객체 바이트. 객체가 없으면 null. */
     byte[] read(String objectKey);
 
     /**

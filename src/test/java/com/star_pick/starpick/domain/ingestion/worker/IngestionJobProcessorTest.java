@@ -203,7 +203,7 @@ class IngestionJobProcessorTest {
 
         processor.process(job);
 
-        assertThat(storage.operations()).containsExactly("size");
+        assertThat(storage.operations()).containsExactly("metadata");
         assertThat(analyzer.calls()).isZero();
         assertFailure(job.id(), IngestionFailureCode.PROCESSING_FAILED);
     }

@@ -14,7 +14,7 @@ public record IngestionProperties(
         External external,
         Gemini gemini) {
 
-    public record Worker(boolean enabled, int concurrency, Duration pollInterval) {
+    public record Worker(int concurrency, Duration pollInterval) {
     }
 
     public record Job(Duration deadline, Duration staleThreshold, Duration queueWaitLimit,

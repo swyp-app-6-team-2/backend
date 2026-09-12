@@ -1,6 +1,7 @@
 package com.star_pick.starpick.domain.upload.controller.request;
 
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
+import com.star_pick.starpick.domain.upload.service.SupportedImageContentTypes;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -22,7 +23,7 @@ public record UploadUrlIssueRequest(
         UploadPurpose purpose,
 
         @NotBlank(message = "이미지 형식은 필수입니다.")
-        @Pattern(regexp = "image/(jpeg|png|webp)", message = "지원하지 않는 이미지 형식입니다.")
+        @Pattern(regexp = SupportedImageContentTypes.PATTERN, message = "지원하지 않는 이미지 형식입니다.")
         String contentType
 ) {
 }

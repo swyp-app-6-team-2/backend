@@ -54,7 +54,7 @@ class JsonFormatMapperTest {
         job.completeWithResult(expected, java.time.Instant.now().plusSeconds(3600));
         Long id = repository.saveAndFlush(job).getId();
 
-        entityManagerFactory.createEntityManager().close();
+        // 이 테스트는 트랜잭션 밖이라 findById 가 새 트랜잭션에서 DB 를 다시 읽는다.
         RecipeDraft actual = repository.findById(id).orElseThrow().getResult();
 
         assertThat(actual).isEqualTo(expected);

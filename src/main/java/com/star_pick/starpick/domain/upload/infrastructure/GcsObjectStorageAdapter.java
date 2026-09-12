@@ -5,8 +5,10 @@ import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.HttpMethod;
 import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageException;
 import com.star_pick.starpick.domain.upload.service.ObjectStorage;
 import com.star_pick.starpick.domain.upload.service.SignedPutUrl;
+import com.star_pick.starpick.domain.upload.service.StoredObjectMetadata;
 import java.net.URL;
 import java.time.Duration;
 import java.time.Instant;
@@ -87,27 +89,33 @@ class GcsObjectStorageAdapter implements ObjectStorage {
         return storage.get(BlobId.of(bucket, objectKey)) != null;
     }
 
+    /** {@code contentType} 은 업로드 시 서명에 포함된 헤더라, 발급 때 검증된 형식이 그대로 들어 있다. */
     @Override
-    public Long size(String objectKey) {
+    public StoredObjectMetadata metadata(String objectKey) {
         Blob blob = storage.get(BlobId.of(bucket, objectKey));
-        return blob == null ? null : blob.getSize();
+        return blob == null ? null : new StoredObjectMetadata(blob.getSize(), blob.getContentType());
     }
 
     /**
-     * 객체 바이트를 읽는다. 메타데이터 조회는 기본 클라이언트로, <b>본문 전송만</b>
-     * {@link #downloadStorage} 로 한다.
+     * 객체 바이트를 읽는다. <b>{@link #downloadStorage} 로만</b> 부른다.
      *
      * <p>본문을 기본 클라이언트로 받으면 {@link GcsConfig} 의 5초 총 timeout 안에 최대 14MB 를
      * 받아야 해서(약 22Mbit/s 지속 필요) 느린 회선에서 {@code StorageException} 이 난다. 그
      * 예외는 Ingestion 의 재시도 분류에 걸리지 않아 재시도 없이 실패로 끝난다.
+     *
+     * <p>존재 확인을 위한 {@code get} 을 따로 하지 않는다. 호출부가 {@link #metadata} 로 이미
+     * 확인했고, 여기서 한 번 더 물으면 사진 한 장당 원격 호출이 세 번이 된다.
      */
     @Override
     public byte[] read(String objectKey) {
-        Blob blob = storage.get(BlobId.of(bucket, objectKey));
-        if (blob == null) {
-            return null;
+        try {
+            return downloadStorage.readAllBytes(BlobId.of(bucket, objectKey));
+        } catch (StorageException e) {
+            if (e.getCode() == 404) {
+                return null;
+            }
+            throw e;
         }
-        return downloadStorage.readAllBytes(blob.getBlobId());
     }
 
     /** SDK 가 batch 요청 하나로 보낸다. 건별 성공 여부는 쓰지 않는다 — 이미 없는 것도 성공이다. */

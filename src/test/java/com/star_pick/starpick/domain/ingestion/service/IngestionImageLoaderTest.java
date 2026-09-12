@@ -24,10 +24,10 @@ class IngestionImageLoaderTest {
     }
 
     @Test
-    @DisplayName("모든 크기를 먼저 확인한 뒤 Key 순서와 MIME을 보존해 읽는다")
+    @DisplayName("모든 메타데이터를 먼저 확인한 뒤 Key 순서와 MIME을 보존해 읽는다")
     void loadsAfterCheckingAllSizes() {
         storage.putObject("ingestion-inputs/1/a.jpg", new byte[]{1, 2});
-        storage.putObject("ingestion-inputs/1/b.png", new byte[]{3, 4, 5});
+        storage.putObject("ingestion-inputs/1/b.png", new byte[]{3, 4, 5}, "image/png");
 
         List<InlineImage> result = loader.load(List.of(
                 "ingestion-inputs/1/a.jpg", "ingestion-inputs/1/b.png"));
@@ -36,36 +36,36 @@ class IngestionImageLoaderTest {
                 .containsExactly("image/jpeg", "image/png");
         assertThat(result.get(0).content()).containsExactly(1, 2);
         assertThat(result.get(1).content()).containsExactly(3, 4, 5);
-        assertThat(storage.operations()).containsExactly("size", "size", "read", "read");
+        assertThat(storage.operations()).containsExactly("metadata", "metadata", "read", "read");
     }
 
     @Test
     @DisplayName("합계 상한을 넘으면 바이트를 하나도 읽지 않는다")
     void rejectsOversizedInputBeforeReading() {
         storage.putObject("ingestion-inputs/1/a.jpg", new byte[]{1, 2, 3});
-        storage.putObject("ingestion-inputs/1/b.webp", new byte[]{4, 5, 6});
+        storage.putObject("ingestion-inputs/1/b.webp", new byte[]{4, 5, 6}, "image/webp");
 
         assertThatThrownBy(() -> loader.load(List.of(
                 "ingestion-inputs/1/a.jpg", "ingestion-inputs/1/b.webp")))
                 .isInstanceOf(IngestionInputException.class);
-        assertThat(storage.operations()).containsExactly("size", "size");
+        assertThat(storage.operations()).containsExactly("metadata", "metadata");
     }
 
     @Test
-    @DisplayName("없는 객체와 지원하지 않는 확장자를 거절한다")
-    void rejectsMissingObjectAndExtension() {
+    @DisplayName("없는 객체와 지원하지 않는 형식을 거절한다")
+    void rejectsMissingObjectAndUnsupportedType() {
         assertThatThrownBy(() -> loader.load(List.of("ingestion-inputs/1/missing.jpg")))
                 .isInstanceOf(IngestionInputException.class);
 
         storage.clear();
-        storage.putObject("ingestion-inputs/1/a.gif", new byte[]{1});
+        storage.putObject("ingestion-inputs/1/a.gif", new byte[]{1}, "image/gif");
         assertThatThrownBy(() -> loader.load(List.of("ingestion-inputs/1/a.gif")))
                 .isInstanceOf(IngestionInputException.class);
     }
 
     private IngestionProperties properties(long maxBytes) {
         return new IngestionProperties(20,
-                new IngestionProperties.Worker(false, 2, Duration.ofSeconds(2)),
+                new IngestionProperties.Worker(2, Duration.ofSeconds(2)),
                 new IngestionProperties.Job(Duration.ofSeconds(10), Duration.ofMinutes(3),
                         Duration.ofMinutes(10), Duration.ofHours(24), Duration.ofDays(7)),
                 new IngestionProperties.Retry(3, List.of(Duration.ofMillis(10))),

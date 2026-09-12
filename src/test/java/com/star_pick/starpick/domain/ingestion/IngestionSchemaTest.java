@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.star_pick.starpick.support.IntegrationTest;
+import com.star_pick.starpick.support.TestFixtures;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,8 +15,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @IntegrationTest
 class IngestionSchemaTest {
 
+    private static final long SCHEMA_TEST_USER_ID = 1L;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TestFixtures fixtures;
 
     @Test
     @DisplayName("ingestion_job 테이블의 컬럼과 null 허용 계약이 일치한다")
@@ -109,14 +115,10 @@ class IngestionSchemaTest {
                 """, String.class, indexName);
     }
 
+    /** 시퀀스 보정까지 하는 공용 픽스처를 쓴다. 여기서 raw SQL 로 다시 만들면 채번 충돌 여지가 남는다. */
     private long seedUser() {
-        Long id = jdbcTemplate.queryForObject("""
-                insert into users (service_terms_agreed, privacy_agreed, marketing_agreed,
-                                   signup_completed_at, created_at)
-                values (true, true, true, now(), now())
-                returning user_id
-                """, Long.class);
-        return id;
+        fixtures.seedUser(SCHEMA_TEST_USER_ID);
+        return SCHEMA_TEST_USER_ID;
     }
 
     private int insertJob(long userId, String sourceType, String inputUrl, String[] inputImageKeys) {

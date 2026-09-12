@@ -16,11 +16,10 @@ public record IngestionJobCreateRequest(
         String url,
 
         @Size(min = 1, max = MAX_INPUT_IMAGE_COUNT,
-                message = "사진은 1장 이상 " + MAX_INPUT_IMAGE_COUNT_TEXT + "장 이하여야 합니다.")
+                message = "사진은 1장 이상 10장 이하여야 합니다.")
         List<@NotBlank(message = "사진 Key는 비어 있을 수 없습니다.") String> inputImageKeys) {
 
     public static final int MAX_INPUT_IMAGE_COUNT = 10;
-    private static final String MAX_INPUT_IMAGE_COUNT_TEXT = "10";
 
     @AssertTrue(message = "입력 종류에 맞는 값 하나만 보내야 합니다.")
     public boolean isInputCombinationValid() {

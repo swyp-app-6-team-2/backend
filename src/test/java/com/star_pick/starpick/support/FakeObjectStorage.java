@@ -2,6 +2,7 @@ package com.star_pick.starpick.support;
 
 import com.star_pick.starpick.domain.upload.service.ObjectStorage;
 import com.star_pick.starpick.domain.upload.service.SignedPutUrl;
+import com.star_pick.starpick.domain.upload.service.StoredObjectMetadata;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
@@ -25,7 +26,10 @@ public class FakeObjectStorage implements ObjectStorage {
     private static final String UPLOAD_URL_PREFIX = "https://fake-storage.test/upload/";
     public static final String VIEW_URL_PREFIX = "https://fake-storage.test/view/";
 
-    private final Map<String, byte[]> uploaded = new ConcurrentHashMap<>();
+    /** 저장소는 바이트와 함께 형식도 들고 있다. 실제 GCS 가 업로드 시 Content-Type 을 보관하는 것과 같다. */
+    private record Stored(byte[] bytes, String contentType) { }
+
+    private final Map<String, Stored> uploaded = new ConcurrentHashMap<>();
     private final List<String> operations = new CopyOnWriteArrayList<>();
 
     /** 실패를 감추는 코드가 실제로 동작하는지 검증할 때 켠다. */
@@ -36,7 +40,12 @@ public class FakeObjectStorage implements ObjectStorage {
     }
 
     public void putObject(String objectKey, byte[] bytes) {
-        uploaded.put(objectKey, bytes.clone());
+        putObject(objectKey, bytes, "image/jpeg");
+    }
+
+    /** 형식까지 정해서 올린다. 지원하지 않는 형식을 거절하는지 확인할 때 쓴다. */
+    public void putObject(String objectKey, byte[] bytes, String contentType) {
+        uploaded.put(objectKey, new Stored(bytes.clone(), contentType));
     }
 
     public boolean contains(String objectKey) {
@@ -48,19 +57,19 @@ public class FakeObjectStorage implements ObjectStorage {
     }
 
     @Override
-    public Long size(String objectKey) {
+    public StoredObjectMetadata metadata(String objectKey) {
         failIfConfigured();
-        operations.add("size");
-        byte[] bytes = uploaded.get(objectKey);
-        return bytes == null ? null : (long) bytes.length;
+        operations.add("metadata");
+        Stored stored = uploaded.get(objectKey);
+        return stored == null ? null : new StoredObjectMetadata(stored.bytes().length, stored.contentType());
     }
 
     @Override
     public byte[] read(String objectKey) {
         failIfConfigured();
         operations.add("read");
-        byte[] bytes = uploaded.get(objectKey);
-        return bytes == null ? null : bytes.clone();
+        Stored stored = uploaded.get(objectKey);
+        return stored == null ? null : stored.bytes().clone();
     }
 
     public void startFailing() {

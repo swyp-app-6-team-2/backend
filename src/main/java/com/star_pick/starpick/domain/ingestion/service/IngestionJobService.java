@@ -45,12 +45,10 @@ public class IngestionJobService {
             throw new BusinessException(INGESTION_DAILY_LIMIT_EXCEEDED);
         }
         for (String key : request.inputImageKeys()) {
-            AttachOutcome outcome = uploadService.attach(userId, key, UploadPurpose.INGESTION_INPUT);
-            if (outcome == AttachOutcome.INVALID) {
-                throw new BusinessException(INGESTION_INPUT_IMAGE_INVALID);
-            }
-            if (outcome == AttachOutcome.ALREADY_ATTACHED) {
-                throw new BusinessException(INGESTION_INPUT_IMAGE_ALREADY_USED);
+            switch (uploadService.attach(userId, key, UploadPurpose.INGESTION_INPUT)) {
+                case INVALID -> throw new BusinessException(INGESTION_INPUT_IMAGE_INVALID);
+                case ALREADY_ATTACHED -> throw new BusinessException(INGESTION_INPUT_IMAGE_ALREADY_USED);
+                case ATTACHED -> { }
             }
         }
         IngestionJob job = repository.save(IngestionJob.queueImage(userId, request.inputImageKeys()));

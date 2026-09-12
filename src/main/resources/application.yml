@@ -16,12 +16,6 @@ spring:
           json_format_mapper: jackson3
     open-in-view: false
   task:
-    execution:
-      # Ingestion 이 등록하는 ThreadPoolTaskExecutor 가 Executor 타입이라, Boot 의
-      # applicationTaskExecutor 자동설정 조건(@ConditionalOnMissingBean(Executor))이 꺾인다.
-      # force 를 주면 Boot 가 자기 실행기를 그대로 만든다. 없으면 MVC async·@Async 가
-      # Ingestion 전용 2스레드 0큐 풀을 함께 쓰고 spring.task.execution.* 설정이 무시된다.
-      mode: force
     scheduling:
       pool:
         # 기본값 1이면 1시간 정리가 2초 선점을 막는다.
@@ -47,7 +41,6 @@ gcs:
 ingestion:
   daily-limit: 20
   worker:
-    enabled: false
     concurrency: 2
     poll-interval: 2s
   job:
