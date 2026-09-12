@@ -34,6 +34,15 @@ public class ApiResponse<T> {
                 .build();
     }
 
+    //성공응답 - 202
+    public static <T> ApiResponse<T> accepted(String message, T data) {
+        return ApiResponse.<T>builder()
+                .status(HttpStatus.ACCEPTED.value())
+                .message(message)
+                .data(data)
+                .build();
+    }
+
     //실패응답 - ErrorCode 기반. data 는 {"code": ...}
     public static ApiResponse<ErrorData> error(ErrorCode errorCode) {
         return error(errorCode, null);

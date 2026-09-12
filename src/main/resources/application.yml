@@ -38,6 +38,31 @@ gcs:
   # 조회 URL 이 더 긴 이유: 상세 화면을 열어둔 채 한참 뒤에 스크롤해도 이미지가 깨지지 않아야 한다.
   view-url-expiration-minutes: 60
 
+ingestion:
+  daily-limit: 20
+  worker:
+    enabled: false
+    concurrency: 2
+    poll-interval: 2s
+  job:
+    deadline: 120s
+    stale-threshold: 3m
+    queue-wait-limit: 10m
+    result-ttl: 24h
+    retention: 7d
+  retry:
+    max-attempts: 3
+    backoffs: 2s,8s
+  image:
+    max-total-bytes: 14680064
+  external:
+    enabled: true
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    model: gemini-3.5-flash-lite
+    base-url: https://generativelanguage.googleapis.com
+    analyze-timeout: 60s
+
 logging:
   level:
     org.hibernate.SQL: debug

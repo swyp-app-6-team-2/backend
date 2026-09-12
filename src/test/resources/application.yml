@@ -33,6 +33,31 @@ google:
 gcs:
   enabled: false
 
+ingestion:
+  daily-limit: 20
+  worker:
+    enabled: false
+    concurrency: 2
+    poll-interval: 2s
+  job:
+    deadline: 10s
+    stale-threshold: 3m
+    queue-wait-limit: 10m
+    result-ttl: 24h
+    retention: 7d
+  retry:
+    max-attempts: 3
+    backoffs: 10ms,10ms
+  image:
+    max-total-bytes: 14680064
+  external:
+    enabled: false
+  gemini:
+    api-key: test-only-not-a-real-key
+    model: test-model
+    base-url: http://localhost:0
+    analyze-timeout: 5s
+
 logging:
   level:
     org.hibernate.SQL: warn
