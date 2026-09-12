@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: starpick-vm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    # 포트를 공개하지 않는다 — app 컨테이너만 내부 네트워크로 접근한다
+
+  app:
+    build: .
+    container_name: starpick-vm-app
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GCS_BUCKET: ${GCS_BUCKET}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    # SPRING_PROFILES_ACTIVE를 절대 지정하지 않는다 (§6 참고)
+
+  caddy:
+    image: caddy:2
+    container_name: starpick-vm-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:
