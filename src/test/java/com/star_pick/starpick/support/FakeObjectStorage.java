@@ -5,9 +5,10 @@ import com.star_pick.starpick.domain.upload.service.SignedPutUrl;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * 테스트용 저장소. 실제 GCS 대신 메모리에서 객체 존재 여부만 흉내낸다.
@@ -24,17 +25,42 @@ public class FakeObjectStorage implements ObjectStorage {
     private static final String UPLOAD_URL_PREFIX = "https://fake-storage.test/upload/";
     public static final String VIEW_URL_PREFIX = "https://fake-storage.test/view/";
 
-    private final Set<String> uploaded = ConcurrentHashMap.newKeySet();
+    private final Map<String, byte[]> uploaded = new ConcurrentHashMap<>();
+    private final List<String> operations = new CopyOnWriteArrayList<>();
 
     /** 실패를 감추는 코드가 실제로 동작하는지 검증할 때 켠다. */
     private volatile boolean failing = false;
 
     public void putObject(String objectKey) {
-        uploaded.add(objectKey);
+        putObject(objectKey, new byte[]{0});
+    }
+
+    public void putObject(String objectKey, byte[] bytes) {
+        uploaded.put(objectKey, bytes.clone());
     }
 
     public boolean contains(String objectKey) {
-        return uploaded.contains(objectKey);
+        return uploaded.containsKey(objectKey);
+    }
+
+    public List<String> operations() {
+        return List.copyOf(operations);
+    }
+
+    @Override
+    public Long size(String objectKey) {
+        failIfConfigured();
+        operations.add("size");
+        byte[] bytes = uploaded.get(objectKey);
+        return bytes == null ? null : (long) bytes.length;
+    }
+
+    @Override
+    public byte[] read(String objectKey) {
+        failIfConfigured();
+        operations.add("read");
+        byte[] bytes = uploaded.get(objectKey);
+        return bytes == null ? null : bytes.clone();
     }
 
     public void startFailing() {
@@ -43,6 +69,7 @@ public class FakeObjectStorage implements ObjectStorage {
 
     public void clear() {
         uploaded.clear();
+        operations.clear();
         failing = false;
     }
 
@@ -70,12 +97,12 @@ public class FakeObjectStorage implements ObjectStorage {
     @Override
     public boolean exists(String objectKey) {
         failIfConfigured();
-        return uploaded.contains(objectKey);
+        return uploaded.containsKey(objectKey);
     }
 
     @Override
     public void delete(Collection<String> objectKeys) {
         failIfConfigured();
-        uploaded.removeAll(objectKeys);
+        objectKeys.forEach(uploaded::remove);
     }
 }

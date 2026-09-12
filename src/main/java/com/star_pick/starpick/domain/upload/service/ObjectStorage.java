@@ -22,6 +22,12 @@ public interface ObjectStorage {
     /** 발급만 받고 실제로 올리지 않은 Key 를 걸러내는 데 쓴다. */
     boolean exists(String objectKey);
 
+    /** 객체가 없으면 null. 바이트를 읽기 전 크기 상한을 검사하는 데 쓴다. */
+    Long size(String objectKey);
+
+    /** 객체가 없으면 null. */
+    byte[] read(String objectKey);
+
     /**
      * 지운다. 이미 없는 Key 는 무시한다. 여러 개를 넘겨도 <b>원격 호출은 한 번</b>이다.
      *

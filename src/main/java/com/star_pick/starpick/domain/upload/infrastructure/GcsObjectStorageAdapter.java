@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.upload.infrastructure;
 
+import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.HttpMethod;
@@ -29,13 +30,22 @@ class GcsObjectStorageAdapter implements ObjectStorage {
     private static final String CONTENT_TYPE_HEADER = "Content-Type";
 
     private final Storage storage;
+
+    /**
+     * {@link #read} 전용 클라이언트. 이유는 {@link GcsConfig#downloadStorage} 에 있다.
+     *
+     * <p>바이너리 본문을 받는 호출만 이것을 쓴다. 나머지는 {@link #storage} 를 쓴다.
+     */
+    private final Storage downloadStorage;
+
     private final String bucket;
     private final Duration uploadUrlExpiration;
     private final Duration viewUrlExpiration;
 
-    GcsObjectStorageAdapter(Storage storage, String bucket,
+    GcsObjectStorageAdapter(Storage storage, Storage downloadStorage, String bucket,
                             Duration uploadUrlExpiration, Duration viewUrlExpiration) {
         this.storage = storage;
+        this.downloadStorage = downloadStorage;
         this.bucket = bucket;
         this.uploadUrlExpiration = uploadUrlExpiration;
         this.viewUrlExpiration = viewUrlExpiration;
@@ -75,6 +85,29 @@ class GcsObjectStorageAdapter implements ObjectStorage {
     @Override
     public boolean exists(String objectKey) {
         return storage.get(BlobId.of(bucket, objectKey)) != null;
+    }
+
+    @Override
+    public Long size(String objectKey) {
+        Blob blob = storage.get(BlobId.of(bucket, objectKey));
+        return blob == null ? null : blob.getSize();
+    }
+
+    /**
+     * 객체 바이트를 읽는다. 메타데이터 조회는 기본 클라이언트로, <b>본문 전송만</b>
+     * {@link #downloadStorage} 로 한다.
+     *
+     * <p>본문을 기본 클라이언트로 받으면 {@link GcsConfig} 의 5초 총 timeout 안에 최대 14MB 를
+     * 받아야 해서(약 22Mbit/s 지속 필요) 느린 회선에서 {@code StorageException} 이 난다. 그
+     * 예외는 Ingestion 의 재시도 분류에 걸리지 않아 재시도 없이 실패로 끝난다.
+     */
+    @Override
+    public byte[] read(String objectKey) {
+        Blob blob = storage.get(BlobId.of(bucket, objectKey));
+        if (blob == null) {
+            return null;
+        }
+        return downloadStorage.readAllBytes(blob.getBlobId());
     }
 
     /** SDK 가 batch 요청 하나로 보낸다. 건별 성공 여부는 쓰지 않는다 — 이미 없는 것도 성공이다. */
