@@ -2,6 +2,7 @@ package com.star_pick.starpick.support;
 
 import com.star_pick.starpick.domain.cooking.domain.CookHistory;
 import com.star_pick.starpick.domain.cooking.repository.CookHistoryRepository;
+import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.recipe.domain.RecipeIngredient;
@@ -29,6 +30,8 @@ public class TestFixtures {
 
     private final UploadService uploadService;
 
+    private final IngestionJobRepository ingestionJobRepository;
+
     private final FakeObjectStorage objectStorage;
 
     private final RecipeRepository recipeRepository;
@@ -50,6 +53,8 @@ public class TestFixtures {
      * {@link #restoreIngredientActivity()} 로 되돌린다.
      */
     public void reset() {
+        // 2단계에서 recipe.ingestion_job_id FK가 생기면 recipe 삭제 다음으로 옮긴다.
+        ingestionJobRepository.deleteAll();
         cookHistoryRepository.deleteAll();
         recipeRepository.deleteAll();
         uploadObjectRepository.deleteAll();

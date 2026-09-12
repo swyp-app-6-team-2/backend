@@ -12,7 +12,14 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        type:
+          json_format_mapper: jackson3
     open-in-view: false
+  task:
+    scheduling:
+      pool:
+        # 기본값 1이면 1시간 정리가 2초 선점을 막는다.
+        size: 2
 
 jwt:
   secret: starpick-jwt-secret-key-must-be-at-least-32-characters-long
