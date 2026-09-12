@@ -7,6 +7,7 @@ import com.star_pick.starpick.domain.ingestion.config.IngestionProperties;
 import com.star_pick.starpick.domain.ingestion.exception.IngestionInputException;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,7 +31,7 @@ class IngestionImageLoaderTest {
         storage.putObject("ingestion-inputs/1/b.png", new byte[]{3, 4, 5}, "image/png");
 
         List<InlineImage> result = loader.load(List.of(
-                "ingestion-inputs/1/a.jpg", "ingestion-inputs/1/b.png"));
+                "ingestion-inputs/1/a.jpg", "ingestion-inputs/1/b.png"), later());
 
         assertThat(result).extracting(InlineImage::mimeType)
                 .containsExactly("image/jpeg", "image/png");
@@ -46,7 +47,7 @@ class IngestionImageLoaderTest {
         storage.putObject("ingestion-inputs/1/b.webp", new byte[]{4, 5, 6}, "image/webp");
 
         assertThatThrownBy(() -> loader.load(List.of(
-                "ingestion-inputs/1/a.jpg", "ingestion-inputs/1/b.webp")))
+                "ingestion-inputs/1/a.jpg", "ingestion-inputs/1/b.webp"), later()))
                 .isInstanceOf(IngestionInputException.class);
         assertThat(storage.operations()).containsExactly("metadata", "metadata");
     }
@@ -54,13 +55,28 @@ class IngestionImageLoaderTest {
     @Test
     @DisplayName("없는 객체와 지원하지 않는 형식을 거절한다")
     void rejectsMissingObjectAndUnsupportedType() {
-        assertThatThrownBy(() -> loader.load(List.of("ingestion-inputs/1/missing.jpg")))
+        assertThatThrownBy(() -> loader.load(List.of("ingestion-inputs/1/missing.jpg"), later()))
                 .isInstanceOf(IngestionInputException.class);
 
         storage.clear();
         storage.putObject("ingestion-inputs/1/a.gif", new byte[]{1}, "image/gif");
-        assertThatThrownBy(() -> loader.load(List.of("ingestion-inputs/1/a.gif")))
+        assertThatThrownBy(() -> loader.load(List.of("ingestion-inputs/1/a.gif"), later()))
                 .isInstanceOf(IngestionInputException.class);
+    }
+
+    @Test
+    @DisplayName("남은 시간이 없으면 저장소를 부르지 않고 끝낸다")
+    void stopsWhenDeadlinePassed() {
+        storage.putObject("ingestion-inputs/1/a.jpg", new byte[]{1});
+
+        assertThatThrownBy(() -> loader.load(List.of("ingestion-inputs/1/a.jpg"), Instant.now()))
+                .isInstanceOf(IngestionInputException.class);
+        assertThat(storage.operations()).isEmpty();
+    }
+
+    /** deadline 이 넉넉한 정상 상황. */
+    private Instant later() {
+        return Instant.now().plusSeconds(60);
     }
 
     private IngestionProperties properties(long maxBytes) {

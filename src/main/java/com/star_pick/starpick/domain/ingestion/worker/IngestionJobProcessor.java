@@ -57,9 +57,11 @@ public class IngestionJobProcessor {
         }
 
         long startedNanos = System.nanoTime();
+        // Job 하나에 허용한 예산. 사진 읽기와 분석 호출이 이 하나를 나눠 쓴다.
+        Instant deadline = snapshot.startedAt().plus(properties.job().deadline());
         try {
-            var images = imageLoader.load(snapshot.inputImageKeys());
-            AnalysisOutcome outcome = analyzeWithRetry(snapshot, new AnalysisInput(images));
+            var images = imageLoader.load(snapshot.inputImageKeys(), deadline);
+            AnalysisOutcome outcome = analyzeWithRetry(snapshot, new AnalysisInput(images), deadline);
             if (outcome.verdict() != Verdict.RECIPE) {
                 finishFailed(snapshot, IngestionFailureCode.CONTENT_NOT_RECOGNIZED, startedNanos, outcome);
                 return;
@@ -100,8 +102,8 @@ public class IngestionJobProcessor {
         }
     }
 
-    private AnalysisOutcome analyzeWithRetry(IngestionJobSnapshot snapshot, AnalysisInput input) {
-        Instant deadline = snapshot.startedAt().plus(properties.job().deadline());
+    private AnalysisOutcome analyzeWithRetry(IngestionJobSnapshot snapshot, AnalysisInput input,
+                                             Instant deadline) {
         int maxAttempts = properties.retry().maxAttempts();
         for (int call = 1; ; call++) {
             Duration remaining = Duration.between(Instant.now(), deadline);
