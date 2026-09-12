@@ -1,0 +1,3 @@
+dev-api.starpick.cloud {
+    reverse_proxy app:8080
+}

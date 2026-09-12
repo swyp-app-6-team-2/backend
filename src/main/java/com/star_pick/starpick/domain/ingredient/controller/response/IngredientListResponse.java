@@ -7,9 +7,11 @@ import java.util.List;
 
 public record IngredientListResponse(List<IngredientResponse> ingredients) {
 
-    public static IngredientListResponse from(List<Ingredient> ingredients) {
+    public static IngredientListResponse from(List<Ingredient> ingredients, String iconBaseUrl) {
         return new IngredientListResponse(
-                ingredients.stream().map(IngredientResponse::from).toList());
+                ingredients.stream()
+                        .map(ingredient -> IngredientResponse.from(ingredient, iconBaseUrl))
+                        .toList());
     }
 
     public record IngredientResponse(
@@ -17,15 +19,17 @@ public record IngredientListResponse(List<IngredientResponse> ingredients) {
             String code,
             String name,
             IngredientCategory categoryCode,
-            List<String> aliases
+            List<String> aliases,
+            String iconUrl
     ) {
-        private static IngredientResponse from(Ingredient ingredient) {
+        private static IngredientResponse from(Ingredient ingredient, String iconBaseUrl) {
             return new IngredientResponse(
                     ingredient.getId(),
                     ingredient.getCode(),
                     ingredient.getName(),
                     ingredient.getCategory(),
-                    Arrays.stream(ingredient.getAliases()).toList());
+                    Arrays.stream(ingredient.getAliases()).toList(),
+                    iconBaseUrl + "/images/ingredients/" + ingredient.getIconKey() + ".webp");
         }
     }
 }

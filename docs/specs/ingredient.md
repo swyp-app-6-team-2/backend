@@ -9,7 +9,7 @@
 
 ## 1. Goal
 
-PM팀이 확정한 재료 87개를 마스터 데이터로 적재하고, 앱이 조회할 수 있는 API를 제공하며, Recipe가 자유 입력 재료명 대신 이 마스터를 참조할 수 있게 한다.
+PM팀이 확정한 재료 104개를 마스터 데이터로 적재하고, 앱이 아이콘과 함께 조회할 수 있는 API를 제공하며, Recipe가 자유 입력 재료명 대신 이 마스터를 참조할 수 있게 한다.
 
 ## 2. Non-Goals
 
@@ -17,10 +17,9 @@ PM팀이 확정한 재료 87개를 마스터 데이터로 적재하고, 앱이 �
 
 | 제외 | 이유 |
 |---|---|
-| 재료 아이콘 컬럼·URL | 전달 방식 미정. [#24](https://github.com/swyp-app-6-team-2/backend/issues/24) |
 | 사용자 보유 재료(`user_ingredient`), 유통기한, 냉장고 필터 | Discovery 도메인 소유 |
 | 재료 CRUD API (생성·수정·삭제) | 마스터는 migration으로만 바뀐다 |
-| 서버 측 재료 검색·필터·페이지네이션 파라미터 | 87개라 클라이언트가 거른다 (§9.5) |
+| 서버 측 재료 검색·필터·페이지네이션 파라미터 | 104개라 클라이언트가 거른다 (§9.5) |
 | 재료 계층 구조(`parent_id`), 대체 재료, 영양 정보 | 요구가 없다 |
 | 재료명 정규화·형태소 분석·검색엔진 | 규모가 안 된다 |
 
@@ -54,7 +53,7 @@ Recipe는 `IngredientRepository`나 `Ingredient` Entity를 직접 참조하지 �
 - 테스트 의존성은 이미 클래스패스에 있다(JUnit Jupiter 6.0.3, AssertJ, Mockito, spring-test). **build.gradle에 추가하지 않는다**
 - `./gradlew test`는 환경변수도 수동 DB도 요구하지 않는다. Docker daemon만 있으면 통과해야 한다
 - Base path `/api/v1`. JSON key는 `camelCase`. 목록이 비면 `null`이 아니라 `[]`
-- 인증 API 외 모든 API는 인증이 필요하다. `SecurityConfig`가 `anyRequest().authenticated()`이므로 **새 endpoint에 별도 설정이 필요 없다**
+- 인증 API와 `/images/**` 정적 리소스 외 모든 API는 인증이 필요하다. `/images/**`는 전용 Security Filter Chain에서 공개한다
 - 공통 응답 Envelope는 `ApiResponse<T>`(`status`, `message`, `data`). 성공은 `ApiResponse.ok(message, data)`. 실패의 machine-readable code는 `data.code`
 - ErrorCode는 도메인별 enum이 `com.star_pick.starpick.global.exception.ErrorCode`를 구현하고, **enum 상수명이 그대로 공개 code가 된다**. 형식은 `{RESOURCE_OR_CONTEXT}_{REASON}`
 - Controller는 `@AuthenticationPrincipal AuthenticatedUser user`로 사용자를 받는다(`record AuthenticatedUser(Long userId)`)
@@ -78,6 +77,7 @@ create table ingredient
     category_code varchar(255) not null,
     aliases       text[]       not null default '{}',
     active        boolean      not null default true,
+    icon_key      varchar(255) not null,
     constraint pk_ingredient primary key (id),
     constraint uk_ingredient_code unique (code),
     constraint ck_ingredient_category_code
@@ -93,6 +93,7 @@ create table ingredient
 | `category_code` | O | `MEAT`, `SEAFOOD`, `VEGETABLE`, `SAUCE`, `ETC` |
 | `aliases` | O | 검색어 배열. 없으면 빈 배열 `{}`이며 `null`이 아니다. **표시명이 아니다** — 화면에 노출하지 않는다 |
 | `active` | O | `false`면 조회 API 목록에서 제외된다. 기본 `true` |
+| `icon_key` | O | 확장자·경로 없는 아이콘 슬러그. 여러 재료가 같은 값을 공유할 수 있다 |
 
 `created_at`/`updated_at`을 두지 않는다. 데이터가 migration으로만 바뀌고, `recipe_ingredient`·`recipe_step`·`cook_history`·`upload_object`도 두고 있지 않다.
 
@@ -118,17 +119,17 @@ alter table recipe_ingredient
 
 마스터 스키마·시드와 `recipe_ingredient` FK를 **다른 migration 파일로 나눈다.** 전자는 Ingredient 도메인만의 변경이고 후자는 Recipe 계약 변경이라 커밋 경계가 다르다.
 
-현재 적용된 마지막 migration은 `V1__init.sql`이다. 따라서 §5.1·§6이 `V2`, §5.2가 `V3`가 된다.
+`V2__create_ingredient_master.sql`이 최초 87건과 기본 스키마를 만들고, `V3__add_recipe_ingredient_foreign_key.sql`이 Recipe FK를 추가한다. `V6__add_ingredient_icon_and_extend_master.sql`은 `icon_key`를 기존 87건에 채워 `NOT NULL`로 바꾸고 신규 17건을 추가한다. 이미 적용된 V2·V3는 수정하지 않는다.
 
 ---
 
 ## 6. Seed Data
 
-출처는 PM팀 Google Sheets(`1XX4-YRimYD-ppcCDdcYMOF8O1oY3C8rGvPQbySPByW4`, gid `1442157040`), 2026-09-07 전달. 87행이며 카테고리별로 육류 12 / 해산물 11 / 채소 24 / 소스류 22 / 기타 18이다.
+출처는 PM팀 Google Sheets(`1XX4-YRimYD-ppcCDdcYMOF8O1oY3C8rGvPQbySPByW4`, gid `1442157040`)다. V2의 최초 87행에 V6의 17행을 더한 104행이며, 카테고리별로 육류 13 / 해산물 15 / 채소 27 / 소스류 26 / 기타 23이다.
 
-`name`은 시트의 `ingre_name`을 **그대로** 쓴다. 괄호·슬래시 표기(`돼지고기(삼겹살)`, `파프리카/피망`)를 다듬지 않는다 — 이름은 PM·디자인팀 소유이고, 표시명을 줄일지는 [#22](https://github.com/swyp-app-6-team-2/backend/issues/22)에서 논의 중이다(§11).
+`name`은 시트의 `ingre_name`을 **그대로** 쓴다. 괄호·슬래시 표기(`돼지고기(삼겹살)`, `파프리카/피망`)를 다듬지 않는다 — 이름은 PM·디자인팀 소유이고, 표시명 정리는 [#22](https://github.com/swyp-app-6-team-2/backend/issues/22)에서 **A안(시트 표기 유지)으로 확정됐다**(2026-09-11).
 
-별칭은 **`name` 안에 이미 들어 있는 표기를 쪼갠 것**과 명백한 이표기(`쇠고기`→`소고기`)뿐이다. 13개 재료에만 있고 나머지 74개는 빈 배열이다. **없는 별칭을 상상해서 채우지 않는다.**
+별칭은 **`name` 안에 이미 들어 있는 표기를 쪼갠 것**과 명백한 이표기(`쇠고기`→`소고기`)뿐이다. V6에서 `MET013`, `SAU026`에 별칭을 추가해 총 15개 재료에만 있고 나머지 89개는 빈 배열이다. **없는 별칭을 상상해서 채우지 않는다.**
 
 ```sql
 insert into ingredient (code, name, category_code, aliases) values
@@ -221,6 +222,31 @@ insert into ingredient (code, name, category_code, aliases) values
 ('ETC018', '김치',                  'ETC',       '{}');
 ```
 
+V6이 추가하는 17건은 다음과 같다. `SEA015`는 기존 `SEA008 바지락`과 이름이 중복되어 넣지 않는다.
+
+```sql
+insert into ingredient (code, name, category_code, aliases, icon_key) values
+('MET013', '쇠고기(차돌박이)', 'MEAT',      '{"차돌박이","쇠고기","소고기"}', 'beef'),
+('SEA012', '명란',             'SEAFOOD',   '{}', 'pollock-roe'),
+('SEA013', '굴',               'SEAFOOD',   '{}', 'oyster'),
+('SEA014', '꽃게',             'SEAFOOD',   '{}', 'crab'),
+('SEA016', '미역',             'SEAFOOD',   '{}', 'seaweed'),
+('VEG025', '가지',             'VEGETABLE', '{}', 'eggplant'),
+('VEG026', '쪽파',             'VEGETABLE', '{}', 'scallion'),
+('VEG027', '양상추',           'VEGETABLE', '{}', 'lettuce'),
+('SAU023', '카레가루',         'SAUCE',     '{}', 'seasoning-powder'),
+('SAU024', '치킨스톡',         'SAUCE',     '{}', 'seasoning-powder'),
+('SAU025', '다시다',           'SAUCE',     '{}', 'seasoning-powder'),
+('SAU026', '올리고당/물엿',    'SAUCE',     '{"올리고당","물엿"}', 'liquid'),
+('ETC019', '전분가루',         'ETC',       '{}', 'flour'),
+('ETC020', '메추리알',         'ETC',       '{}', 'egg'),
+('ETC021', '사과',             'ETC',       '{}', 'apple'),
+('ETC022', '배',               'ETC',       '{}', 'pear'),
+('ETC023', '레몬',             'ETC',       '{}', 'lemon');
+```
+
+104건의 전체 `code` → `icon_key` 값은 `V6__add_ingredient_icon_and_extend_master.sql`이 소유한다. `icon_key` 58종과 WebP 파일명은 양방향으로 정확히 일치해야 한다.
+
 ---
 
 ## 7. API — `GET /api/v1/ingredients`
@@ -249,14 +275,16 @@ Authorization: Bearer {accessToken}
         "code": "MET001",
         "name": "돼지고기(삼겹살)",
         "categoryCode": "MEAT",
-        "aliases": ["돼지고기", "삼겹살"]
+        "aliases": ["돼지고기", "삼겹살"],
+        "iconUrl": "https://dev-api.starpick.cloud/images/ingredients/pork.webp"
       },
       {
         "ingredientId": 8,
         "code": "MET008",
         "name": "닭가슴살",
         "categoryCode": "MEAT",
-        "aliases": []
+        "aliases": [],
+        "iconUrl": "https://dev-api.starpick.cloud/images/ingredients/chicken.webp"
       }
     ]
   }
@@ -266,10 +294,11 @@ Authorization: Bearer {accessToken}
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `ingredientId` | number | `ingredient.id`. Recipe 저장 시 이 값을 보낸다 |
-| `code` | string | `MET001`. 앱이 아이콘을 찾는 키다([#24](https://github.com/swyp-app-6-team-2/backend/issues/24)) |
+| `code` | string | `MET001`. PM 시트가 정한 영구 코드 |
 | `name` | string | 표시명 |
 | `categoryCode` | string | `MEAT` \| `SEAFOOD` \| `VEGETABLE` \| `SAUCE` \| `ETC` |
 | `aliases` | string[] | 검색어. 없으면 `[]` (`null` 아님) |
+| `iconUrl` | string | 항상 존재하는 절대 URL. `{icon-base-url}/images/ingredients/{iconKey}.webp` |
 
 응답에 `active`를 넣지 않는다 — 비활성은 목록에서 아예 빠지므로 항상 `true`가 되어 정보가 없다.
 
@@ -280,9 +309,11 @@ Authorization: Bearer {accessToken}
 서버가 정렬해서 내려준다. 앱은 배열 순서를 그대로 쓴다.
 
 1. **카테고리** — `IngredientCategory` enum **선언 순서**: `MEAT` → `SEAFOOD` → `VEGETABLE` → `SAUCE` → `ETC`
-2. 같은 카테고리 안에서는 **`code` 오름차순**
+2. 같은 카테고리 안에서는 **`name` 가나다순**
 
 `category_code` 문자열을 그대로 정렬하면 `ETC`가 맨 앞에 온다. 그건 PM 시트의 순서가 아니다. **enum 선언 순서로 정렬해야 한다.**
+
+이름 정렬은 Figma 재료 화면을 따른 것이다(2026-09-13). `code`는 시트 입력 순서라 사용자에게 의미가 없다. 완성형 한글은 유니코드 순이 곧 가나다순이므로 `Collator` 없이 `String`의 자연 순서를 쓴다. 초성 순서(`ㅅ` < `ㅆ`)와 중성 순서(`ㅐ` < `ㅓ`)가 그대로 반영되어 `식빵` < `쌀`, `배` < `버터`가 된다. Figma 기타 카테고리는 이 두 쌍이 뒤집혀 있는데 디자인 쪽 실수로 보고 규칙을 따랐다.
 
 `aliases` 배열의 순서는 정의하지 않는다. 검색용이라 순서에 의미가 없다.
 
@@ -293,6 +324,10 @@ Authorization: Bearer {accessToken}
 | 인증 헤더 없음·토큰 무효 | `401` + `AUTHENTICATION_REQUIRED` (Security 공통 처리) |
 
 이 API 고유의 실패가 없다. 목록이 비어도 `200` + `"ingredients": []`다.
+
+### 7.5. 아이콘 정적 경로
+
+`/images/**`는 인증 없이 조회할 수 있다. Spring Security의 기본 `no-store` 헤더는 이 경로에서만 끄고, 정적 리소스에는 `Cache-Control: max-age=604800`(7일)을 적용한다. API Security 체인과 캐시 정책은 바꾸지 않는다.
 
 ---
 
@@ -392,7 +427,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 ### 9.3. `Ingredient`
 
-`id`, `code`, `name`, `category`(`@Enumerated(STRING)`, 컬럼 `category_code`), `aliases`, `active`.
+`id`, `code`, `name`, `category`(`@Enumerated(STRING)`, 컬럼 `category_code`), `aliases`, `active`, `iconKey`(컬럼 `icon_key`).
 
 `aliases`는 **`@JdbcTypeCode(SqlTypes.ARRAY)` + `String[]`** 로 `text[]` 컬럼에 매핑한다(§5.1에서 검증). 별도 테이블로 바꾸지 않는다 — 이유는 §10.2.
 
@@ -404,7 +439,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 | 메서드 | 용도 | 계약 |
 |---|---|---|
-| `IngredientListResponse findActiveIngredients()` | 조회 API | `active = true`인 재료를 §7.3 순서로. 각 재료의 `aliases` 포함 |
+| `IngredientListResponse findActiveIngredients()` | 조회 API | `active = true`인 재료를 §7.3 순서로. 설정된 base URL과 `iconKey`로 절대 `iconUrl` 조립 |
 | `boolean existsAll(Collection<Long> ingredientIds)` | Recipe 검증 | 주어진 id가 **모두 존재**하면 `true`. **`active`를 보지 않는다.** 빈 컬렉션은 `true` |
 
 `existsAll`은 도메인 경계를 넘는 유일한 창구다. Recipe는 이 메서드만 호출하고 `IngredientRepository`·`Ingredient`를 직접 쓰지 않는다.
@@ -413,7 +448,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 ### 9.5. 조회 성능
 
-87행짜리 단일 테이블 조회다. `aliases`가 같은 행의 컬럼이라 조인도 `fetch join`도 N+1도 없다.
+104행짜리 단일 테이블 조회다. `aliases`와 `icon_key`가 같은 행의 컬럼이라 조인도 `fetch join`도 N+1도 없다.
 
 §7.3 정렬은 조회한 뒤 애플리케이션에서 수행한다. enum 선언 순서는 SQL `ORDER BY`로 표현할 수 없다.
 
@@ -517,28 +552,28 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 ## 11. Open Questions
 
-셋 다 별도 이슈로 분리돼 있고 **이 구현을 막지 않는다.**
+셋 다 **이 구현을 막지 않는다.** 확정 전에는 migration이나 API 계약을 임의로 바꾸지 않는다.
 
-### 11.1. `name`의 최종 표기 — [#22](https://github.com/swyp-app-6-team-2/backend/issues/22)
+### 11.1. `SEA015 바지락` 제외
 
-87개 중 13개가 `돼지고기(삼겹살)`, `파프리카/피망` 같은 표기다. 그대로 쓸지(A안), 표시명을 짧게 하고 원본을 별칭으로 보낼지(B안)를 PM팀과 논의 중이다. 재료 칩 UI(F-13)에 아이콘과 함께 들어가서 길이가 디자인에 영향을 준다.
+기존 `SEA008 바지락`과 이름이 중복되어 `SEA015`를 제외했다. 중복 이름은 Ingestion 자동 연결을 끊으므로 현재 104건의 `name`은 유일해야 한다. PM 확인이 필요하다.
 
-**막지 않는 이유:** 스키마·API·검증 로직이 `name` 값과 무관하다. 답이 오면 아직 머지되지 않은 migration의 값만 고치면 된다.
+### 11.2. Figma와 시트의 어긋남
 
-**출시 전에는 반드시 확정해야 한다.** `recipe_ingredient.name`이 스냅샷이라 사용자가 레시피를 저장하기 시작하면 그 시점 표기가 사용자 데이터에 영구히 남는다.
+2026-09-13 Figma 재료 화면과 대조한 결과다. 마스터는 시트를 기준으로 하되(#22 A안) 아래는 팀 확인이 필요하다.
 
-### 11.2. 아이콘 전달 방식 — [#24](https://github.com/swyp-app-6-team-2/backend/issues/24)
+- **`연어` 아이콘은 해결됐다.** Figma가 연어에 `salmon`을 쓰는 것을 확인해 `SEA002`의 `icon_key`를 `fish`에서 `salmon`으로 고쳤다. 아이콘은 58종이다.
+- `소세지/햄`(Figma) vs `소시지/햄`(시트·구현). 시트 표기를 유지했다.
+- Figma 해산물에 `명태/동태`가 두 번 있다. 시트에는 `SEA004` 하나뿐이다.
+- Figma 소스류에 `올리고당/물엿`(`SAU026`)이 없다.
 
-앱 번들에 포함할지(`MET001.png`), 서버가 `iconUrl`을 내려줄지 FE·Discovery와 논의 중이다. 아이콘 파일 자체를 아직 받지 못했다 — PM 시트의 `emoji` 컬럼이 87행 모두 비어 있다.
+### 11.3. Figma 재료 화면의 정렬 두 곳
 
-**막지 않는 이유:** 마스터에 아이콘 컬럼을 두지 않았다. 서버가 내려주는 쪽으로 결정되면 응답에 `iconUrl` 필드를 추가하면 되고, 필드 추가는 하위호환이다. 앱은 이미 `code`로 아이콘을 찾을 수 있다.
+정렬 기준 자체는 **가나다순으로 확정**했다. 다만 Figma 기타 카테고리가 `버터 → 배`, `쌀 → 식빵` 순인데 가나다순은 그 반대다. 규칙을 따랐으므로 구현은 막히지 않으나 디자인 확인이 필요하다.
 
-### 11.3. 다른 누락 FK — [#30](https://github.com/swyp-app-6-team-2/backend/issues/30)
+### 11.4. 카테고리 단위 아이콘
 
-`recipe_ingredient.ingredient_id`와 별개로 `recipe.user_id`, `upload_object.user_id`에도 FK가
-없었다. **해결됐다**(2026-09-11, `V5__add_recipe_and_upload_object_user_foreign_keys.sql`). 테스트가
-`users` 행 없이 임의의 `ownerId`로 Recipe/UploadObject를 저장하던 문제는 `TestFixtures.seedUser`로
-정리했다.
+시트에 값은 있으나 앱이 사용하는지 확인되지 않아 범위에서 제외했다. 필요하면 별도 이슈로 다룬다.
 
 ---
 

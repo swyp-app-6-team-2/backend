@@ -21,6 +21,10 @@ spring:
         # 기본값 1이면 1시간 정리가 2초 선점을 막는다.
         size: 2
 
+starpick:
+  ingredient:
+    icon-base-url: ${INGREDIENT_ICON_BASE_URL}
+
 jwt:
   secret: starpick-jwt-secret-key-must-be-at-least-32-characters-long
   access-token-expiration: 1800000       # 30분

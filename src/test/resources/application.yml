@@ -18,6 +18,10 @@ spring:
         type:
           json_format_mapper: jackson3
 
+starpick:
+  ingredient:
+    icon-base-url: http://localhost
+
 jwt:
   secret: starpick-test-only-jwt-secret-key-not-for-any-real-environment
   access-token-expiration: 1800000

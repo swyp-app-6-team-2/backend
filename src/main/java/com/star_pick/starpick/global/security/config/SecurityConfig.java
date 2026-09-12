@@ -6,6 +6,7 @@ import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -18,6 +19,20 @@ import tools.jackson.databind.json.JsonMapper;
 public class SecurityConfig {
 
     @Bean
+    @Order(0)
+    public SecurityFilterChain staticImageFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/images/**")
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                // Security 기본 헤더는 no-store 라 이미지를 매 요청 다시 받게 된다.
+                // 캐시 정책은 StaticImageCacheConfig 가 소유하므로 이 경로에서만 끈다.
+                .headers(headers -> headers.cacheControl(cache -> cache.disable()))
+                .csrf(csrf -> csrf.disable());
+        return http.build();
+    }
+
+    @Bean
+    @Order(1)
     public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtProvider jwtProvider, JsonMapper jsonMapper)
             throws Exception {
 

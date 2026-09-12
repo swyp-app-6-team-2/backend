@@ -1,9 +1,13 @@
 package com.star_pick.starpick.domain.ingredient.controller;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -55,31 +59,43 @@ class IngredientQueryApiTest {
     }
 
     @Test
-    @DisplayName("활성 재료 87개를 enum 카테고리 순서와 code 오름차순으로 반환한다")
+    @DisplayName("활성 재료 104개를 enum 카테고리 순서와 이름 가나다순으로 반환한다")
     void returnsActiveIngredientsInDisplayOrder() throws Exception {
         read()
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.message").value("재료 목록을 조회했습니다."))
-                .andExpect(jsonPath("$.data.ingredients.length()").value(87))
-                .andExpect(jsonPath("$.data.ingredients[0].code").value("MET001"))
-                .andExpect(jsonPath("$.data.ingredients[11].code").value("MET012"))
-                .andExpect(jsonPath("$.data.ingredients[12].code").value("SEA001"))
-                .andExpect(jsonPath("$.data.ingredients[22].code").value("SEA011"))
-                .andExpect(jsonPath("$.data.ingredients[23].code").value("VEG001"))
-                .andExpect(jsonPath("$.data.ingredients[46].code").value("VEG024"))
-                .andExpect(jsonPath("$.data.ingredients[47].code").value("SAU001"))
-                .andExpect(jsonPath("$.data.ingredients[68].code").value("SAU022"))
-                .andExpect(jsonPath("$.data.ingredients[69].code").value("ETC001"))
-                .andExpect(jsonPath("$.data.ingredients[86].code").value("ETC018"))
+                .andExpect(jsonPath("$.data.ingredients.length()").value(104))
+                // 카테고리 경계. 각 카테고리의 첫 항목과 마지막 항목이 가나다순 양끝이다.
+                .andExpect(jsonPath("$.data.ingredients[0].name").value("닭가슴살"))
+                .andExpect(jsonPath("$.data.ingredients[12].name").value("오리고기"))
+                .andExpect(jsonPath("$.data.ingredients[13].name").value("갈치"))
+                .andExpect(jsonPath("$.data.ingredients[27].name").value("홍합"))
+                .andExpect(jsonPath("$.data.ingredients[28].name").value("가지"))
+                .andExpect(jsonPath("$.data.ingredients[54].name").value("홍고추"))
+                .andExpect(jsonPath("$.data.ingredients[55].name").value("고추장"))
+                .andExpect(jsonPath("$.data.ingredients[80].name").value("후추"))
+                .andExpect(jsonPath("$.data.ingredients[81].name").value("가쓰오부시"))
+                .andExpect(jsonPath("$.data.ingredients[103].name").value("파스타면"))
+                // 초성이 같은 묶음 안에서도 가나다순이다(ㅅ < ㅆ, ㅐ < ㅓ).
+                .andExpect(jsonPath("$.data.ingredients[91].name").value("배"))
+                .andExpect(jsonPath("$.data.ingredients[92].name").value("버터"))
+                .andExpect(jsonPath("$.data.ingredients[96].name").value("식빵"))
+                .andExpect(jsonPath("$.data.ingredients[97].name").value("쌀"))
                 .andExpect(jsonPath("$.data.ingredients[0].ingredientId").isNumber())
-                .andExpect(jsonPath("$.data.ingredients[0].name").value("돼지고기(삼겹살)"))
+                .andExpect(jsonPath("$.data.ingredients[0].code").value("MET008"))
                 .andExpect(jsonPath("$.data.ingredients[0].categoryCode").value("MEAT"))
-                .andExpect(jsonPath("$.data.ingredients[0].aliases",
-                        containsInAnyOrder("삼겹살", "돼지고기")))
+                .andExpect(jsonPath("$.data.ingredients[0].iconUrl")
+                        .value("http://localhost/images/ingredients/chicken.webp"))
+                .andExpect(jsonPath("$.data.ingredients[*].iconUrl",
+                        everyItem(startsWith("http://localhost/images/ingredients/"))))
                 .andExpect(jsonPath("$.data.ingredients[0].active").doesNotExist())
-                .andExpect(jsonPath("$.data.ingredients[7].aliases").isArray())
-                .andExpect(jsonPath("$.data.ingredients[7].aliases.length()").value(0));
+                // 별칭이 있는 항목과 없는 항목을 각각 확인한다.
+                .andExpect(jsonPath("$.data.ingredients[4].name").value("돼지고기(삼겹살)"))
+                .andExpect(jsonPath("$.data.ingredients[4].aliases",
+                        containsInAnyOrder("삼겹살", "돼지고기")))
+                .andExpect(jsonPath("$.data.ingredients[0].aliases").isArray())
+                .andExpect(jsonPath("$.data.ingredients[0].aliases.length()").value(0));
     }
 
     @Test
@@ -89,7 +105,7 @@ class IngredientQueryApiTest {
 
         read()
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.ingredients.length()").value(86))
+                .andExpect(jsonPath("$.data.ingredients.length()").value(103))
                 .andExpect(jsonPath("$.data.ingredients[*].code", not(hasItem("MET001"))));
     }
 
@@ -110,5 +126,16 @@ class IngredientQueryApiTest {
         mockMvc.perform(get("/api/v1/ingredients"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.data.code").value("AUTHENTICATION_REQUIRED"));
+    }
+
+    @Test
+    @DisplayName("재료 아이콘은 인증 없이 조회되고 7일 캐시된다")
+    void servesIngredientIconPubliclyWithCacheHeader() throws Exception {
+        mockMvc.perform(get("/images/ingredients/pork.webp"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL,
+                        containsString("max-age=604800")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL,
+                        not(containsString("no-store"))));
     }
 }
