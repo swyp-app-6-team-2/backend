@@ -34,6 +34,17 @@ public interface IngestionJobRepository extends JpaRepository<IngestionJob, Long
     @Query("select j from IngestionJob j where j.id = :id")
     Optional<IngestionJob> findByIdForUpdate(@Param("id") Long id);
 
+    @Transactional
+    @Modifying
+    @Query("""
+            update IngestionJob j
+               set j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.QUEUED
+             where j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.PROCESSING
+               and j.attempt = 1
+               and j.startedAt < :threshold
+            """)
+    int requeueStale(@Param("threshold") Instant threshold);
+
     /**
      * 선점했지만 실행에 넘기지 못한 Job 을 곧바로 대기로 되돌린다.
      *
@@ -54,4 +65,50 @@ public interface IngestionJobRepository extends JpaRepository<IngestionJob, Long
                and j.attempt = :attempt
             """)
     int releaseToQueued(@Param("id") Long id, @Param("attempt") int attempt);
+
+    @Transactional
+    @Modifying
+    @Query("""
+            update IngestionJob j
+               set j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.FAILED,
+                   j.failureCode = com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode.PROCESSING_FAILED
+             where j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.PROCESSING
+               and j.attempt >= 2
+               and j.startedAt < :threshold
+            """)
+    int failStale(@Param("threshold") Instant threshold);
+
+    @Transactional
+    @Modifying
+    @Query("""
+            update IngestionJob j
+               set j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.FAILED,
+                   j.failureCode = com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode.PROCESSING_FAILED
+             where j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.QUEUED
+               and j.createdAt < :threshold
+            """)
+    int failStuckQueued(@Param("threshold") Instant threshold);
+
+    @Transactional
+    @Modifying
+    @Query("""
+            update IngestionJob j
+               set j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.EXPIRED,
+                   j.result = null
+             where j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.RESULT_READY
+               and j.consumedAt is null
+               and j.expiresAt <= :now
+            """)
+    int expireResults(@Param("now") Instant now);
+
+    @Query("""
+            select j.id from IngestionJob j
+             where j.consumedAt is null
+               and ((j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.FAILED
+                     and coalesce(j.startedAt, j.createdAt) < :threshold)
+                 or (j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.EXPIRED
+                     and j.expiresAt < :threshold))
+             order by j.id asc
+            """)
+    List<Long> findPurgeTargetIds(@Param("threshold") Instant threshold, Pageable pageable);
 }
