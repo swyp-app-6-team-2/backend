@@ -13,6 +13,7 @@ public class FakeRecipeAnalyzer implements RecipeAnalyzer {
     private final Deque<Object> script = new ArrayDeque<>();
     private final AtomicInteger calls = new AtomicInteger();
     private volatile Duration lastTimeout;
+    private volatile AnalysisInput lastInput;
 
     public synchronized void enqueue(AnalysisOutcome outcome) {
         script.addLast(outcome);
@@ -30,6 +31,7 @@ public class FakeRecipeAnalyzer implements RecipeAnalyzer {
     public synchronized AnalysisOutcome analyze(AnalysisInput input, Duration timeout) {
         calls.incrementAndGet();
         lastTimeout = timeout;
+        lastInput = input;
         Object next = script.removeFirst();
         if (next instanceof RuntimeException exception) {
             throw exception;
@@ -49,10 +51,15 @@ public class FakeRecipeAnalyzer implements RecipeAnalyzer {
         return lastTimeout;
     }
 
+    public AnalysisInput lastInput() {
+        return lastInput;
+    }
+
     public synchronized void clear() {
         script.clear();
         calls.set(0);
         lastTimeout = null;
+        lastInput = null;
     }
 
     private record Action(Runnable beforeReturn, AnalysisOutcome outcome) {

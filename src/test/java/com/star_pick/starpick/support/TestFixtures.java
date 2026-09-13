@@ -4,6 +4,7 @@ import com.star_pick.starpick.domain.cooking.domain.CookHistory;
 import com.star_pick.starpick.domain.cooking.repository.CookHistoryRepository;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
 import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
+import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
@@ -125,20 +126,14 @@ public class TestFixtures {
         return objectKey;
     }
 
-    /**
-     * 결과가 준비된 YouTube 분석 Job 의 id.
-     *
-     * <p>URL Job 을 만드는 코드는 YouTube 단계에 생긴다. 그 전까지는 행을 직접 넣는다.
-     * {@code result} 는 비워 둔다 — Recipe 저장은 상태와 만료 시각만 본다.
-     */
+    /** 결과가 준비된 YouTube 분석 Job 의 id. 링크는 유효한 YouTube 영상 링크여야 한다. */
     public Long saveReadyUrlJob(Long ownerId, String url) {
         seedUser(ownerId);
-        return jdbcTemplate.queryForObject("""
-                insert into ingestion_job (user_id, source_type, input_url, status, attempt,
-                                           created_at, started_at, expires_at)
-                values (?, 'YOUTUBE', ?, 'RESULT_READY', 1, now(), now(), now() + interval '1 hour')
-                returning id
-                """, Long.class, ownerId, url);
+        IngestionJob job = IngestionJob.queueYouTube(ownerId, YouTubeUrl.parse(url).orElseThrow());
+        job.completeWithResult(
+                new RecipeDraft("김치찌개", RecipeCategory.KOREAN, null, null, List.of(), List.of()),
+                Instant.now().plus(1, ChronoUnit.HOURS));
+        return ingestionJobRepository.save(job).getId();
     }
 
     /** 결과가 준비된 사진 분석 Job. 입력 사진 2장은 업로드와 연결까지 마쳤다. */
@@ -164,10 +159,12 @@ public class TestFixtures {
 
     /** URL 분석 결과로 저장한 Recipe. */
     public Recipe saveUrlRecipe(Long ownerId, String url) {
-        Long jobId = saveReadyUrlJob(ownerId, url);
+        // Job 과 Recipe 가 같은 정규화 URL 을 갖게 한다. 받은 url 을 그대로 쓰면 youtu.be 형식에서 둘이 달라진다.
+        String canonicalUrl = YouTubeUrl.parse(url).orElseThrow().canonicalUrl();
+        Long jobId = saveReadyUrlJob(ownerId, canonicalUrl);
         jdbcTemplate.update("update ingestion_job set consumed_at = now(), result = null where id = ?", jobId);
         return recipeRepository.save(Recipe.createFromIngestion(ownerId, "김치찌개", RecipeCategory.KOREAN,
-                null, null, null, jobId, url, null));
+                null, null, null, jobId, canonicalUrl, null));
     }
 
     /** Key 가 어딘가에 연결됐는지. 연결 성공과 롤백을 확인할 때 쓴다. */

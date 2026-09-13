@@ -60,6 +60,8 @@ ingestion:
     model: test-model
     base-url: http://localhost:0
     analyze-timeout: 5s
+    # 영상을 5초에 한 장면씩 본다. 1fps 대비 입력 토큰 58% 감소, 추출 품질 거의 동일(2026-09-13 실측).
+    video-fps: 0.2
 
 logging:
   level:

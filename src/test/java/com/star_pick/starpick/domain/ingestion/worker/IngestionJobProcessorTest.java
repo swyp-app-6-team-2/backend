@@ -8,6 +8,7 @@ import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus;
 import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
+import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisOutcome;
 import com.star_pick.starpick.domain.ingestion.service.IngestionJobExecutionService;
@@ -58,6 +59,8 @@ class IngestionJobProcessorTest {
     private RecipeDraftNormalizer normalizer;
     @Autowired
     private IngredientService ingredientService;
+
+    private static final String YOUTUBE_URL = "https://www.youtube.com/watch?v=kjG6h_LTklo";
 
     @BeforeEach
     void setUp() {
@@ -244,6 +247,45 @@ class IngestionJobProcessorTest {
                 .isGreaterThan(Duration.ofSeconds(5));
     }
 
+    @Test
+    @DisplayName("YouTube Job 은 사진을 읽지 않고 링크를 분석에 넘긴다")
+    void analyzesYouTubeLinkWithoutReadingStorage() {
+        PreemptedJob job = queuedYouTubeAndPreempted();
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        int operationsBefore = storage.operations().size();
+
+        processor.process(job);
+
+        assertThat(analyzer.lastInput().videoUrl()).isEqualTo(YOUTUBE_URL);
+        assertThat(analyzer.lastInput().images()).isEmpty();
+        assertThat(storage.operations()).hasSize(operationsBefore);
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("입력 거절은 재시도하지 않고 YouTube 는 SOURCE_UNAVAILABLE, 사진은 PROCESSING_FAILED 다")
+    void mapsRejectedInputBySourceType() {
+        PreemptedJob youtube = queuedYouTubeAndPreempted();
+        analyzer.enqueue(new RecipeAnalysisException(
+                RecipeAnalysisException.Kind.INPUT_REJECTED, "rejected", null));
+        processor.process(youtube);
+        assertThat(analyzer.calls()).isOne();
+        assertFailure(youtube.id(), IngestionFailureCode.SOURCE_UNAVAILABLE);
+
+        PreemptedJob image = queuedAndPreempted();
+        analyzer.enqueue(new RecipeAnalysisException(
+                RecipeAnalysisException.Kind.INPUT_REJECTED, "rejected", null));
+        processor.process(image);
+        assertThat(analyzer.calls()).isEqualTo(2);
+        assertFailure(image.id(), IngestionFailureCode.PROCESSING_FAILED);
+    }
+
+    private PreemptedJob queuedYouTubeAndPreempted() {
+        repository.save(IngestionJob.queueYouTube(1L, YouTubeUrl.parse(YOUTUBE_URL).orElseThrow()));
+        return executionService.preempt(1).getFirst();
+    }
+
     private PreemptedJob queuedAndPreempted() {
         String key = "ingestion-inputs/1/" + System.nanoTime() + ".jpg";
         storage.putObject(key, new byte[]{1});
@@ -268,7 +310,7 @@ class IngestionJobProcessorTest {
                 properties.image(), properties.external(),
                 new IngestionProperties.Gemini(
                         properties.gemini().apiKey(), properties.gemini().model(),
-                        properties.gemini().baseUrl(), analyzeTimeout));
+                        properties.gemini().baseUrl(), analyzeTimeout, properties.gemini().videoFps()));
         return new IngestionJobProcessor(
                 executionService, imageLoader, analyzer, normalizer, ingredientService, custom);
     }

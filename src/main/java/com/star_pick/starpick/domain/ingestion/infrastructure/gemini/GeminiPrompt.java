@@ -34,6 +34,8 @@ final class GeminiPrompt {
             }
             """;
 
+    static final String VIDEO_INSTRUCTION = "입력: YouTube 영상.";
+
     private GeminiPrompt() {
     }
 

@@ -214,13 +214,13 @@ class RecipeSchemaTest {
     @DisplayName("등록 방식과 출처 컬럼의 조합을 CHECK 가 강제한다")
     void sourceMatchesRegistrationMethod() {
         fixtures.reset();
-        Long first = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=a");
-        Long second = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=b");
-        Long unused = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=c");
+        Long first = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=aaaaaaaaaaa");
+        Long second = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=bbbbbbbbbbb");
+        Long unused = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=ccccccccccc");
         String[] keys = {"ingestion-inputs/1/a.jpg"};
 
         assertThatCode(() -> insertRecipe("MANUAL", null, null, null)).doesNotThrowAnyException();
-        assertThatCode(() -> insertRecipe("URL", first, "https://www.youtube.com/watch?v=a", null))
+        assertThatCode(() -> insertRecipe("URL", first, "https://www.youtube.com/watch?v=aaaaaaaaaaa", null))
                 .doesNotThrowAnyException();
         assertThatCode(() -> insertRecipe("IMAGE", second, null, keys)).doesNotThrowAnyException();
 

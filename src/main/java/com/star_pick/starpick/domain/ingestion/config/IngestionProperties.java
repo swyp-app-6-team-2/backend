@@ -30,6 +30,6 @@ public record IngestionProperties(
     public record External(boolean enabled) {
     }
 
-    public record Gemini(String apiKey, String model, String baseUrl, Duration analyzeTimeout) {
+    public record Gemini(String apiKey, String model, String baseUrl, Duration analyzeTimeout, double videoFps) {
     }
 }
