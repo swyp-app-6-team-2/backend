@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
+import com.star_pick.starpick.domain.ingestion.domain.IngestionSourceType;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
@@ -73,13 +74,30 @@ class IngestionJobCreateApiTest {
     }
 
     @Test
-    @DisplayName("URL 입력은 1단계에서 지원하지 않는다")
-    void rejectsUrlInput() throws Exception {
+    @DisplayName("YouTube 링크는 정규화해 QUEUED Job 을 만든다")
+    void createsQueuedYouTubeJob() throws Exception {
         create("""
-                {"inputType":"URL","url":"https://youtu.be/test"}
+                {"inputType":"URL","url":"https://youtube.com/shorts/Rjfzpzj3bug?si=kIgd6023DmmZxDLG"}
                 """)
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.data.code").value("INGESTION_URL_UNSUPPORTED"));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.ingestionJobId").isNumber());
+
+        var saved = repository.findAll().getFirst();
+        assertThat(saved.getSourceType()).isEqualTo(IngestionSourceType.YOUTUBE);
+        assertThat(saved.getInputUrl()).isEqualTo("https://www.youtube.com/shorts/Rjfzpzj3bug");
+        assertThat(saved.getInputImageKeys()).isEmpty();
+        assertThat(saved.getStatus().name()).isEqualTo("QUEUED");
+    }
+
+    @Test
+    @DisplayName("YouTube 영상 링크가 아니면 Job 없이 INGESTION_URL_UNSUPPORTED 다")
+    void rejectsUnsupportedUrl() throws Exception {
+        for (String url : List.of(
+                "https://www.instagram.com/p/DD1ajNQyrBH/", "https://youtu.be/test", "https://example.com")) {
+            create("{\"inputType\":\"URL\",\"url\":\"%s\"}".formatted(url))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.data.code").value("INGESTION_URL_UNSUPPORTED"));
+        }
         assertThat(repository.count()).isZero();
     }
 
@@ -180,6 +198,9 @@ class IngestionJobCreateApiTest {
 
         assertThat(repository.count()).isEqualTo(20);
         assertThat(fixtures.isAttached(key)).isFalse();
+
+        create("{\"inputType\":\"URL\",\"url\":\"https://youtu.be/JeTQ0q46pBM\"}")
+                .andExpect(status().isTooManyRequests());
     }
 
     @Test
