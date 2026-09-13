@@ -6,16 +6,19 @@ import com.star_pick.starpick.domain.recipe.controller.response.RecipeCreateResp
 import com.star_pick.starpick.domain.recipe.controller.response.RecipeDetailResponse;
 import com.star_pick.starpick.domain.recipe.controller.response.RecipeListResponse;
 import com.star_pick.starpick.domain.recipe.domain.RecipeListSort;
+import com.star_pick.starpick.domain.recipe.service.RecipeCreateResult;
 import com.star_pick.starpick.domain.recipe.service.RecipeService;
 import com.star_pick.starpick.global.ApiResponse;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import com.star_pick.starpick.global.security.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,7 +28,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -40,15 +42,31 @@ public class RecipeController {
     private final RecipeService recipeService;
 
     @Operation(summary = "레시피 생성",
-            description = "직접 입력한 레시피를 저장합니다. 등록 방식은 서버가 MANUAL 로 결정합니다.")
+            description = """
+                    레시피를 저장합니다.
+                    - `ingestionJobId` 가 없으면 직접 입력(MANUAL)입니다.
+                    - 있으면 분석 결과로 저장합니다. 등록 방식과 출처는 분석 작업에서 정합니다.
+                    - 같은 `ingestionJobId` 로 다시 요청하면 새로 만들지 않고 기존 recipeId 와 200 을 반환합니다.
+                      이때 요청 내용은 반영하지 않습니다. 요청 형식 검증은 먼저 거칩니다.
+                    """)
+    // ResponseEntity 로 상태를 고르면 springdoc 이 200 하나만 추론하므로 두 응답을 명시한다.
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "최초 생성"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200", description = "같은 ingestionJobId 로 이미 만든 레시피")
+    })
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public ApiResponse<RecipeCreateResponse> createRecipe(
+    public ResponseEntity<ApiResponse<RecipeCreateResponse>> createRecipe(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody RecipeCreateRequest request) {
 
-        Long recipeId = recipeService.createManual(user.userId(), request);
-        return ApiResponse.created("레시피가 생성되었습니다.", new RecipeCreateResponse(recipeId));
+        RecipeCreateResult result = recipeService.create(user.userId(), request);
+        RecipeCreateResponse body = new RecipeCreateResponse(result.recipeId());
+        if (!result.created()) {
+            return ResponseEntity.ok(ApiResponse.ok("이미 생성된 레시피를 반환합니다.", body));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.created("레시피가 생성되었습니다.", body));
     }
 
     @Operation(summary = "레시피 목록 조회",

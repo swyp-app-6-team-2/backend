@@ -101,6 +101,15 @@ public class IngestionJob {
         this.failureCode = failureCode;
     }
 
+    /**
+     * Recipe 로 저장됐다. 상태는 RESULT_READY 로 둔다 — 저장 완료를 Job 상태로 만들지 않는다.
+     * 결과는 더 쓸 일이 없어 비운다.
+     */
+    public void consume(Instant now) {
+        consumedAt = now;
+        result = null;
+    }
+
     public boolean isCurrentAttempt(int attempt) {
         return status == IngestionJobStatus.PROCESSING && this.attempt == attempt;
     }

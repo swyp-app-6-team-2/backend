@@ -154,7 +154,7 @@ class IngestionJobQueryApiTest {
         Long id = repository.save(IngestionJob.queueImage(OWNER_ID, List.of(first))).getId();
         objectStorage.putObject(first);
 
-        // 2단계의 Recipe 저장이 하는 일을 흉내낸다. 아직 consumedAt 을 쓰는 코드가 없다.
+        // Recipe 저장(IngestionJobConsumeService.consume)이 남기는 상태를 직접 만든다.
         jdbcTemplate.update("""
                 update ingestion_job
                    set status = 'RESULT_READY', expires_at = now() + interval '1 hour', consumed_at = now()

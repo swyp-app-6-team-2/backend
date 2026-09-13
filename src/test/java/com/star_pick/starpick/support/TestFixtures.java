@@ -2,6 +2,8 @@ package com.star_pick.starpick.support;
 
 import com.star_pick.starpick.domain.cooking.domain.CookHistory;
 import com.star_pick.starpick.domain.cooking.repository.CookHistoryRepository;
+import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
+import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
@@ -12,6 +14,8 @@ import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.AttachOutcome;
 import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
 import com.star_pick.starpick.domain.upload.service.UploadService;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -135,6 +139,18 @@ public class TestFixtures {
                 values (?, 'YOUTUBE', ?, 'RESULT_READY', 1, now(), now(), now() + interval '1 hour')
                 returning id
                 """, Long.class, ownerId, url);
+    }
+
+    /** 결과가 준비된 사진 분석 Job. 입력 사진 2장은 업로드와 연결까지 마쳤다. */
+    public IngestionJob saveReadyImageJob(Long ownerId) {
+        List<String> keys = List.of(
+                attachedKey(ownerId, UploadPurpose.INGESTION_INPUT),
+                attachedKey(ownerId, UploadPurpose.INGESTION_INPUT));
+        IngestionJob job = IngestionJob.queueImage(ownerId, keys);
+        job.completeWithResult(
+                new RecipeDraft("김치찌개", RecipeCategory.KOREAN, null, null, List.of(), List.of()),
+                Instant.now().plus(1, ChronoUnit.HOURS));
+        return ingestionJobRepository.save(job);
     }
 
     /** Key 가 어딘가에 연결됐는지. 연결 성공과 롤백을 확인할 때 쓴다. */

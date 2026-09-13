@@ -43,6 +43,10 @@ public interface RecipeRepository extends JpaRepository<Recipe, Long> {
     List<RecipeIngredientNameRow> findIngredientNames(
             @Param("userId") Long userId, @Param("recipeIds") List<Long> recipeIds);
 
+    /** 이 Job 으로 만든 Recipe. Job 을 잠근 뒤에 부른다 — 먼저 부르면 동시 요청이 둘 다 "없음"을 본다. */
+    @Query("select r.id from Recipe r where r.ingestionJobId = :ingestionJobId")
+    Optional<Long> findIdByIngestionJobId(@Param("ingestionJobId") Long ingestionJobId);
+
     /** 다른 도메인의 존재·소유권 확인용. Entity 를 읽지 않으므로 경계를 넘겨줄 것이 없다. */
     boolean existsByIdAndUserId(Long id, Long userId);
 
