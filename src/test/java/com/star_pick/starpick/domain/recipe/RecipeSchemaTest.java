@@ -1,13 +1,17 @@
 package com.star_pick.starpick.domain.recipe;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.star_pick.starpick.support.IntegrationTest;
+import com.star_pick.starpick.support.TestFixtures;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -21,6 +25,9 @@ class RecipeSchemaTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TestFixtures fixtures;
 
     private String nullable(String table, String column) {
         return jdbcTemplate.queryForObject("""
@@ -167,5 +174,70 @@ class RecipeSchemaTest {
                 .containsEntry("column_name", "user_id")
                 .containsEntry("referenced_table", "users")
                 .containsEntry("referenced_column", "user_id");
+    }
+
+    private void insertRecipe(String registrationMethod, Long ingestionJobId, String sourceUrl,
+                              String[] sourceImageKeys) {
+        jdbcTemplate.update("""
+                insert into recipe (user_id, title, category_code, registration_method, servings,
+                                    created_at, updated_at, ingestion_job_id, source_url, source_image_keys)
+                values (1, '김치찌개', 'KOREAN', ?, 1, now(), now(), ?, ?, ?)
+                """, registrationMethod, ingestionJobId, sourceUrl, sourceImageKeys);
+    }
+
+    @Test
+    @DisplayName("출처 컬럼 3개는 nullable 이고 사진 Key 는 text 배열이다")
+    void sourceColumnsAreNullable() {
+        assertThat(nullable("recipe", "ingestion_job_id")).isEqualTo("YES");
+        assertThat(nullable("recipe", "source_url")).isEqualTo("YES");
+        assertThat(nullable("recipe", "source_image_keys")).isEqualTo("YES");
+        assertThat(jdbcTemplate.queryForObject("""
+                select udt_name from information_schema.columns
+                where table_name = 'recipe' and column_name = 'source_image_keys'
+                """, String.class)).isEqualTo("_text");
+    }
+
+    @Test
+    @DisplayName("ingestion_job_id 는 UNIQUE 이고 ingestion_job 을 참조한다")
+    void ingestionJobIdIsUniqueForeignKey() {
+        assertThat(jdbcTemplate.queryForObject("""
+                select pg_get_constraintdef(oid) from pg_constraint
+                where conname = 'uk_recipe_ingestion_job_id' and contype = 'u'
+                """, String.class)).isEqualTo("UNIQUE (ingestion_job_id)");
+        assertThat(foreignKey("fk_recipe_ingestion_job"))
+                .containsEntry("column_name", "ingestion_job_id")
+                .containsEntry("referenced_table", "ingestion_job")
+                .containsEntry("referenced_column", "id");
+    }
+
+    @Test
+    @DisplayName("등록 방식과 출처 컬럼의 조합을 CHECK 가 강제한다")
+    void sourceMatchesRegistrationMethod() {
+        fixtures.reset();
+        Long first = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=a");
+        Long second = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=b");
+        Long unused = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=c");
+        String[] keys = {"ingestion-inputs/1/a.jpg"};
+
+        assertThatCode(() -> insertRecipe("MANUAL", null, null, null)).doesNotThrowAnyException();
+        assertThatCode(() -> insertRecipe("URL", first, "https://www.youtube.com/watch?v=a", null))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> insertRecipe("IMAGE", second, null, keys)).doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> insertRecipe("MANUAL", unused, null, null))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_recipe_source");
+        assertThatThrownBy(() -> insertRecipe("URL", unused, null, null))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_recipe_source");
+        assertThatThrownBy(() -> insertRecipe("URL", unused, "https://x", keys))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_recipe_source");
+        assertThatThrownBy(() -> insertRecipe("IMAGE", unused, null, new String[0]))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_recipe_source");
+        assertThatThrownBy(() -> insertRecipe("IMAGE", null, null, keys))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_recipe_source");
     }
 }

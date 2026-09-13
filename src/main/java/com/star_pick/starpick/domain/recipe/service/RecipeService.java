@@ -1,6 +1,8 @@
 package com.star_pick.starpick.domain.recipe.service;
 
 import com.star_pick.starpick.domain.cooking.service.CookHistoryCleanupService;
+import com.star_pick.starpick.domain.ingestion.service.IngestionJobConsumeService;
+import com.star_pick.starpick.domain.ingestion.service.IngestionJobOrigin;
 import com.star_pick.starpick.domain.ingredient.service.IngredientService;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeCreateRequest;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeUpdateRequest;
@@ -23,6 +25,7 @@ import com.star_pick.starpick.global.exception.CommonErrorCode;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -44,26 +47,45 @@ public class RecipeService {
 
     private final CookHistoryCleanupService cookHistoryCleanupService;
 
+    private final IngestionJobConsumeService ingestionJobConsumeService;
+
     /**
-     * 직접 입력한 Recipe 를 저장한다.
+     * Recipe 를 저장한다. 순서는 {@code docs/specs/ingestion.md} §3.4 가 정한 계약이다.
      *
-     * <p>Recipe, 재료·조리 순서, 대표 이미지 연결을 하나의 트랜잭션에서 처리한다. 연결이
-     * 실패하면 예외가 나가 Recipe 도 저장되지 않는다.
+     * <p>분석 결과로 저장할 때 기존 Recipe 확인이 소비 검사보다 먼저인 이유: 응답을 못 받고 다시
+     * 누른 요청이 409 가 아니라 200 을 받아야 한다. 그 경우 요청 본문은 쓰지 않는다(형식 검증은
+     * 컨트롤러에서 이미 거쳤다).
+     *
+     * <p>같은 Job 의 동시 요청은 Job 행 잠금이 줄 세우고, {@code recipe.ingestion_job_id} UNIQUE 가
+     * 마지막 방어선이다. 어느 단계에서 실패해도 소비 기록까지 함께 롤백된다.
      */
     @Transactional
-    public Long createManual(Long userId, RecipeCreateRequest request) {
-        Recipe recipe = Recipe.createManual(
-                userId,
-                request.title(),
-                request.categoryCode(),
-                request.cookTimeMinutes(),
-                request.servings(),
-                request.memo());
+    public RecipeCreateResult create(Long userId, RecipeCreateRequest request) {
+        Long ingestionJobId = request.ingestionJobId();
+        if (ingestionJobId == null) {
+            Recipe recipe = Recipe.createManual(userId, request.title(), request.categoryCode(),
+                    request.cookTimeMinutes(), request.servings(), request.memo());
+            return new RecipeCreateResult(saveNew(recipe, userId, request), true);
+        }
 
+        IngestionJobOrigin origin = ingestionJobConsumeService.lockOwnedJob(userId, ingestionJobId);
+        Optional<Long> existing = recipeRepository.findIdByIngestionJobId(ingestionJobId);
+        if (existing.isPresent()) {
+            return new RecipeCreateResult(existing.get(), false);
+        }
+
+        ingestionJobConsumeService.consume(userId, ingestionJobId);
+        Recipe recipe = Recipe.createFromIngestion(userId, request.title(), request.categoryCode(),
+                request.cookTimeMinutes(), request.servings(), request.memo(),
+                ingestionJobId, origin.sourceUrl(), origin.sourceImageKeys());
+        return new RecipeCreateResult(saveNew(recipe, userId, request), true);
+    }
+
+    /** 재료·조리 순서·대표 이미지를 붙여 저장한다. 연결이 실패하면 예외가 나가 Recipe 도 저장되지 않는다. */
+    private Long saveNew(Recipe recipe, Long userId, RecipeCreateRequest request) {
         recipe.replaceIngredients(toIngredients(request.ingredients()));
         recipe.replaceSteps(toSteps(request.steps()));
         changeCover(recipe, userId, request.coverImageKey());
-
         return recipeRepository.save(recipe).getId();
     }
 
@@ -193,9 +215,6 @@ public class RecipeService {
      *
      * <p>재료·조리 순서는 {@code cascade = ALL, orphanRemoval = true} 로 Recipe 가 소유하므로
      * 함께 지워진다. Cooking 은 도메인 경계 때문에 FK 가 없어 직접 지워야 한다.
-     *
-     * <p>RecipeSource 와 RecipeSourceImage 는 아직 Entity 가 없다(Ingestion 단계). 생기면 대표
-     * 이미지와 같은 자리에서 원본 이미지 Key 도 함께 확보해야 한다.
      */
     @Transactional
     public void deleteRecipe(Long userId, Long recipeId) {
@@ -203,6 +222,8 @@ public class RecipeService {
                 .orElseThrow(() -> new BusinessException(RecipeErrorCode.RECIPE_NOT_FOUND));
 
         uploadService.releaseAndDeleteFile(userId, recipe.getCoverImageKey(), UploadPurpose.RECIPE_COVER);
+        // 원본 사진의 용도는 Recipe 로 넘어온 뒤에도 INGESTION_INPUT 이다. 소비된 Job 행은 남긴다.
+        uploadService.releaseAndDeleteFiles(userId, recipe.getSourceImageKeys(), UploadPurpose.INGESTION_INPUT);
         cookHistoryCleanupService.deleteByRecipe(userId, recipeId);
         recipeRepository.delete(recipe);
     }

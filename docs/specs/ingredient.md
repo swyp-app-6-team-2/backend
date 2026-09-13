@@ -19,7 +19,7 @@ PM팀이 확정한 재료 104개를 마스터 데이터로 적재하고, 앱이 
 |---|---|
 | 사용자 보유 재료(`user_ingredient`), 유통기한, 냉장고 필터 | Discovery 도메인 소유 |
 | 재료 CRUD API (생성·수정·삭제) | 마스터는 migration으로만 바뀐다 |
-| 서버 측 재료 검색·필터·페이지네이션 파라미터 | 104개라 클라이언트가 거른다 (§9.5) |
+| 서버 측 재료 검색·필터·페이지네이션 파라미터 | 104개라 클라이언트가 거른다 (`조회 성능`) |
 | 재료 계층 구조(`parent_id`), 대체 재료, 영양 정보 | 요구가 없다 |
 | 재료명 정규화·형태소 분석·검색엔진 | 규모가 안 된다 |
 
@@ -97,9 +97,9 @@ create table ingredient
 
 `created_at`/`updated_at`을 두지 않는다. 데이터가 migration으로만 바뀌고, `recipe_ingredient`·`recipe_step`·`cook_history`·`upload_object`도 두고 있지 않다.
 
-`display_order`를 두지 않는다. 정렬은 §7.3이 정의한다.
+`display_order`를 두지 않는다. 정렬은 `정렬` 절이 정의한다.
 
-별칭 저장에 별도 테이블을 두지 않는다. 근거는 §10.2.
+별칭 저장에 별도 테이블을 두지 않는다. 근거는 `별칭은 text[] 컬럼`.
 
 **`text[]` 매핑은 검증됐다.** 2026-09-09에 버릴 스파이크로 `@JdbcTypeCode(SqlTypes.ARRAY)` + `String[]` + `text[]` 컬럼이 이 저장소의 Hibernate 7.4.5 · PostgreSQL 18 · `ddl-auto: validate` 조합에서 기동과 한글 값 왕복을 통과하는 것을 확인했다.
 
@@ -350,7 +350,7 @@ Authorization: Bearer {accessToken}
 
 `ingredientId`에 Bean Validation 애노테이션을 붙이지 않는다. 존재 여부는 형식이 아니라 도메인 검증이다.
 
-**서버는 `name`을 마스터 값으로 덮어쓰지 않는다.** 상세는 §10.3.
+**서버는 `name`을 마스터 값으로 덮어쓰지 않는다.** 상세는 `name은 앱이 보낸 값을 그대로 저장`.
 
 ### 8.2. 응답 — `GET /api/v1/recipes/{recipeId}`
 
@@ -363,7 +363,7 @@ Authorization: Bearer {accessToken}
 ]
 ```
 
-**이것은 기존 계약의 변경이다.** `docs/specs/recipe.md`와 로컬 BE 문서 `02-1 Recipe API`가 *"Ingredient와 Step의 내부 식별자와 표시 순서는 노출하지 않는다"* 라고 적고 있는데, 그 문장이 가리키는 것은 `RecipeIngredient`의 **PK와 `displayOrder`**다. 그 둘은 계속 노출하지 않는다. `ingredientId`는 내부 식별자가 아니라 **마스터 참조**이고 노출해야 한다 — 이유는 §10.4.
+**이것은 기존 계약의 변경이다.** [Recipe Spec](./recipe.md)이 상세 조회에서 *"RecipeIngredient·RecipeStep의 PK와 표시 순서"* 는 포함하지 않는다고 적고 있는데, 그 문장이 가리키는 것은 `RecipeIngredient`의 **PK와 `displayOrder`**다. 그 둘은 계속 노출하지 않는다. `ingredientId`는 내부 식별자가 아니라 **마스터 참조**이고 노출해야 한다 — 이유는 `조회 응답에 ingredientId를 노출`.
 
 ### 8.3. 검증
 
@@ -381,7 +381,7 @@ Authorization: Bearer {accessToken}
 }
 ```
 
-**`active`를 검증하지 않는다.** 비활성 재료의 `ingredientId`를 보내도 성공한다. 이유는 §10.5.
+**`active`를 검증하지 않는다.** 비활성 재료의 `ingredientId`를 보내도 성공한다. 이유는 `검증은 존재만, active는 보지 않음`.
 
 **같은 `ingredientId`가 여러 번 나와도 허용한다.** "삼겹살 300g", "삼겹살 100g"처럼 나눠 적을 수 있다.
 
@@ -421,7 +421,7 @@ domain/ingredient
 public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 ```
 
-**선언 순서가 곧 화면 표시 순서다**(§7.3). 순서를 바꾸면 앱의 카테고리 배열이 바뀐다.
+**선언 순서가 곧 화면 표시 순서다**(`정렬` 절). 순서를 바꾸면 앱의 카테고리 배열이 바뀐다.
 
 상수를 추가·변경하면 `ck_ingredient_category_code`를 갱신하는 migration이 함께 필요하고, `EnumCheckConstraintTest`에도 등록해야 한다.
 
@@ -429,7 +429,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 `id`, `code`, `name`, `category`(`@Enumerated(STRING)`, 컬럼 `category_code`), `aliases`, `active`, `iconKey`(컬럼 `icon_key`).
 
-`aliases`는 **`@JdbcTypeCode(SqlTypes.ARRAY)` + `String[]`** 로 `text[]` 컬럼에 매핑한다(§5.1에서 검증). 별도 테이블로 바꾸지 않는다 — 이유는 §10.2.
+`aliases`는 **`@JdbcTypeCode(SqlTypes.ARRAY)` + `String[]`** 로 `text[]` 컬럼에 매핑한다(`ingredient` 절에서 검증). 별도 테이블로 바꾸지 않는다 — 이유는 `별칭은 text[] 컬럼`.
 
 읽기 전용이다. 상태 변경 메서드도 setter도 만들지 않는다.
 
@@ -439,7 +439,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 | 메서드 | 용도 | 계약 |
 |---|---|---|
-| `IngredientListResponse findActiveIngredients()` | 조회 API | `active = true`인 재료를 §7.3 순서로. 설정된 base URL과 `iconKey`로 절대 `iconUrl` 조립 |
+| `IngredientListResponse findActiveIngredients()` | 조회 API | `active = true`인 재료를 `정렬` 절이 정한 순서로. 설정된 base URL과 `iconKey`로 절대 `iconUrl` 조립 |
 | `boolean existsAll(Collection<Long> ingredientIds)` | Recipe 검증 | 주어진 id가 **모두 존재**하면 `true`. **`active`를 보지 않는다.** 빈 컬렉션은 `true` |
 
 `existsAll`은 도메인 경계를 넘는 유일한 창구다. Recipe는 이 메서드만 호출하고 `IngredientRepository`·`Ingredient`를 직접 쓰지 않는다.
@@ -450,7 +450,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 104행짜리 단일 테이블 조회다. `aliases`와 `icon_key`가 같은 행의 컬럼이라 조인도 `fetch join`도 N+1도 없다.
 
-§7.3 정렬은 조회한 뒤 애플리케이션에서 수행한다. enum 선언 순서는 SQL `ORDER BY`로 표현할 수 없다.
+`정렬` 절이 정한 순서는 조회한 뒤 애플리케이션에서 맞춘다. enum 선언 순서는 SQL `ORDER BY`로 표현할 수 없다.
 
 캐시를 두지 않는다. 이 규모에서 캐시는 무효화 비용만 늘린다.
 
@@ -485,11 +485,11 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 - **채택 이유:** 별칭은 이 도메인에서 **한 재료에 딸린 값 목록**일 뿐이다. 자체 식별자도, 생명주기도, 다른 곳에서의 참조도 없다. 컬럼 하나면 테이블·조인·`fetch join`이 모두 사라지고, 시드도 `ingredient` INSERT 한 번에 끝난다
 - **기각한 대안:** `ingredient_alias(ingredient_id, alias)` 테이블 + `@ElementCollection`
-- **기각 이유:** 정규화가 관계형의 기본값이지만, 여기서 얻는 것은 `UNIQUE(ingredient_id, alias)`와 DB 측 별칭 조회 두 가지다. 전자는 시드가 통제돼 있어 막을 중복이 없고, 후자는 §2에서 서버 측 재료 검색을 명시적으로 범위 밖에 뒀다. 대가로 테이블 하나, 별도 시드 32행, 조회 경로의 `fetch join`이 늘어난다
+- **기각 이유:** 정규화가 관계형의 기본값이지만, 여기서 얻는 것은 `UNIQUE(ingredient_id, alias)`와 DB 측 별칭 조회 두 가지다. 전자는 시드가 통제돼 있어 막을 중복이 없고, 후자는 `Non-Goals`에서 서버 측 재료 검색을 명시적으로 범위 밖에 뒀다. 대가로 테이블 하나, 별도 시드 32행, 조회 경로의 `fetch join`이 늘어난다
 - **기각한 대안:** 쉼표로 구분한 `text` 한 컬럼(식품의약품안전처 성분코드 API의 `이명` 필드 방식)
 - **기각 이유:** 분리·결합 코드가 애플리케이션에 들어가고, 별칭에 쉼표를 쓸 수 없게 되며, DB가 배열 원소를 다루지 못한다
 
-**`text[]`와 `ddl-auto: validate`의 호환성은 추정이 아니라 실측이다.** 이 결정의 초안은 "PostgreSQL 배열 컬럼이 `validate`와 충돌한다"는 이유로 별도 테이블을 택했으나, 그 근거는 Hibernate 6.3~6.4 시절 `@Type(ListArrayType)` 방식에 대한 보고였고 이 저장소에는 해당하지 않는다. 2026-09-09에 버릴 스파이크로 직접 확인했다(§5.1). 이 결정을 다시 뒤집으려면 같은 방식으로 반증해야 한다.
+**`text[]`와 `ddl-auto: validate`의 호환성은 추정이 아니라 실측이다.** 이 결정의 초안은 "PostgreSQL 배열 컬럼이 `validate`와 충돌한다"는 이유로 별도 테이블을 택했으나, 그 근거는 Hibernate 6.3~6.4 시절 `@Type(ListArrayType)` 방식에 대한 보고였고 이 저장소에는 해당하지 않는다. 2026-09-09에 버릴 스파이크로 직접 확인했다(`ingredient` 절). 이 결정을 다시 뒤집으려면 같은 방식으로 반증해야 한다.
 
 - **서버 측 별칭 검색이 필요해지면:** PostgreSQL은 `'삼겹살' = ANY(aliases)`와 GIN 인덱스로 배열 검색을 지원한다. 테이블로 옮기지 않아도 된다
 
@@ -519,7 +519,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 ### 10.6. 없는 id와 비활성 id를 코드로 구분하지 않음
 
 - **기각한 대안:** `INGREDIENT_NOT_FOUND`와 `INGREDIENT_INACTIVE`를 나눔
-- **기각 이유:** §10.5로 비활성은 실패가 아니게 됐고, 남은 실패는 하나다. 그리고 `data.code`는 앱이 분기할 것만 둔다는 것이 저장소 규칙이다
+- **기각 이유:** `검증은 존재만, active는 보지 않음`으로 비활성은 실패가 아니게 됐고, 남은 실패는 하나다. 그리고 `data.code`는 앱이 분기할 것만 둔다는 것이 저장소 규칙이다
 
 ### 10.7. 시드는 Flyway migration에 INSERT
 
@@ -531,16 +531,16 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 ### 10.8. `recipe_ingredient.ingredient_id`에 FK를 건다
 
-- 저장소에는 FK가 있는 참조(`recipe_ingredient.recipe_id` 등)와 없는 참조(`cook_history.recipe_id`)가 섞여 있다. 없는 쪽은 **의도한 설계가 아니다** — `cooking.md` §3.4가 *"스칼라 컬럼에는 JPA가 FK를 만들지 않는다"* 고 적어뒀다
+- 저장소에는 FK가 있는 참조(`recipe_ingredient.recipe_id` 등)와 없는 참조(`cook_history.recipe_id`)가 섞여 있다. 없는 쪽은 **의도한 설계가 아니다** — [Cooking Spec](./cooking.md)이 *"스칼라 컬럼에는 JPA가 FK를 만들지 않는다"* 고 적어뒀다
 - 도메인 경계 규칙(다른 도메인의 JPA Entity를 참조하지 않는다)은 **자바 코드**에서 스칼라 id로 지키고, DB 무결성은 FK로 지킨다. 두 축은 충돌하지 않는다
 - **기각한 대안:** `cook_history.recipe_id` 선례를 따라 FK를 두지 않음
-- **기각 이유:** `cook_history`가 FK를 미룬 이유는 Recipe 삭제 시 잠금·삭제 순서 때문이다. `ingredient`는 **삭제하지 않는 마스터**라(§10.5의 `active`) 그 문제가 발생하지 않는다. `recipe_ingredient` INSERT는 참조된 `ingredient` 행에 공유 락만 걸고 공유 락끼리는 경합하지 않는다
-- FK는 최후의 방어선이지 1차 검증이 아니다. 없는 id는 §8.3이 먼저 `400`으로 거른다
+- **기각 이유:** `cook_history`가 FK를 미룬 이유는 Recipe 삭제 시 잠금·삭제 순서 때문이다. `ingredient`는 **삭제하지 않는 마스터**라(`active` 플래그를 쓴다) 그 문제가 발생하지 않는다. `recipe_ingredient` INSERT는 참조된 `ingredient` 행에 공유 락만 걸고 공유 락끼리는 경합하지 않는다
+- FK는 최후의 방어선이지 1차 검증이 아니다. 없는 id는 `검증` 절이 먼저 `400`으로 거른다
 
 ### 10.9. `display_order` 컬럼을 두지 않음
 
 - **기각한 대안:** 카테고리 내 표시 순서를 컬럼으로 저장
-- **기각 이유:** `code`의 숫자 부분이 이미 PM 시트의 카테고리 내 순서다. 카테고리 간 순서만 따로 필요한데 그것은 enum 선언 순서로 표현된다(§7.3). 컬럼이 필요해지는 것은 순서를 중간에 끼워 넣어야 할 때인데, 그런 요구가 아직 없다
+- **기각 이유:** `code`의 숫자 부분이 이미 PM 시트의 카테고리 내 순서다. 카테고리 간 순서만 따로 필요한데 그것은 enum 선언 순서로 표현된다(`정렬` 절). 컬럼이 필요해지는 것은 순서를 중간에 끼워 넣어야 할 때인데, 그런 요구가 아직 없다
 
 ### 10.10. 응답은 평탄한 배열, 카테고리로 묶지 않음
 
@@ -574,31 +574,3 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 ### 11.4. 카테고리 단위 아이콘
 
 시트에 값은 있으나 앱이 사용하는지 확인되지 않아 범위에서 제외했다. 필요하면 별도 이슈로 다룬다.
-
----
-
-## 12. 구현과 함께 해야 하는 것 — 로컬 dev 콘솔
-
-**이것은 후속 작업이 아니라 구현 범위다.** `CLAUDE.md` §11·§12가 *"커밋을 제안하기 전에 로컬 Dev 콘솔에 반영할 것이 있는지 점검한다"* 를 규칙으로 두고 있고, 콘솔 파일은 `.git/info/exclude` 대상이라 고쳐도 커밋 내용이 달라지지 않는다. 미룰 이유가 없다.
-
-**처리 완료(2026-09-09, PR #27)** — 아래 세 문제는 구현과 함께 콘솔에서 모두 고쳤다. 기록으로 남긴다.
-
-`src/main/resources/static/dev/index.html`의 재료 마스터 패널은 2026-09-09 오전에 롤백된 설계로 만들어져 있어 이 스펙대로 구현하면 동작하지 않았다.
-
-| 당시 코드 | 문제 |
-|---|---|
-| `ingredientCatalog = res.json.data.categories;` | 응답이 §7.2의 평탄한 배열(`data.ingredients`)이라 `undefined`가 된다. 이어지는 `.reduce`에서 TypeError |
-| `${it.iconEmoji ?? '  '}` | `iconEmoji`는 롤백된 필드다. 이 스펙의 응답에 없다 |
-| 힌트 문구 *"기동 시 `seed/ingredients.csv` 87건을 upsert 한다"* | §10.7에서 기각한 적재 방식이다 |
-
-평탄한 배열을 카테고리별로 묶어 렌더링하도록 고치고, `iconEmoji`를 제거하고, 문구를 Flyway migration 적재로 바꿨다. Recipe 폼의 `ingredientId` 입력칸은 이미 있어 그대로 쓴다.
-
-## 13. 이 작업이 끝난 뒤 필요한 문서 동기화
-
-구현 범위가 아니다. §8.2가 공개 계약을 바꾸므로 별도 작업으로 뒤따랐고, **2026-09-09에 아래를 전부 마쳤다.** API 명세 DB의 레시피 생성·수정·상세 조회 3행에도 `ingredientId`와 `RECIPE_INGREDIENT_INVALID`를 함께 반영했다.
-
-- 로컬 BE 문서 저장소 `02-1 Recipe API` — 요청·응답 재료 필드에 `ingredientId` 추가
-- 로컬 BE 문서 저장소 `01-1 Recipe` ERD — `INGREDIENT`가 3컬럼(`id`, `name`, `category_code`)으로 그려져 있다. `code`·`aliases`·`active`를 반영
-- 위 두 문서에 대응하는 Notion 페이지 (로컬과 Notion을 같은 작업에서 함께 수정)
-- Notion FE-BE 공유 API 명세 DB에 `GET /api/v1/ingredients` 추가
-- `docs/specs/recipe.md` — *"Ingredient와 Step의 내부 식별자와 표시 순서는 노출하지 않는다"* 문장에 `ingredientId` 예외 명시

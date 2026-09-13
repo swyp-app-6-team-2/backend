@@ -2,6 +2,8 @@ package com.star_pick.starpick.domain.recipe.controller.response;
 
 import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
+import com.star_pick.starpick.domain.recipe.domain.RegistrationMethod;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 /**
@@ -14,7 +16,7 @@ import java.util.List;
  * RecipeIngredient PK가 아니라 앱이 PATCH에서 다시 보낼 마스터 참조이므로 노출한다.
  *
  * <p>{@code coverImageUrl} 은 저장된 Key 로 만든 조회용 서명 URL 이다. 대표 이미지가 없거나
- * 서명에 실패하면 null 이다. {@code source} 는 Ingestion 단계에서 채워지며 그때까지 항상 null 이다.
+ * 서명에 실패하면 null 이다. {@code source} 는 MANUAL 이면 null 이다. 원본 사진 Key 는 노출하지 않는다.
  */
 public record RecipeDetailResponse(
         Long recipeId,
@@ -35,7 +37,9 @@ public record RecipeDetailResponse(
     public record RecipeStepResponse(String content) {
     }
 
-    public record RecipeSourceResponse(String sourceType, String originalUrl) {
+    public record RecipeSourceResponse(
+            @Schema(allowableValues = {"URL", "IMAGE"}) String sourceType,
+            String originalUrl) {
     }
 
     /**
@@ -61,6 +65,8 @@ public record RecipeDetailResponse(
                 recipe.getSteps().stream()
                         .map(step -> new RecipeStepResponse(step.getContent()))
                         .toList(),
-                null);
+                recipe.getRegistrationMethod() == RegistrationMethod.MANUAL
+                        ? null
+                        : new RecipeSourceResponse(recipe.getRegistrationMethod().name(), recipe.getSourceUrl()));
     }
 }

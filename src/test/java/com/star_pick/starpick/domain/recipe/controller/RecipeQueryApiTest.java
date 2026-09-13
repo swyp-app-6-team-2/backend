@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
@@ -35,16 +34,13 @@ class RecipeQueryApiTest {
     private TestFixtures fixtures;
 
     @Autowired
-    private RecipeRepository recipeRepository;
-
-    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private String accessToken;
 
     @BeforeEach
     void setUp() {
-        recipeRepository.deleteAll();
+        fixtures.reset();
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }
 
@@ -199,5 +195,27 @@ class RecipeQueryApiTest {
                 .andExpect(jsonPath("$.data.ingredients[1].name").value("두부"))
                 .andExpect(jsonPath("$.data.steps[0].content").value("물을 끓인다"))
                 .andExpect(jsonPath("$.data.steps[1].content").value("김치를 넣는다"));
+    }
+
+    @Test
+    @DisplayName("사진 분석으로 만든 레시피의 source 는 IMAGE 이고 originalUrl 은 null 이다")
+    void imageRecipeExposesSourceType() throws Exception {
+        Long recipeId = fixtures.saveImageRecipe(OWNER_ID).getId();
+
+        read(recipeId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.source.sourceType").value("IMAGE"))
+                .andExpect(jsonPath("$.data.source.originalUrl").value(nullValue()));
+    }
+
+    @Test
+    @DisplayName("URL 분석으로 만든 레시피의 source 는 URL 과 원본 주소다")
+    void urlRecipeExposesOriginalUrl() throws Exception {
+        Long recipeId = fixtures.saveUrlRecipe(OWNER_ID, "https://www.youtube.com/watch?v=abc123").getId();
+
+        read(recipeId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.source.sourceType").value("URL"))
+                .andExpect(jsonPath("$.data.source.originalUrl").value("https://www.youtube.com/watch?v=abc123"));
     }
 }

@@ -1,6 +1,6 @@
 # Recipe Tech Spec
 
-> **문서 버전**: v1 · **기준일**: 2026-09-09
+> **문서 버전**: v1 · **기준일**: 2026-09-14
 
 ## 한눈에 보기
 
@@ -11,7 +11,7 @@ Recipe는 사용자가 최종 저장한 레시피와 그 출처를 관리한다.
 | 무엇을 관리하는가?           | Recipe, 재료, 조리 순서, 대표 이미지, 원본 출처                                              |
 | 사용자는 무엇을 할 수 있는가?    | 직접 입력 또는 Ingestion 결과로 Recipe를 생성하고 목록·상세 조회·수정·삭제                            |
 | 어떤 API를 제공하는가?       | 생성, 목록 조회, 상세 조회, 수정, 삭제                                                      |
-| 핵심 데이터는 무엇인가?        | Recipe, RecipeIngredient, RecipeStep, RecipeSource, RecipeSourceImage         |
+| 핵심 데이터는 무엇인가?        | Recipe, RecipeIngredient, RecipeStep. 출처는 Recipe의 컬럼 3개                    |
 | 어떤 도메인과 협력하는가?       | Ingestion·Cooking과 협력하고 [Upload](./upload.md)를 사용하며, Discovery에 Recipe 정보를 제공 |
 | 핵심 기술 결정은 무엇인가?      | 동일 분석 결과의 중복 저장을 `ingestionJobId`·행 잠금·UNIQUE로 방지                             |
 | MVP에서 제외하거나 감수하는 것은? | Ingredient·Step 독립 CRUD와 Recipe–Billing 저장 한도 연동을 도입하지 않음                     |
@@ -45,14 +45,15 @@ Recipe 도메인은 MVP에서 다음 기능을 제공한다.
 
 - Ingredient와 Step의 독립적인 CRUD API
 - Recipe 검색·필터
-    - `01. 도메인 & 데이터 설계`의 전체 도메인 맵이 검색·필터링을 Discovery 책임으로 정의한다. 목록 조회는 Recipe가 제공하고, 조건을 거는 검색·필터는 Discovery가 담당한다.
+    - 검색·필터링은 Discovery 책임이다. 목록 조회는 Recipe가 제공하고, 조건을 거는 검색·필터는 Discovery가 담당한다.
 - Recipe 저장 한도와 Billing 연동
     - Billing Tech Spec이 확정되기 전에는 임시 검증 Service나 `403` 계약을 두지 않는다.
 
 ### 2.3. 도메인 협력
 
 ```text
-Ingestion ── 분석 결과 제공 ──▶ Recipe ── 정보 제공 ──▶ Discovery
+Recipe   ── 분석 작업 잠금·소비 요청 ──▶ Ingestion
+Recipe   ── 정보 제공 ──▶ Discovery
 Cooking  ── 존재·소유권 확인 ──▶ Recipe
 Recipe   ── 삭제 시 이력 정리 요청 ──▶ Cooking
 Recipe   ── 이미지 Key 연결·상태 관리 요청 ──▶ Upload
@@ -71,17 +72,19 @@ Recipe   ── 이미지 Key 연결·상태 관리 요청 ──▶ Upload
 
 1. IngestionJob이 `RESULT_READY` 상태가 된다.
 2. 사용자가 RecipeDraft를 확인하고 필요한 값을 수정한다.
-3. 확정한 값으로 Recipe와 하위 데이터를 저장하고 원본 출처를 이전한다.
-4. IngestionJob을 사용 완료 처리한다.
+3. 저장 요청이 IngestionJob을 사용 완료(소비) 처리한다.
+4. 확정한 값으로 Recipe와 하위 데이터를 저장하고 원본 출처를 복사한다.
+
+3과 4는 한 트랜잭션이다. 순서와 실패 처리는 `트랜잭션과 동시성 제어`가 정한다.
 
 ### 3.2. 데이터 모델
 
 ```text
 Recipe 1 ── 0..N RecipeIngredient
 Recipe 1 ── 0..N RecipeStep
-Recipe 1 ── 0..1 RecipeSource
-RecipeSource 1 ── 0..N RecipeSourceImage
 ```
+
+**출처는 별도 테이블이 아니라 Recipe의 컬럼이다**(2026-09-12 결정). `RecipeSource`·`RecipeSourceImage` 테이블은 만들지 않는다. 등록 방식과 출처 컬럼의 조합은 DB CHECK로 강제한다 — `MANUAL`은 셋 다 없고, `URL`은 Job과 URL, `IMAGE`는 Job과 Key 1개 이상이다.
 
 #### Recipe
 
@@ -90,7 +93,7 @@ RecipeSource 1 ── 0..N RecipeSourceImage
 | `userId`                 | O  | Access Token에서 식별한 소유자                                                 |
 | `title`                  | O  | null 또는 빈 값 불가                                                         |
 | `categoryCode`           | O  | `KOREAN`, `WESTERN`, `CHINESE`, `JAPANESE`, `BUNSIK`, `ASIAN`, `OTHER` |
-| `registrationMethod`     | O  | 직접 입력은 `MANUAL`, Ingestion은 Job의 입력 방식에 따라 `URL` 또는 `IMAGE`            |
+| `registrationMethod`     | O  | 직접 입력은 `MANUAL`, Ingestion은 Job의 입력 방식에 따라 `URL` 또는 `IMAGE` |
 | `coverImageKey`          | X  | `RECIPE_COVER` 용도로 발급된 GCS 객체 Key                                      |
 | `cookTimeMinutes`        | X  | 값이 있으면 1 이상의 정수                                                        |
 | `servings`               | O  | 1 이상의 정수; 생성 요청에서 미전달 시 1                                              |
@@ -115,22 +118,15 @@ RecipeSource 1 ── 0..N RecipeSourceImage
 | `content`      | O  | null 또는 빈 값 불가        |
 | `displayOrder` | O  | 요청 배열 순서를 기준으로 서버가 결정 |
 
-#### RecipeSource
+#### Recipe 출처 컬럼
 
-| 속성               | 필수 | 규칙                                                     |
-|------------------|----|--------------------------------------------------------|
-| `recipeId`       | O  | 소유 Recipe; `MANUAL`에는 생성하지 않고 `URL` 또는 `IMAGE`에는 1개 생성 |
-| `ingestionJobId` | O  | 원본 IngestionJob; Job당 최대 1개                            |
-| `sourcePlatform` | X  | `URL` 방식에서는 필수이며 `YOUTUBE` 또는 `INSTAGRAM`; `IMAGE`는 없음 |
-| `originalUrl`    | X  | `URL` 방식에서는 필수이며 원본 URL을 스냅샷으로 보존; `IMAGE`는 없음         |
+| 속성                | 필수 | 규칙                                                                 |
+|-------------------|----|--------------------------------------------------------------------|
+| `ingestionJobId`  | X  | 원본 IngestionJob. UNIQUE·FK. `MANUAL`이면 없음                          |
+| `sourceUrl`       | X  | `URL` 방식에서만. 원본 URL을 스냅샷으로 보존                                     |
+| `sourceImageKeys` | X  | `IMAGE` 방식에서만. `text[]` 배열이며 분석 원본을 복사하지 않고 기존 GCS 객체 Key를 순서대로 보존 |
 
-#### RecipeSourceImage
-
-| 속성               | 필수 | 규칙                                         |
-|------------------|----|--------------------------------------------|
-| `recipeSourceId` | O  | 소유 RecipeSource; `IMAGE` Source에는 1개 이상 생성 |
-| `objectKey`      | O  | 분석 원본을 복사하지 않고 기존 GCS 객체 Key를 보존           |
-| `displayOrder`   | O  | 원본 이미지 순서이며 동일 Source 안에서 중복 불가            |
+플랫폼 값(`sourcePlatform`)은 저장하지 않는다. IngestionJob의 `sourceType`이 이미 갖고 있고, Recipe가 밖에 보여 주는 것은 `URL`·`IMAGE` 구분과 원본 URL뿐이다.
 
 ### 3.3. API 설계
 
@@ -152,19 +148,19 @@ RecipeSource 1 ── 0..N RecipeSourceImage
 - `ingestionJobId` 없음: `MANUAL`
 - `ingestionJobId` 있음: Job의 입력 방식에 따라 `URL` 또는 `IMAGE`
 
-**Ingestion이 구현되기 전까지(현재) `ingestionJobId`는 요청 모델에 없다.** 전달해도 무시되고 `MANUAL`로 생성된다. 이 문서의 Ingestion 기반 생성 절차와 `INGESTION_JOB_*` 오류 계약은 Ingestion 단계에서 요청 모델에 필드를 추가할 때 유효해진다.
+`ingestionJobId`는 형식 검증을 걸지 않는다. 없거나 다른 사용자의 Job이면 `404 + INGESTION_JOB_NOT_FOUND`이고, 그 밖의 판정은 `트랜잭션과 동시성 제어`의 표가 정한다.
 
 Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출처·하위 데이터의 내부 ID와 표시 순서는 서버가 결정한다.
 
-최초 생성은 Recipe ID와 `201 Created`를 반환한다. 동일한 IngestionJob으로 재요청하고 기존 Recipe가 있으면 새로 생성하지 않고 기존 Recipe ID와 `200 OK`를 반환한다.
+최초 생성은 Recipe ID와 `201 Created`를 반환한다. 동일한 IngestionJob으로 재요청하고 기존 Recipe가 있으면 새로 생성하지 않고 기존 Recipe ID와 `200 OK`를 반환한다. 이때 요청 내용(대표 이미지·재료 등)은 반영하지 않는다. 요청 형식 검증은 이 판단보다 먼저 돌므로, 본문이 잘못된 재요청은 `400`이다.
 
 유효하지 않은 Cover Key는 `400 + RECIPE_COVER_INVALID`, 이미 연결된 Cover Key는 `409 + RECIPE_COVER_ALREADY_USED`로 처리한다.
 
-`ingredients[].ingredientId`에 존재하지 않는 재료를 보내면 `400 + RECIPE_INGREDIENT_INVALID`로 요청 전체를 실패시킨다. 비활성 재료와 중복 사용은 허용한다 — 규칙과 근거는 [Ingredient Spec](./ingredient.md) §8.3·§10.5가 소유한다.
+`ingredients[].ingredientId`에 존재하지 않는 재료를 보내면 `400 + RECIPE_INGREDIENT_INVALID`로 요청 전체를 실패시킨다. 비활성 재료와 중복 사용은 허용한다 — 규칙과 근거는 [Ingredient Spec](./ingredient.md)의 `검증`과 `검증은 존재만, active는 보지 않음`이 소유한다.
 
 #### 목록 조회
 
-사용자가 소유한 Recipe를 페이지 단위로 반환한다. 조건을 거는 검색·필터는 제공하지 않는다(§2.2).
+사용자가 소유한 Recipe를 페이지 단위로 반환한다. 조건을 거는 검색·필터는 제공하지 않는다(`MVP 제외 범위`).
 
 | 파라미터 | 타입 | 필수 | 기본값 | 제약 |
 |---------|------|-----|-------|------|
@@ -188,15 +184,15 @@ Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출
 
 #### 상세 조회
 
-응답에는 Recipe 기본 정보, Ingredient, Step과 RecipeSource를 포함한다. Ingestion이 구현되기 전까지 `source`는 항상 `null`이다. 대표 이미지는 조회 가능한 URL로 반환한다.
+응답에는 Recipe 기본 정보, Ingredient, Step과 출처를 포함한다. `source`는 `MANUAL`이면 `null`이고, 그 밖에는 `{sourceType, originalUrl}`이다. `sourceType`은 `URL` 또는 `IMAGE`이며 `IMAGE`의 `originalUrl`은 `null`이다. 대표 이미지는 조회 가능한 URL로 반환한다.
 
 IMAGE 원본 목록, RecipeIngredient·RecipeStep의 PK와 표시 순서, CookHistory는 포함하지 않는다.
 
-**`ingredients[].ingredientId`는 예외로 노출한다.** 이것은 내부 PK가 아니라 공통 Ingredient 마스터 참조이며, 수정이 재료 배열을 전체 교체하므로 앱이 다시 보낼 수 있어야 한다. 마스터에서 고르지 않은 재료는 `null`이다. 계약은 [Ingredient Spec](./ingredient.md) §8.2가 소유한다.
+**`ingredients[].ingredientId`는 예외로 노출한다.** 이것은 내부 PK가 아니라 공통 Ingredient 마스터 참조이며, 수정이 재료 배열을 전체 교체하므로 앱이 다시 보낼 수 있어야 한다. 마스터에서 고르지 않은 재료는 `null`이다. 계약은 [Ingredient Spec](./ingredient.md)의 `Recipe Integration` 응답 절이 소유한다.
 
 #### 수정
 
-Recipe 기본 정보, Ingredient, Step과 대표 이미지를 수정할 수 있다. 등록 방식과 RecipeSource는 생성 이후 수정할 수 없다.
+Recipe 기본 정보, Ingredient, Step과 대표 이미지를 수정할 수 있다. 등록 방식과 출처는 생성 이후 수정할 수 없다.
 
 Ingredient와 Step은 개별 수정 API 없이 전체 교체한다.
 
@@ -205,13 +201,13 @@ Ingredient와 Step은 개별 수정 API 없이 전체 교체한다.
 - 값이 있는 배열: 기존 데이터를 전달된 값으로 교체
 
 `coverImageKey`는 미전달 시 유지하고,
-`null`이면 대표 이미지를 제거한다. 새 Key를 전달하면 이미지를 교체하고, 기존 이미지의 GCS 삭제는 DB 커밋 이후 한 번 시도한다([Image Upload Common Spec](./upload.md) §3.1). GCS 삭제가 실패해도 이미 완료된 Recipe 수정은 유지한다.
+`null`이면 대표 이미지를 제거한다. 새 Key를 전달하면 이미지를 교체하고, 기존 이미지의 GCS 삭제는 DB 커밋 이후 한 번 시도한다([Image Upload Common Spec](./upload.md)의 `주요 처리 흐름`). GCS 삭제가 실패해도 이미 완료된 Recipe 수정은 유지한다.
 
 Cover Key 오류는 생성과 같은 `RECIPE_COVER_INVALID`, `RECIPE_COVER_ALREADY_USED` 계약을 사용한다. 재료 오류도 생성과 같은 `RECIPE_INGREDIENT_INVALID` 계약을 사용하며, 실패하면 기존 재료를 교체하지 않는다.
 
 #### 삭제
 
-논리 삭제 없이 영구 삭제(Hard Delete)한다. Recipe를 삭제하면 Ingredient, Step, RecipeSource, RecipeSourceImage, 대표·원본 이미지와 CookHistory도 함께 삭제한다.
+논리 삭제 없이 영구 삭제(Hard Delete)한다. Recipe를 삭제하면 Ingredient, Step, 대표 이미지, 분석 원본 사진(`sourceImageKeys`)과 CookHistory도 함께 삭제한다. 원본 IngestionJob과 소비 기록은 남기므로 같은 Job으로 다시 저장할 수 없다.
 
 GCS 삭제 시도까지 끝난 뒤 `200 OK`를 반환하며, GCS 삭제가 실패해도 Recipe 삭제 결과는 유지한다.
 
@@ -224,18 +220,18 @@ MANUAL 생성은 Recipe, RecipeIngredient, RecipeStep과 선택한 `coverImageKe
 Ingestion 기반 생성은 MANUAL 생성 범위에 다음 작업을 더해 같은 트랜잭션에서 처리한다.
 
 1. IngestionJob을 비관적 쓰기 잠금(`SELECT ... FOR UPDATE`)하고 소유권을 확인한다.
-2. 기존 RecipeSource가 있으면 기존 Recipe ID와 `200 OK`를 반환하고 종료한다.
-3. Job의 상태, 만료 여부와 `consumedAt`을 확인한다.
-4. 선택한 `coverImageKey`를 연결하고 Recipe, RecipeIngredient, RecipeStep과 RecipeSource를 저장한다.
-5. IMAGE 방식이면 GCS 객체를 복사하지 않고 RecipeSourceImage를 저장한 뒤 IngestionJobImage를 제거한다.
-6. `consumedAt`을 설정하고 임시 `result`를 제거한다.
+2. 같은 `ingestionJobId`로 만든 Recipe가 이미 있으면 기존 Recipe ID와 `200 OK`를 반환하고 종료한다.
+3. Job의 `consumedAt`, 만료 여부, 상태를 이 순서로 확인하고, 통과하면 `consumedAt`을 설정하고 임시 `result`를 제거한다.
+4. 출처를 복사해 Recipe, RecipeIngredient, RecipeStep을 저장하고 선택한 `coverImageKey`를 연결한다. IMAGE 방식이면 GCS 객체를 복사하지 않고 IngestionJob의 `inputImageKeys`를 `sourceImageKeys`로 순서 그대로 복사한다. 원본 Job의 Key는 지우지 않는다.
+
+Recipe는 Ingestion의 Repository를 보지 않고, Ingestion이 공개한 잠금·소비 경계만 부른다. 이 경계는 호출자의 트랜잭션 안에서만 부를 수 있다 — 트랜잭션 밖에서 부르면 잠금이 즉시 풀려 직렬화가 깨지기 때문이다. 대표 이미지 존재 확인(원격 호출)은 Job 행 잠금을 쥔 채 일어나며, 같은 Job의 연타 요청만 그만큼 기다린다.
 
 어느 단계에서든 실패하면 Recipe·Upload·Ingestion 변경을 모두 롤백한다.
 
 동일한 `ingestionJobId` 요청은 IngestionJob 행 잠금으로 직렬화한다. Recipe 생성과
 `RESULT_READY → EXPIRED` 전이도 같은 행을 잠가 소비와 만료가 동시에 처리되지 않게 한다.
 
-DB에는 `UNIQUE(recipe_source.ingestion_job_id)`와 `UNIQUE(recipe_source.recipe_id)`를 두어 중복 관계를 추가로 방지한다.
+DB에는 `recipe.ingestion_job_id` UNIQUE 제약을 두어 같은 Job으로 Recipe가 두 번 생기는 것을 추가로 막는다.
 
 별도 멱등 키는 사용하지 않고 `ingestionJobId`를 자연 멱등 키로 사용한다. Recipe가 삭제돼도 IngestionJob의 `consumedAt`은 유지하여 같은 분석 결과의 재사용을 차단한다.
 
@@ -244,9 +240,9 @@ DB에는 `UNIQUE(recipe_source.ingestion_job_id)`와 `UNIQUE(recipe_source.recip
 | 조건                                                               | 결과                                     |
 |------------------------------------------------------------------|----------------------------------------|
 | Job이 없거나 다른 사용자가 소유함                                             | `404 + INGESTION_JOB_NOT_FOUND`        |
-| 기존 RecipeSource가 존재함                                             | 기존 Recipe ID와 `200 OK`                 |
-| 기존 RecipeSource가 없고 `consumedAt`도 없음, Job이 사용 가능한 `RESULT_READY` | 최초 생성 후 `201 Created`                  |
-| 기존 RecipeSource가 없고 `consumedAt`이 존재함                            | `409 + INGESTION_JOB_ALREADY_CONSUMED` |
+| 같은 Job으로 만든 Recipe가 이미 있음                                        | 기존 Recipe ID와 `200 OK`                 |
+| 그런 Recipe가 없고 `consumedAt`도 없음, Job이 사용 가능한 `RESULT_READY`       | 최초 생성 후 `201 Created`                  |
+| 그런 Recipe가 없고 `consumedAt`이 존재함                                  | `409 + INGESTION_JOB_ALREADY_CONSUMED` |
 | Job이 만료됨                                                         | `409 + INGESTION_JOB_EXPIRED`          |
 | Job이 만료 전이지만 `RESULT_READY`가 아님                                  | `409 + INGESTION_JOB_INVALID_STATE`    |
 
@@ -254,7 +250,7 @@ DB에는 `UNIQUE(recipe_source.ingestion_job_id)`와 `UNIQUE(recipe_source.recip
 
 목록 조회는 트랜잭션을 열지 않는다. Recipe 페이지 조회와 재료명 조회를 각각 짧은 읽기 트랜잭션에서 끝내고, 대표 이미지의 조회 URL 서명은 DB 커넥션을 쥐지 않은 상태에서 수행한다.
 
-서명을 트랜잭션 밖으로 분리하는 이유는 서명에 저장소 클라이언트 타임아웃이 적용되지 않고([Image Upload Common Spec](./upload.md) §3.4), **페이지 크기가 곧 외부 호출 횟수**이기 때문이다. 커넥션을 점유한 채 최대 `size`회의 외부 호출을 수행하지 않는다.
+서명을 트랜잭션 밖으로 분리하는 이유는 서명에 저장소 클라이언트 타임아웃이 적용되지 않고([Image Upload Common Spec](./upload.md)의 `트랜잭션과 원격 호출 경계`), **페이지 크기가 곧 외부 호출 횟수**이기 때문이다. 커넥션을 점유한 채 최대 `size`회의 외부 호출을 수행하지 않는다.
 
 재료명은 Recipe Entity의 지연 로딩 컬렉션이 아니라 Recipe ID 목록으로 한 번에 조회한다. 페이지의 Recipe마다 컬렉션을 조회하면 N+1이 되고, 트랜잭션 밖에서는 지연 로딩 자체가 불가능하다.
 
@@ -270,8 +266,7 @@ DB에는 `UNIQUE(recipe_source.ingestion_job_id)`와 `UNIQUE(recipe_source.recip
 삭제는 같은 DB 트랜잭션에서 다음 순서로 처리한다.
 
 1. 대표 이미지와 원본 이미지 Key를 확보하고 해당 UploadObject를 제거한다.
-   현재 구현은 대표 이미지만 처리한다. RecipeSource와 RecipeSourceImage는 Ingestion 단계에서
-   Entity가 만들어질 때 이 자리에 함께 들어온다.
+   원본 이미지는 Recipe로 넘어온 뒤에도 `INGESTION_INPUT` 용도로 해제한다.
 2. Cooking에 관련 CookHistory 정리를 요청한다.
 3. Recipe가 소유한 하위 데이터와 Recipe를 제거한다.
 4. 모든 DB 변경을 커밋한다.
@@ -306,14 +301,14 @@ URL이나 이미지 분석 결과가 항상 최종 Recipe로 저장되는 것은
 
 별도의 범용 멱등 시스템 대신 `ingestionJobId`, 행 잠금과 UNIQUE 제약을 조합해 Ingestion 기반 생성의 중복을 방지한다.
 
-### 4.3. 원본 출처를 RecipeSource로 분리
+### 4.3. 원본 출처를 Recipe 컬럼으로 보존
 
 URL이나 이미지 기반 Recipe는 분석 결과를 사용자가 수정한 뒤 저장하므로, 최종 데이터만으로는 어떤 원본에서 만들어졌는지 확인하기 어렵다.
 
 | 대안                          | 장점                               | 단점                                                          |
 |-----------------------------|----------------------------------|-------------------------------------------------------------|
-| Recipe에 원본 필드를 직접 추가        | 조회 구조가 단순함                       | MANUAL Recipe에 불필요한 nullable 필드가 늘고 출처 형태가 늘수록 Recipe가 비대해짐 |
 | Recipe가 IngestionJob만 계속 참조 | 중복 데이터 저장을 줄일 수 있음               | Recipe의 장기 보존 정책이 Ingestion의 임시 데이터 생명주기에 의존                |
-| **RecipeSource 별도 모델 (채택)** | Recipe 내용과 출처의 책임·생명주기를 분리할 수 있음 | Source Entity가 추가됨                                          |
+| RecipeSource 별도 모델           | Recipe 내용과 출처의 책임·생명주기를 분리할 수 있음 | Source Entity와 자식 테이블이 추가됨                                  |
+| **Recipe에 출처 컬럼 3개 추가 (채택, 2026-09-12)** | 조회 구조가 단순하고 테이블 두 개를 만들지 않음 | MANUAL Recipe에 nullable 컬럼 3개. 출처 형태가 늘면 테이블로 분리 |
 
-RecipeSource를 별도 모델로 두어 최종 Recipe가 Ingestion의 임시 데이터 생명주기와 독립적으로 원본 출처를 보존하도록 했다.
+처음에는 `RecipeSource`를 별도 모델로 두기로 했으나, **출처가 컬럼 세 개(`ingestionJobId`·`sourceUrl`·`sourceImageKeys`)에 그치는 범위에서는 테이블 두 개를 만드는 비용이 더 크다고 보고 2026-09-12에 뒤집었다.** 최종 Recipe가 Ingestion의 임시 데이터 생명주기와 독립적으로 원본 출처를 보존한다는 목적은 그대로다 — Key를 복사해 두므로 Job이 정리돼도 Recipe는 출처를 잃지 않는다.

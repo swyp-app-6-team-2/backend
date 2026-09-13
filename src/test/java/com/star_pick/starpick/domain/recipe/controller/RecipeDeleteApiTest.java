@@ -6,11 +6,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -221,5 +223,21 @@ class RecipeDeleteApiTest {
                 otherUsersKey, otherPurposeKey)).isEqualTo(2);
         assertThat(objectStorage.contains(otherUsersKey)).isTrue();
         assertThat(objectStorage.contains(otherPurposeKey)).isTrue();
+    }
+
+    @Test
+    @DisplayName("사진 분석으로 만든 레시피를 지우면 원본 사진도 지우고 Job 은 소비 기록으로 남는다")
+    void deletesSourceImagesAndKeepsConsumedJob() throws Exception {
+        Recipe recipe = fixtures.saveImageRecipe(OWNER_ID);
+        List<String> sourceKeys = recipe.getSourceImageKeys();
+
+        requestDelete(recipe.getId()).andExpect(status().isOk());
+
+        for (String key : sourceKeys) {
+            assertThat(countWhere("select count(*) from upload_object where object_key = ?", key)).isZero();
+            assertThat(objectStorage.contains(key)).isFalse();
+        }
+        assertThat(countWhere("select count(*) from ingestion_job where id = ? and consumed_at is not null",
+                recipe.getIngestionJobId())).isEqualTo(1);
     }
 }

@@ -34,6 +34,14 @@ public interface IngestionJobRepository extends JpaRepository<IngestionJob, Long
     @Query("select j from IngestionJob j where j.id = :id")
     Optional<IngestionJob> findByIdForUpdate(@Param("id") Long id);
 
+    /**
+     * Recipe 저장이 쓰는 잠금. 소유권 조건을 잠금 쿼리 안에 넣는다 — 먼저 잠그고 나중에 비교하면
+     * 남의 요청이 소유자의 저장을 블로킹할 수 있다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select j from IngestionJob j where j.id = :id and j.userId = :userId")
+    Optional<IngestionJob> findByIdAndUserIdForUpdate(@Param("id") Long id, @Param("userId") Long userId);
+
     @Transactional
     @Modifying
     @Query("""

@@ -2,6 +2,8 @@ package com.star_pick.starpick.support;
 
 import com.star_pick.starpick.domain.cooking.domain.CookHistory;
 import com.star_pick.starpick.domain.cooking.repository.CookHistoryRepository;
+import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
+import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
@@ -12,6 +14,8 @@ import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.AttachOutcome;
 import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
 import com.star_pick.starpick.domain.upload.service.UploadService;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -53,10 +57,10 @@ public class TestFixtures {
      * {@link #restoreIngredientActivity()} 로 되돌린다.
      */
     public void reset() {
-        // 2단계에서 recipe.ingestion_job_id FK가 생기면 recipe 삭제 다음으로 옮긴다.
-        ingestionJobRepository.deleteAll();
+        // recipe.ingestion_job_id FK 때문에 recipe 를 먼저 지운다.
         cookHistoryRepository.deleteAll();
         recipeRepository.deleteAll();
+        ingestionJobRepository.deleteAll();
         uploadObjectRepository.deleteAll();
         objectStorage.clear();
     }
@@ -119,6 +123,51 @@ public class TestFixtures {
         String objectKey = uploadService.issueUploadUrl(userId, purpose, "image/jpeg").objectKey();
         objectStorage.putObject(objectKey);
         return objectKey;
+    }
+
+    /**
+     * 결과가 준비된 YouTube 분석 Job 의 id.
+     *
+     * <p>URL Job 을 만드는 코드는 YouTube 단계에 생긴다. 그 전까지는 행을 직접 넣는다.
+     * {@code result} 는 비워 둔다 — Recipe 저장은 상태와 만료 시각만 본다.
+     */
+    public Long saveReadyUrlJob(Long ownerId, String url) {
+        seedUser(ownerId);
+        return jdbcTemplate.queryForObject("""
+                insert into ingestion_job (user_id, source_type, input_url, status, attempt,
+                                           created_at, started_at, expires_at)
+                values (?, 'YOUTUBE', ?, 'RESULT_READY', 1, now(), now(), now() + interval '1 hour')
+                returning id
+                """, Long.class, ownerId, url);
+    }
+
+    /** 결과가 준비된 사진 분석 Job. 입력 사진 2장은 업로드와 연결까지 마쳤다. */
+    public IngestionJob saveReadyImageJob(Long ownerId) {
+        List<String> keys = List.of(
+                attachedKey(ownerId, UploadPurpose.INGESTION_INPUT),
+                attachedKey(ownerId, UploadPurpose.INGESTION_INPUT));
+        IngestionJob job = IngestionJob.queueImage(ownerId, keys);
+        job.completeWithResult(
+                new RecipeDraft("김치찌개", RecipeCategory.KOREAN, null, null, List.of(), List.of()),
+                Instant.now().plus(1, ChronoUnit.HOURS));
+        return ingestionJobRepository.save(job);
+    }
+
+    /** 사진 분석 결과로 저장한 Recipe. 원본 사진 2장은 연결까지 마쳤고 Job 은 소비됐다. */
+    public Recipe saveImageRecipe(Long ownerId) {
+        IngestionJob job = saveReadyImageJob(ownerId);
+        job.consume(Instant.now());
+        ingestionJobRepository.save(job);
+        return recipeRepository.save(Recipe.createFromIngestion(ownerId, "김치찌개", RecipeCategory.KOREAN,
+                null, null, null, job.getId(), null, job.getInputImageKeys()));
+    }
+
+    /** URL 분석 결과로 저장한 Recipe. */
+    public Recipe saveUrlRecipe(Long ownerId, String url) {
+        Long jobId = saveReadyUrlJob(ownerId, url);
+        jdbcTemplate.update("update ingestion_job set consumed_at = now(), result = null where id = ?", jobId);
+        return recipeRepository.save(Recipe.createFromIngestion(ownerId, "김치찌개", RecipeCategory.KOREAN,
+                null, null, null, jobId, url, null));
     }
 
     /** Key 가 어딘가에 연결됐는지. 연결 성공과 롤백을 확인할 때 쓴다. */

@@ -141,4 +141,52 @@ class RecipeTest {
                         RecipeIngredient.of(null, "김치", null)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
+
+    @Test
+    @DisplayName("사진 분석 결과로 만들면 등록 방식은 IMAGE 이고 사진 Key 순서를 보존한다")
+    void createFromImageIngestion() {
+        Recipe recipe = Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN, null, null, null,
+                10L, null, List.of("ingestion-inputs/1/b.jpg", "ingestion-inputs/1/a.jpg"));
+
+        assertThat(recipe.getRegistrationMethod()).isEqualTo(RegistrationMethod.IMAGE);
+        assertThat(recipe.getIngestionJobId()).isEqualTo(10L);
+        assertThat(recipe.getSourceUrl()).isNull();
+        assertThat(recipe.getSourceImageKeys())
+                .containsExactly("ingestion-inputs/1/b.jpg", "ingestion-inputs/1/a.jpg");
+    }
+
+    @Test
+    @DisplayName("URL 분석 결과로 만들면 등록 방식은 URL 이다")
+    void createFromUrlIngestion() {
+        Recipe recipe = Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN, null, null, null,
+                10L, "https://www.youtube.com/watch?v=abc", null);
+
+        assertThat(recipe.getRegistrationMethod()).isEqualTo(RegistrationMethod.URL);
+        assertThat(recipe.getSourceUrl()).isEqualTo("https://www.youtube.com/watch?v=abc");
+        assertThat(recipe.getSourceImageKeys()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("직접 입력 레시피는 출처가 없다")
+    void manualRecipeHasNoSource() {
+        Recipe recipe = manualRecipe();
+
+        assertThat(recipe.getIngestionJobId()).isNull();
+        assertThat(recipe.getSourceUrl()).isNull();
+        assertThat(recipe.getSourceImageKeys()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("출처는 URL 과 사진 Key 중 정확히 하나여야 한다 — 호출부 버그 가드")
+    void ingestionSourceMustBeExactlyOne() {
+        assertThatThrownBy(() -> Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN,
+                null, null, null, 10L, "https://x", List.of("ingestion-inputs/1/a.jpg")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN,
+                null, null, null, 10L, null, List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN,
+                null, null, null, null, "https://x", null))
+                .isInstanceOf(NullPointerException.class);
+    }
 }
