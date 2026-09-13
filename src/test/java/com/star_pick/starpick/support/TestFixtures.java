@@ -53,10 +53,10 @@ public class TestFixtures {
      * {@link #restoreIngredientActivity()} 로 되돌린다.
      */
     public void reset() {
-        // 2단계에서 recipe.ingestion_job_id FK가 생기면 recipe 삭제 다음으로 옮긴다.
-        ingestionJobRepository.deleteAll();
+        // recipe.ingestion_job_id FK 때문에 recipe 를 먼저 지운다.
         cookHistoryRepository.deleteAll();
         recipeRepository.deleteAll();
+        ingestionJobRepository.deleteAll();
         uploadObjectRepository.deleteAll();
         objectStorage.clear();
     }
@@ -119,6 +119,22 @@ public class TestFixtures {
         String objectKey = uploadService.issueUploadUrl(userId, purpose, "image/jpeg").objectKey();
         objectStorage.putObject(objectKey);
         return objectKey;
+    }
+
+    /**
+     * 결과가 준비된 YouTube 분석 Job 의 id.
+     *
+     * <p>URL Job 을 만드는 코드는 YouTube 단계에 생긴다. 그 전까지는 행을 직접 넣는다.
+     * {@code result} 는 비워 둔다 — Recipe 저장은 상태와 만료 시각만 본다.
+     */
+    public Long saveReadyUrlJob(Long ownerId, String url) {
+        seedUser(ownerId);
+        return jdbcTemplate.queryForObject("""
+                insert into ingestion_job (user_id, source_type, input_url, status, attempt,
+                                           created_at, started_at, expires_at)
+                values (?, 'YOUTUBE', ?, 'RESULT_READY', 1, now(), now(), now() + interval '1 hour')
+                returning id
+                """, Long.class, ownerId, url);
     }
 
     /** Key 가 어딘가에 연결됐는지. 연결 성공과 롤백을 확인할 때 쓴다. */

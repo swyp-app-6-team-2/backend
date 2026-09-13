@@ -29,7 +29,7 @@ import org.hibernate.type.SqlTypes;
  * 사용자가 최종 저장한 Recipe. 재료와 조리 순서를 소유하는 애그리거트 루트다.
  *
  * <p>소유자는 {@code userId} 스칼라로만 갖는다. 다른 도메인의 JPA Entity 를 직접 참조하지
- * 않는다는 규칙(CLAUDE.md §4) 때문이며, 그 결과 DB 에 user FK 가 없다.
+ * 않는다는 규칙(CLAUDE.md §4) 때문이다.
  *
  * <p>사용자 입력 검증은 Request DTO 의 Bean Validation 이 담당한다. 여기 있는 검사는
  * 프로그래머 오류를 잡는 마지막 방어선이고, 걸리면 500 이 나가는 것이 맞다.
@@ -71,6 +71,19 @@ public class Recipe {
     @JdbcTypeCode(SqlTypes.LONG32VARCHAR)
     private String memo;
 
+    /** 분석 결과로 만들었을 때의 원본 Job. MANUAL 이면 null. Ingestion Entity 를 참조하지 않고 id 만 갖는다. */
+    @Column(updatable = false)
+    private Long ingestionJobId;
+
+    /** URL 로 분석한 원본 주소의 스냅샷. */
+    @Column(length = 2048, updatable = false)
+    private String sourceUrl;
+
+    /** 사진으로 분석한 원본 Key 의 스냅샷. 배열 순서가 원본 순서다. */
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(columnDefinition = "text[]", updatable = false)
+    private String[] sourceImageKeys;
+
     // Hibernate 가 로딩 시 PersistentBag 으로 교체하므로 final 로 둘 수 없다.
     // 대신 replace* 안에서 인스턴스를 재대입하지 않는다. 재대입하면 orphanRemoval 이
     // "A collection with cascade=all-delete-orphan was no longer referenced" 로 터진다.
@@ -93,20 +106,50 @@ public class Recipe {
     private LocalDateTime updatedAt;
 
     private Recipe(Long userId, String title, RecipeCategory categoryCode,
-                   Integer cookTimeMinutes, Integer servings, String memo) {
+                   Integer cookTimeMinutes, Integer servings, String memo,
+                   RegistrationMethod registrationMethod, Long ingestionJobId,
+                   String sourceUrl, List<String> sourceImageKeys) {
         this.userId = Objects.requireNonNull(userId, "userId");
         this.title = Objects.requireNonNull(title, "title");
         this.categoryCode = Objects.requireNonNull(categoryCode, "categoryCode");
-        this.registrationMethod = RegistrationMethod.MANUAL;
+        this.registrationMethod = registrationMethod;
         this.cookTimeMinutes = cookTimeMinutes;
         this.servings = servings == null ? DEFAULT_SERVINGS : servings;
         this.memo = memo;
+        this.ingestionJobId = ingestionJobId;
+        this.sourceUrl = sourceUrl;
+        this.sourceImageKeys = sourceImageKeys == null ? null : sourceImageKeys.toArray(String[]::new);
     }
 
     /** 직접 입력으로 생성한다. 등록 방식은 서버가 MANUAL 로 결정한다. */
     public static Recipe createManual(Long userId, String title, RecipeCategory categoryCode,
                                       Integer cookTimeMinutes, Integer servings, String memo) {
-        return new Recipe(userId, title, categoryCode, cookTimeMinutes, servings, memo);
+        return new Recipe(userId, title, categoryCode, cookTimeMinutes, servings, memo,
+                RegistrationMethod.MANUAL, null, null, null);
+    }
+
+    /**
+     * 분석 결과로 생성한다. 등록 방식은 출처로 정해진다 — URL 이 있으면 URL, 사진 Key 가 있으면 IMAGE.
+     *
+     * <p>출처는 요청이 아니라 IngestionJob 에서 온 값이라, 둘 다 있거나 둘 다 없으면 호출부 버그다.
+     */
+    public static Recipe createFromIngestion(Long userId, String title, RecipeCategory categoryCode,
+                                             Integer cookTimeMinutes, Integer servings, String memo,
+                                             Long ingestionJobId, String sourceUrl,
+                                             List<String> sourceImageKeys) {
+        Objects.requireNonNull(ingestionJobId, "ingestionJobId");
+        boolean hasUrl = sourceUrl != null;
+        boolean hasImages = sourceImageKeys != null && !sourceImageKeys.isEmpty();
+        if (hasUrl == hasImages) {
+            throw new IllegalArgumentException("출처는 URL 과 사진 Key 중 정확히 하나여야 한다");
+        }
+        return new Recipe(userId, title, categoryCode, cookTimeMinutes, servings, memo,
+                hasUrl ? RegistrationMethod.URL : RegistrationMethod.IMAGE,
+                ingestionJobId, sourceUrl, hasImages ? sourceImageKeys : null);
+    }
+
+    public List<String> getSourceImageKeys() {
+        return sourceImageKeys == null ? List.of() : List.of(sourceImageKeys);
     }
 
     public List<RecipeIngredient> getIngredients() {
