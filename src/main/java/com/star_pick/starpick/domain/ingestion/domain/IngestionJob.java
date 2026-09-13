@@ -63,15 +63,20 @@ public class IngestionJob {
     private Instant expiresAt;
     private Instant consumedAt;
 
-    private IngestionJob(Long userId, List<String> inputImageKeys) {
+    private IngestionJob(Long userId, IngestionSourceType sourceType, String inputUrl, List<String> inputImageKeys) {
         this.userId = userId;
-        this.sourceType = IngestionSourceType.IMAGE;
-        this.inputImageKeys = inputImageKeys.toArray(String[]::new);
+        this.sourceType = sourceType;
+        this.inputUrl = inputUrl;
+        this.inputImageKeys = inputImageKeys == null ? null : inputImageKeys.toArray(String[]::new);
         this.status = IngestionJobStatus.QUEUED;
     }
 
     public static IngestionJob queueImage(Long userId, List<String> inputImageKeys) {
-        return new IngestionJob(userId, inputImageKeys);
+        return new IngestionJob(userId, IngestionSourceType.IMAGE, null, inputImageKeys);
+    }
+
+    public static IngestionJob queueYouTube(Long userId, YouTubeUrl url) {
+        return new IngestionJob(userId, IngestionSourceType.YOUTUBE, url.canonicalUrl(), null);
     }
 
     public List<String> getInputImageKeys() {

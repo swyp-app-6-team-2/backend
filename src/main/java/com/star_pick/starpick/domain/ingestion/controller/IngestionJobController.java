@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/ingestion-jobs")
-@Tag(name = "레시피 분석", description = "사진 기반 레시피 분석 API")
+@Tag(name = "레시피 분석", description = "사진·YouTube 링크 기반 레시피 분석 API")
 public class IngestionJobController {
 
     private final IngestionJobService service;

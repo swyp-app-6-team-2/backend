@@ -16,7 +16,20 @@ record GeminiContent(String role, List<GeminiPart> parts) {
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
-record GeminiPart(String text, GeminiInlineData inlineData) {
+record GeminiPart(String text, GeminiInlineData inlineData, GeminiFileData fileData,
+                  GeminiVideoMetadata videoMetadata) {
+
+    static GeminiPart text(String text) {
+        return new GeminiPart(text, null, null, null);
+    }
+}
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+record GeminiFileData(String fileUri) {
+}
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+record GeminiVideoMetadata(Double fps) {
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)

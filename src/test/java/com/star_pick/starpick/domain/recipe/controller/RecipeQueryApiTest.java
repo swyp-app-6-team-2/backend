@@ -211,11 +211,11 @@ class RecipeQueryApiTest {
     @Test
     @DisplayName("URL 분석으로 만든 레시피의 source 는 URL 과 원본 주소다")
     void urlRecipeExposesOriginalUrl() throws Exception {
-        Long recipeId = fixtures.saveUrlRecipe(OWNER_ID, "https://www.youtube.com/watch?v=abc123").getId();
+        Long recipeId = fixtures.saveUrlRecipe(OWNER_ID, "https://www.youtube.com/watch?v=kjG6h_LTklo").getId();
 
         read(recipeId)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.source.sourceType").value("URL"))
-                .andExpect(jsonPath("$.data.source.originalUrl").value("https://www.youtube.com/watch?v=abc123"));
+                .andExpect(jsonPath("$.data.source.originalUrl").value("https://www.youtube.com/watch?v=kjG6h_LTklo"));
     }
 }

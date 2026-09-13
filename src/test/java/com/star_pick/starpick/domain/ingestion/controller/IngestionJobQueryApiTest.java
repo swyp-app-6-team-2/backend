@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
 import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
+import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
@@ -167,6 +168,35 @@ class IngestionJobQueryApiTest {
                 .andExpect(jsonPath("$.data.status").value("RESULT_READY"))
                 .andExpect(jsonPath("$.data.previewImageUrl").isEmpty())
                 .andExpect(jsonPath("$.data.result").isEmpty());
+    }
+
+    @Test
+    @DisplayName("YouTube Job 은 영상 썸네일을 미리보기로 준다")
+    void returnsYouTubeThumbnail() throws Exception {
+        Long id = repository.save(IngestionJob.queueYouTube(OWNER_ID,
+                YouTubeUrl.parse("https://youtu.be/JeTQ0q46pBM").orElseThrow())).getId();
+
+        query(id)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.inputType").value("URL"))
+                .andExpect(jsonPath("$.data.previewImageUrl").value("https://i.ytimg.com/vi/JeTQ0q46pBM/hqdefault.jpg"))
+                .andExpect(jsonPath("$.data.url").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("소비된 YouTube Job 은 미리보기를 감춘다")
+    void hidesYouTubePreviewOnceConsumed() throws Exception {
+        Long id = repository.save(IngestionJob.queueYouTube(OWNER_ID,
+                YouTubeUrl.parse("https://youtu.be/JeTQ0q46pBM").orElseThrow())).getId();
+        jdbcTemplate.update("""
+                update ingestion_job
+                   set status = 'RESULT_READY', expires_at = now() + interval '1 hour', consumed_at = now()
+                 where id = ?
+                """, id);
+
+        query(id)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.previewImageUrl").isEmpty());
     }
 
     private ResultActions query(Long id) throws Exception {

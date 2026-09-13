@@ -56,12 +56,19 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
 
     private GeminiGenerateContentRequest buildRequest(AnalysisInput input) {
         List<GeminiPart> parts = new ArrayList<>();
-        parts.add(new GeminiPart(GeminiPrompt.imageInstruction(input.images().size()), null));
-        input.images().forEach(image -> parts.add(new GeminiPart(null,
-                new GeminiInlineData(image.mimeType(), Base64.getEncoder().encodeToString(image.content())))));
+        if (input.videoUrl() != null) {
+            parts.add(new GeminiPart(null, null, new GeminiFileData(input.videoUrl()),
+                    new GeminiVideoMetadata(config.videoFps())));
+            parts.add(GeminiPart.text(GeminiPrompt.VIDEO_INSTRUCTION));
+        } else {
+            parts.add(GeminiPart.text(GeminiPrompt.imageInstruction(input.images().size())));
+            input.images().forEach(image -> parts.add(new GeminiPart(null,
+                    new GeminiInlineData(image.mimeType(), Base64.getEncoder().encodeToString(image.content())),
+                    null, null)));
+        }
         return new GeminiGenerateContentRequest(
                 List.of(new GeminiContent("user", parts)),
-                new GeminiContent(null, List.of(new GeminiPart(GeminiPrompt.SYSTEM_INSTRUCTION, null))),
+                new GeminiContent(null, List.of(GeminiPart.text(GeminiPrompt.SYSTEM_INSTRUCTION))),
                 new GeminiGenerationConfig("application/json", responseJsonSchema));
     }
 
@@ -99,7 +106,32 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
                     ? new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 요청 한도 오류: 429", null)
                     : new RecipeAnalysisException(Kind.RETRYABLE, "Gemini 요청 한도 오류: 429", retryAfter);
         }
+        if (status.value() == 400 && isRejectedInput(e.getResponseBodyAsString())) {
+            return new RecipeAnalysisException(Kind.INPUT_REJECTED, "Gemini 가 입력을 거절했습니다: 400", null);
+        }
         return new RecipeAnalysisException(Kind.UNRECOVERABLE, "Gemini 요청 오류: " + status.value(), null);
+    }
+
+    /**
+     * 입력 자체를 받아들이지 않은 400 인지. 잘못된 API 키도 같은 400 INVALID_ARGUMENT 로 오므로
+     * ErrorInfo.reason 으로 걸러낸다 — 거르지 않으면 설정 사고가 "영상을 볼 수 없음"으로 감춰진다.
+     */
+    private boolean isRejectedInput(String errorBody) {
+        try {
+            JsonNode error = jsonMapper.readTree(errorBody).path("error");
+            if (!"INVALID_ARGUMENT".equals(error.path("status").asString())) {
+                return false;
+            }
+            for (JsonNode detail : error.path("details")) {
+                if ("API_KEY_INVALID".equals(detail.path("reason").asString())) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception ignored) {
+            // 오류 본문은 외부 입력이다. 해석할 수 없으면 복구 불가능으로 둔다.
+            return false;
+        }
     }
 
     private Duration retryAfter(String errorBody) {
