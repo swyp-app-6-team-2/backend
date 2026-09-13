@@ -215,9 +215,6 @@ public class RecipeService {
      *
      * <p>재료·조리 순서는 {@code cascade = ALL, orphanRemoval = true} 로 Recipe 가 소유하므로
      * 함께 지워진다. Cooking 은 도메인 경계 때문에 FK 가 없어 직접 지워야 한다.
-     *
-     * <p>RecipeSource 와 RecipeSourceImage 는 아직 Entity 가 없다(Ingestion 단계). 생기면 대표
-     * 이미지와 같은 자리에서 원본 이미지 Key 도 함께 확보해야 한다.
      */
     @Transactional
     public void deleteRecipe(Long userId, Long recipeId) {
@@ -225,6 +222,8 @@ public class RecipeService {
                 .orElseThrow(() -> new BusinessException(RecipeErrorCode.RECIPE_NOT_FOUND));
 
         uploadService.releaseAndDeleteFile(userId, recipe.getCoverImageKey(), UploadPurpose.RECIPE_COVER);
+        // 원본 사진의 용도는 Recipe 로 넘어온 뒤에도 INGESTION_INPUT 이다. 소비된 Job 행은 남긴다.
+        uploadService.releaseAndDeleteFiles(userId, recipe.getSourceImageKeys(), UploadPurpose.INGESTION_INPUT);
         cookHistoryCleanupService.deleteByRecipe(userId, recipeId);
         recipeRepository.delete(recipe);
     }

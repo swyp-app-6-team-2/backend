@@ -153,6 +153,23 @@ public class TestFixtures {
         return ingestionJobRepository.save(job);
     }
 
+    /** 사진 분석 결과로 저장한 Recipe. 원본 사진 2장은 연결까지 마쳤고 Job 은 소비됐다. */
+    public Recipe saveImageRecipe(Long ownerId) {
+        IngestionJob job = saveReadyImageJob(ownerId);
+        job.consume(Instant.now());
+        ingestionJobRepository.save(job);
+        return recipeRepository.save(Recipe.createFromIngestion(ownerId, "김치찌개", RecipeCategory.KOREAN,
+                null, null, null, job.getId(), null, job.getInputImageKeys()));
+    }
+
+    /** URL 분석 결과로 저장한 Recipe. */
+    public Recipe saveUrlRecipe(Long ownerId, String url) {
+        Long jobId = saveReadyUrlJob(ownerId, url);
+        jdbcTemplate.update("update ingestion_job set consumed_at = now(), result = null where id = ?", jobId);
+        return recipeRepository.save(Recipe.createFromIngestion(ownerId, "김치찌개", RecipeCategory.KOREAN,
+                null, null, null, jobId, url, null));
+    }
+
     /** Key 가 어딘가에 연결됐는지. 연결 성공과 롤백을 확인할 때 쓴다. */
     public boolean isAttached(String objectKey) {
         return uploadObjectRepository.findById(objectKey).orElseThrow().isAttached();
