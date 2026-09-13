@@ -1,6 +1,6 @@
 # Ingestion Tech Spec
 
-> **문서 버전**: v1 · **기준일**: 2026-09-12 · **상태**: 초안(승인 전)
+> **문서 버전**: v1 · **기준일**: 2026-09-14 · **상태**: 초안(승인 전)
 
 ## 한눈에 보기
 
@@ -69,7 +69,6 @@ IngestionJob의 생명주기는 다음과 같다.
 | 2  | Recipe 저장 연동, YouTube                            |
 | 3  | Instagram. 비공식 수집 수용(팀)과 GCE IP 접근 실측이 끝난 뒤 착수 |
 
-1단계만 머지된 동안 앱은 분석 결과를 직접 입력(`MANUAL`)으로만 저장할 수 있다.
 
 ### 2.4. 도메인 협력
 
@@ -113,7 +112,7 @@ Ingestion은 Recipe를 알지 못한다. 호출은 항상 Recipe에서 Ingestion
 
 #### Recipe로 저장 (2단계)
 
-사용자가 폼에서 값을 고치고 저장하면, 기존 Recipe 생성 API에 `ingestionJobId`를 함께 보낸다. Recipe가 Job을 소비 처리하고 출처를 복사한다(`트랜잭션과 동시성 제어`). **2단계 과제이며 아직 구현하지 않았다.**
+사용자가 폼에서 값을 고치고 저장하면, 기존 Recipe 생성 API에 `ingestionJobId`를 함께 보낸다. Recipe가 Job을 소비 처리하고 출처를 복사한다(`트랜잭션과 동시성 제어`).
 
 ### 3.2. 데이터 모델
 
@@ -264,7 +263,7 @@ IngestionJob 1 ── 0..1 Recipe   (2단계)
 | 조건                                | 결과                                     |
 |-----------------------------------|----------------------------------------|
 | Job이 없거나 다른 사용자가 소유함              | `404 + INGESTION_JOB_NOT_FOUND`        |
-| 이 Job으로 만든 Recipe가 이미 있음          | 기존 Recipe ID와 `200 OK`                 |
+| 이 Job으로 만든 Recipe가 이미 있음          | 기존 Recipe ID와 `200 OK`. 요청 내용은 반영하지 않는다 |
 | 소비됐는데 Recipe가 없음(삭제됨)             | `409 + INGESTION_JOB_ALREADY_CONSUMED` |
 | 보이는 상태가 `EXPIRED`                 | `409 + INGESTION_JOB_EXPIRED`          |
 | 보이는 상태가 `RESULT_READY`가 아님        | `409 + INGESTION_JOB_INVALID_STATE`    |
@@ -472,9 +471,9 @@ Key 목록은 Job에서도 Recipe에서도 통째로 쓰고 통째로 읽는다.
 | **`ingestionJobId`·`sourceUrl`·`sourceImageKeys` 컬럼 (채택)** | 상세 조회는 기존 쿼리 그대로, 삭제는 Key를 읽어 해제만 함. UNIQUE 하나로 중복 저장을 막음 | `MANUAL` Recipe에 빈 컬럼 3개. 채널명 같은 출처 정보가 늘면 테이블로 분리     |
 
 - **컬럼으로 충분한 이유:** 출처는 Recipe와 1:0..1이고 따로 조회하거나 따로 사는 데이터가 아니다.
-- **사진을 옮기는 단계가 없다.** 입력 사진은 소비되지 않은 Job만 소유하고, 소비된 Job은 중복 저장을 막는 기록이라 영구 보존한다. 그래서 사진을 옮기거나 지우는 단계가 필요 없다.
+- **저장할 때 사진을 옮기지 않는다.** Recipe가 입력 사진 Key를 복사해 가지므로 파일을 옮기거나 복제하는 단계가 없다. 소비된 Job은 중복 저장을 막는 기록이라 영구 보존하고, 사진은 Recipe를 삭제할 때 해제한다.
 - **플랫폼 값(`source_platform`)은 저장하지 않는다.** Job의 `sourceType`이 이미 갖고 있고, Recipe가 밖에 보여 주는 것은 `URL`·`IMAGE` 구분과 원본 URL뿐이다.
-- **바뀌는 기존 결정:** [Recipe Spec](./recipe.md)의 `원본 출처를 RecipeSource로 분리`는 "Recipe에 원본 필드를 직접 추가"하는 안을 "MANUAL Recipe에 불필요한 nullable 필드가 늘고 Recipe가 비대해진다"는 이유로 기각했다. 출처가 세 컬럼에 그치는 지금 범위에서는 그 비용이 테이블을 늘리는 비용보다 작다고 보고 이 안을 채택한다. 같은 절이 "Recipe가 IngestionJob만 참조"하는 안을 기각한 이유(Job의 임시 데이터 생명주기에 의존)는 그대로 유효하며, 이 설계도 그 안은 쓰지 않는다.
+- **바뀌는 기존 결정:** 처음에는 출처를 `RecipeSource`·`RecipeSourceImage` 테이블로 분리하기로 했으나, 출처가 세 컬럼에 그치는 범위에서는 테이블을 늘리는 비용이 더 크다고 보고 2026-09-12에 컬럼으로 바꿨다([Recipe Spec](./recipe.md)의 `원본 출처를 Recipe 컬럼으로 보존`). "Recipe가 IngestionJob만 참조"하는 안은 Recipe의 보존이 Job의 임시 데이터 생명주기에 묶이므로 계속 쓰지 않는다.
 
 ### 4.7. 분석 결과를 등록 폼과 같은 모양으로
 
