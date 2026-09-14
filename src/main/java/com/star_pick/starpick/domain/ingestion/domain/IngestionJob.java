@@ -23,6 +23,8 @@ import org.hibernate.type.SqlTypes;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class IngestionJob {
 
+    public static final int PREVIEW_IMAGE_URL_MAX_LENGTH = 2048;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -63,6 +65,10 @@ public class IngestionJob {
     private Instant expiresAt;
     private Instant consumedAt;
 
+    /** Instagram 만 쓴다. 저장은 조건부 UPDATE({@code IngestionJobRepository#savePreviewImageUrl})로만 한다. */
+    @Column(length = PREVIEW_IMAGE_URL_MAX_LENGTH)
+    private String previewImageUrl;
+
     private IngestionJob(Long userId, IngestionSourceType sourceType, String inputUrl, List<String> inputImageKeys) {
         this.userId = userId;
         this.sourceType = sourceType;
@@ -77,6 +83,10 @@ public class IngestionJob {
 
     public static IngestionJob queueYouTube(Long userId, YouTubeUrl url) {
         return new IngestionJob(userId, IngestionSourceType.YOUTUBE, url.canonicalUrl(), null);
+    }
+
+    public static IngestionJob queueInstagram(Long userId, InstagramUrl url) {
+        return new IngestionJob(userId, IngestionSourceType.INSTAGRAM, url.canonicalUrl(), null);
     }
 
     public List<String> getInputImageKeys() {
@@ -108,11 +118,12 @@ public class IngestionJob {
 
     /**
      * Recipe 로 저장됐다. 상태는 RESULT_READY 로 둔다 — 저장 완료를 Job 상태로 만들지 않는다.
-     * 결과는 더 쓸 일이 없어 비운다.
+     * 결과와 미리보기는 더 쓸 일이 없어 비운다. 소비된 Job 은 영구 보존되므로 서명된 CDN 주소를 남기지 않는다.
      */
     public void consume(Instant now) {
         consumedAt = now;
         result = null;
+        previewImageUrl = null;
     }
 
     public boolean isCurrentAttempt(int attempt) {

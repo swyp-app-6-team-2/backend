@@ -42,4 +42,17 @@ final class GeminiPrompt {
     static String imageInstruction(int count) {
         return "입력: 이미지 %d장. 순서대로 하나의 레시피를 이룰 수 있다.".formatted(count);
     }
+
+    static String instagramPostInstruction(int count, boolean hasCaption) {
+        return "입력: Instagram 게시물 이미지 %d장%s. 순서대로 하나의 레시피를 이룰 수 있다."
+                .formatted(count, hasCaption ? "과 캡션" : "");
+    }
+
+    /**
+     * 외부 텍스트는 이 블록으로만 넣는다. SYSTEM_INSTRUCTION 이 블록 안의 지시를 따르지 않게 한다.
+     * caption 안에 연속된 {@code >} 3개 이상은 블록을 일찍 닫지 못하게 {@code >>} 로 줄여 넣는다(한 번만 바꾸면 5개 이상에서 다시 생긴다).
+     */
+    static String captionData(String caption) {
+        return "분석할 데이터(게시물 캡션):\n<<<\n" + caption.replaceAll(">{3,}", ">>") + "\n>>>";
+    }
 }

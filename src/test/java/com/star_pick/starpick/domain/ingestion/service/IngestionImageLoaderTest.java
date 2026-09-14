@@ -87,6 +87,8 @@ class IngestionImageLoaderTest {
                 new IngestionProperties.Retry(3, List.of(Duration.ofMillis(10))),
                 new IngestionProperties.Image(maxBytes),
                 new IngestionProperties.External(false),
-                new IngestionProperties.Gemini("", "test", "http://localhost", Duration.ofSeconds(5), 0.2));
+                new IngestionProperties.Gemini("", "test", "http://localhost", Duration.ofSeconds(5), 0.2),
+                new IngestionProperties.Instagram(Duration.ofSeconds(10), Duration.ofSeconds(30), 52428800,
+                        Duration.ofSeconds(30)));
     }
 }

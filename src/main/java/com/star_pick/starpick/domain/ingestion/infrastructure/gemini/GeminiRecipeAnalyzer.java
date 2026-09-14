@@ -9,6 +9,7 @@ import com.star_pick.starpick.domain.ingestion.service.Verdict;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisInput;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisOutcome;
+import com.star_pick.starpick.domain.ingestion.service.InlineImage;
 import com.star_pick.starpick.domain.ingestion.service.RecipeAnalyzer;
 import java.net.http.HttpClient;
 import java.time.Duration;
@@ -56,20 +57,35 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
 
     private GeminiGenerateContentRequest buildRequest(AnalysisInput input) {
         List<GeminiPart> parts = new ArrayList<>();
-        if (input.videoUrl() != null) {
-            parts.add(new GeminiPart(null, null, new GeminiFileData(input.videoUrl()),
-                    new GeminiVideoMetadata(config.videoFps())));
-            parts.add(GeminiPart.text(GeminiPrompt.VIDEO_INSTRUCTION));
-        } else {
-            parts.add(GeminiPart.text(GeminiPrompt.imageInstruction(input.images().size())));
-            input.images().forEach(image -> parts.add(new GeminiPart(null,
-                    new GeminiInlineData(image.mimeType(), Base64.getEncoder().encodeToString(image.content())),
-                    null, null)));
+        boolean hasCaption = input.caption() != null && !input.caption().isBlank();
+        switch (input.source()) {
+            case PHOTOS -> {
+                parts.add(GeminiPart.text(GeminiPrompt.imageInstruction(input.images().size())));
+                addImages(parts, input.images());
+            }
+            case YOUTUBE -> {
+                parts.add(new GeminiPart(null, null, new GeminiFileData(input.videoUrl()),
+                        new GeminiVideoMetadata(config.videoFps())));
+                parts.add(GeminiPart.text(GeminiPrompt.VIDEO_INSTRUCTION));
+            }
+            case INSTAGRAM_POST -> {
+                parts.add(GeminiPart.text(GeminiPrompt.instagramPostInstruction(input.images().size(), hasCaption)));
+                addImages(parts, input.images());
+            }
+        }
+        if (hasCaption) {
+            parts.add(GeminiPart.text(GeminiPrompt.captionData(input.caption())));
         }
         return new GeminiGenerateContentRequest(
                 List.of(new GeminiContent("user", parts)),
                 new GeminiContent(null, List.of(GeminiPart.text(GeminiPrompt.SYSTEM_INSTRUCTION))),
                 new GeminiGenerationConfig("application/json", responseJsonSchema));
+    }
+
+    private static void addImages(List<GeminiPart> parts, List<InlineImage> images) {
+        images.forEach(image -> parts.add(new GeminiPart(null,
+                new GeminiInlineData(image.mimeType(), Base64.getEncoder().encodeToString(image.content())),
+                null, null)));
     }
 
     private GeminiGenerateContentResponse post(GeminiGenerateContentRequest request, Duration timeout) {

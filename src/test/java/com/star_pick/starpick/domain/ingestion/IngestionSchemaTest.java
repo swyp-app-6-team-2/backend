@@ -35,10 +35,10 @@ class IngestionSchemaTest {
         assertThat(columns).containsExactly(
                 "id", "user_id", "source_type", "input_url", "input_image_keys",
                 "status", "result", "failure_code", "attempt", "created_at",
-                "started_at", "expires_at", "consumed_at");
+                "started_at", "expires_at", "consumed_at", "preview_image_url");
         assertThat(nullableColumns()).containsExactlyInAnyOrder(
                 "input_url", "input_image_keys", "result", "failure_code",
-                "started_at", "expires_at", "consumed_at");
+                "started_at", "expires_at", "consumed_at", "preview_image_url");
     }
 
     @Test

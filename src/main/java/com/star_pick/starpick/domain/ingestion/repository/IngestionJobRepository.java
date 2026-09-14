@@ -74,6 +74,19 @@ public interface IngestionJobRepository extends JpaRepository<IngestionJob, Long
             """)
     int releaseToQueued(@Param("id") Long id, @Param("attempt") int attempt);
 
+    /** 분석 중 화면용. 해당 시도가 아직 유효할 때만 쓴다. */
+    @Transactional
+    @Modifying
+    @Query("""
+            update IngestionJob j
+               set j.previewImageUrl = :previewImageUrl
+             where j.id = :id
+               and j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.PROCESSING
+               and j.attempt = :attempt
+            """)
+    int savePreviewImageUrl(@Param("id") Long id, @Param("attempt") int attempt,
+                            @Param("previewImageUrl") String previewImageUrl);
+
     @Transactional
     @Modifying
     @Query("""
