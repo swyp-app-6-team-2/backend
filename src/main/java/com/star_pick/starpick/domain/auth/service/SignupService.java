@@ -70,6 +70,6 @@ public class SignupService {
         credentials.saveAndFlush(SocialCredential.builder()
                 .user(user).provider(identity.provider()).socialUid(identity.socialUid()).email(identity.email()).build());
         JwtProvider.TokenPair tokens = refreshTokenService.issueAndStore(user.getUserId());
-        return new SignupResponse(user.getUserId(), tokens.accessToken(), tokens.refreshToken());
+        return new SignupResponse(user.getUserId(), tokens.accessToken(), tokens.refreshToken(), user.isOnboardingRequired());
     }
 }

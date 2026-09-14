@@ -82,6 +82,7 @@ class SignupApiTest {
                 .andExpect(jsonPath("$.data.refreshToken").isString())
                 .andReturn().getResponse().getContentAsString();
         var data = json.readTree(response).get("data");
+        assertThat(data.get("onboardingRequired").asBoolean()).isTrue();
         long userId = data.get("userId").asLong();
         assertThat(jwt.parseAccessToken(data.get("accessToken").asText())).isEqualTo(userId);
         var user = users.findById(userId).orElseThrow();
@@ -254,14 +255,24 @@ class SignupApiTest {
                         .content("{\"provider\":\"GOOGLE\",\"authToken\":\"provider-token\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.requiresTermsAgreement").value(true))
+                .andExpect(jsonPath("$.data.onboardingRequired").value(true))
                 .andReturn().getResponse().getContentAsString();
         String signupToken = json.readTree(firstLogin).get("data").get("signupToken").asText();
-        send(body(signupToken)).andExpect(status().isOk());
+        String signupResult = send(body(signupToken)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
         mvc.perform(post("/api/v1/auth/social-login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"provider\":\"GOOGLE\",\"authToken\":\"provider-token\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.requiresTermsAgreement").value(false))
+                .andExpect(jsonPath("$.data.onboardingRequired").value(true))
                 .andExpect(jsonPath("$.data.signupToken").doesNotExist())
                 .andExpect(jsonPath("$.data.accessToken").isString());
+        String access = json.readTree(signupResult).get("data").get("accessToken").asText();
+        mvc.perform(post("/api/v1/users/me/onboarding/complete").header("Authorization", "Bearer " + access))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/auth/social-login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"provider\":\"GOOGLE\",\"authToken\":\"provider-token\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.onboardingRequired").value(false));
     }
 }

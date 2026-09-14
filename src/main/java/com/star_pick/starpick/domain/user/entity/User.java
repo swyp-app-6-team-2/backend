@@ -61,6 +61,19 @@ public class User {
 
     private LocalDateTime deletedAt;
 
+    @Column(name = "onboarding_completed_at")
+    private LocalDateTime onboardingCompletedAt;
+
+    public boolean isOnboardingRequired() {
+        return onboardingCompletedAt == null;
+    }
+
+    public void completeOnboarding(LocalDateTime completedAt) {
+        if (onboardingCompletedAt == null) {
+            onboardingCompletedAt = completedAt;
+        }
+    }
+
     public void updateLastLogin(Provider provider, LocalDateTime loginAt) {
         this.lastLoginProvider = provider;
         this.lastLoginAt = loginAt;
