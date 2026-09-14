@@ -24,6 +24,7 @@ public class SignupService {
     private final UserRepository users;
     private final SocialCredentialRepository credentials;
     private final TransactionTemplate transactions;
+    private final RefreshTokenService refreshTokenService;
 
     public SignupResponse signup(SignupRequest request) {
         if (!Boolean.TRUE.equals(request.ageOver14Agreed())
@@ -68,7 +69,7 @@ public class SignupService {
                 .build());
         credentials.saveAndFlush(SocialCredential.builder()
                 .user(user).provider(identity.provider()).socialUid(identity.socialUid()).email(identity.email()).build());
-        JwtProvider.TokenPair tokens = jwtProvider.generateTokens(user.getUserId());
+        JwtProvider.TokenPair tokens = refreshTokenService.issueAndStore(user.getUserId());
         return new SignupResponse(user.getUserId(), tokens.accessToken(), tokens.refreshToken());
     }
 }

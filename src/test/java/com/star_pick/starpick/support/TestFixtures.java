@@ -33,6 +33,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @RequiredArgsConstructor
 public class TestFixtures {
 
+    private final com.star_pick.starpick.domain.auth.repository.RefreshTokenRepository refreshTokenRepository;
+
     private final UploadService uploadService;
 
     private final IngestionJobRepository ingestionJobRepository;
@@ -58,6 +60,7 @@ public class TestFixtures {
      * {@link #restoreIngredientActivity()} 로 되돌린다.
      */
     public void reset() {
+        refreshTokenRepository.deleteAll();
         // recipe.ingestion_job_id FK 때문에 recipe 를 먼저 지운다.
         cookHistoryRepository.deleteAll();
         recipeRepository.deleteAll();

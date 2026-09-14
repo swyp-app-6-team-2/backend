@@ -25,6 +25,7 @@ public class SocialLoginService {
     private final SocialCredentialRepository socialCredentialRepository;
     private final JwtProvider jwtProvider;
     private final TransactionTemplate transactionTemplate;
+    private final RefreshTokenService refreshTokenService;
 
     public SocialLoginResponse login(SocialLoginRequest request) {
         Provider provider = parseProvider(request.provider());
@@ -43,7 +44,7 @@ public class SocialLoginService {
         User user = credential.getUser();
         user.updateLastLogin(provider, LocalDateTime.now());
 
-        JwtProvider.TokenPair tokens = jwtProvider.generateTokens(user.getUserId());
+        JwtProvider.TokenPair tokens = refreshTokenService.issueAndStore(user.getUserId());
 
         return SocialLoginResponse.ofExistingUser(user.getUserId(), tokens.accessToken(), tokens.refreshToken());
     }

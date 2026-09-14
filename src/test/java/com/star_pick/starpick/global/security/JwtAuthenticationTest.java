@@ -136,7 +136,8 @@ class JwtAuthenticationTest {
     @Test
     @DisplayName("A10 존재하지 않는 경로도 공통 Envelope 를 유지한다")
     void unknownPath() throws Exception {
-        String body = mockMvc.perform(get("/api/v1/auth/no-such-endpoint"))
+        String body = mockMvc.perform(get("/api/v1/auth/no-such-endpoint")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.generateTokens(1L).accessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andReturn().getResponse().getContentAsString();
