@@ -8,10 +8,12 @@ import static org.mockito.Mockito.mock;
 
 import com.star_pick.starpick.domain.notification.config.NotificationProperties;
 import com.star_pick.starpick.domain.notification.service.NotificationDispatchService;
+import com.star_pick.starpick.global.config.SchedulingConfig;
 import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 
 class NotificationScheduleTest {
 
@@ -34,6 +36,19 @@ class NotificationScheduleTest {
                 .run(context -> assertThat(context).doesNotHaveBean(NotificationSchedule.class));
         valid.withPropertyValues("ingestion.gemini.api-key=key", "notification.fcm.project-id=starpick-mvp")
                 .run(context -> assertThat(context).hasSingleBean(NotificationSchedule.class));
+    }
+
+    @Test
+    @DisplayName("전역 스케줄링과 함께 뜨면 FCM 프로젝트 id 가 있을 때만 매분 작업이 실제로 등록된다")
+    void taskRegisteredWithGlobalScheduling() {
+        ApplicationContextRunner scheduling = runner.withUserConfiguration(SchedulingConfig.class)
+                .withBean(NotificationProperties.class, () -> properties("본문", "link"));
+
+        scheduling.run(context -> assertThat(
+                context.getBean(ScheduledTaskHolder.class).getScheduledTasks()).isEmpty());
+        scheduling.withPropertyValues("notification.fcm.project-id=starpick-mvp")
+                .run(context -> assertThat(
+                        context.getBean(ScheduledTaskHolder.class).getScheduledTasks()).hasSize(1));
     }
 
     @Test

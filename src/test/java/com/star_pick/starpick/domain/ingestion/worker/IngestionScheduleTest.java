@@ -3,12 +3,14 @@ package com.star_pick.starpick.domain.ingestion.worker;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import com.star_pick.starpick.global.config.SchedulingConfig;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 
 class IngestionScheduleTest {
 
@@ -30,6 +32,20 @@ class IngestionScheduleTest {
                 .run(context -> assertThat(context).doesNotHaveBean(IngestionSchedule.class));
         runner.withPropertyValues("ingestion.gemini.api-key=key", "notification.fcm.project-id=starpick-mvp")
                 .run(context -> assertThat(context).hasSingleBean(IngestionSchedule.class));
+    }
+
+    @Test
+    @DisplayName("전역 스케줄링과 함께 뜨면 Gemini 키가 있을 때만 주기 작업 5개가 실제로 등록된다")
+    void tasksRegisteredWithGlobalScheduling() {
+        // SchedulingConfig 가 빠지면 Bean 은 있어도 아무것도 돌지 않는다. 그 회귀를 여기서 잡는다.
+        ApplicationContextRunner scheduling = runner.withUserConfiguration(SchedulingConfig.class)
+                .withPropertyValues("ingestion.worker.poll-interval=1h");
+
+        scheduling.run(context -> assertThat(
+                context.getBean(ScheduledTaskHolder.class).getScheduledTasks()).isEmpty());
+        scheduling.withPropertyValues("ingestion.gemini.api-key=key")
+                .run(context -> assertThat(
+                        context.getBean(ScheduledTaskHolder.class).getScheduledTasks()).hasSize(5));
     }
 
     @Test
