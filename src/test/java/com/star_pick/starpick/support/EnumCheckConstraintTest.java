@@ -6,10 +6,13 @@ import com.star_pick.starpick.domain.ingredient.domain.IngredientCategory;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionSourceType;
+import com.star_pick.starpick.domain.notification.domain.PushPlatform;
+import com.star_pick.starpick.domain.notification.domain.PushStatus;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.recipe.domain.RegistrationMethod;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.user.entity.Provider;
+import java.time.DayOfWeek;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -39,6 +42,9 @@ class EnumCheckConstraintTest {
             new Constraint("ck_ingestion_job_source_type", IngestionSourceType.class),
             new Constraint("ck_ingestion_job_status", IngestionJobStatus.class),
             new Constraint("ck_ingestion_job_failure_code", IngestionFailureCode.class),
+            new Constraint("ck_notification_setting_weekdays", DayOfWeek.class),
+            new Constraint("ck_push_token_platform", PushPlatform.class),
+            new Constraint("ck_push_log_status", PushStatus.class),
             new Constraint("ck_recipe_category_code", RecipeCategory.class),
             new Constraint("ck_recipe_registration_method", RegistrationMethod.class),
             new Constraint("ck_upload_object_purpose", UploadPurpose.class),
