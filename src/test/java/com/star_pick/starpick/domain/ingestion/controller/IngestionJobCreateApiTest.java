@@ -90,10 +90,27 @@ class IngestionJobCreateApiTest {
     }
 
     @Test
-    @DisplayName("YouTube 영상 링크가 아니면 Job 없이 INGESTION_URL_UNSUPPORTED 다")
+    @DisplayName("Instagram 링크는 추적 쿼리를 버리고 img_index 를 남겨 QUEUED Job 을 만든다")
+    void createsQueuedInstagramJob() throws Exception {
+        create("""
+                {"inputType":"URL","url":"https://www.instagram.com/p/DD1ajNQyrBH/?utm_source=ig_web_copy_link&stkn=NTc4MTIwNjQ2YQ%3D%3D&img_index=3"}
+                """)
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.data.ingestionJobId").isNumber());
+
+        var saved = repository.findAll().getFirst();
+        assertThat(saved.getSourceType()).isEqualTo(IngestionSourceType.INSTAGRAM);
+        assertThat(saved.getInputUrl()).isEqualTo("https://www.instagram.com/p/DD1ajNQyrBH/?img_index=3");
+        assertThat(saved.getInputImageKeys()).isEmpty();
+        assertThat(saved.getPreviewImageUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("지원하는 YouTube·Instagram 링크가 아니면 Job 없이 INGESTION_URL_UNSUPPORTED 다")
     void rejectsUnsupportedUrl() throws Exception {
         for (String url : List.of(
-                "https://www.instagram.com/p/DD1ajNQyrBH/", "https://youtu.be/test", "https://example.com")) {
+                "https://www.instagram.com/reels/DcdllvBmOgm/", "https://www.instagram.com/p/DD1ajNQyrBH/?img_index=0",
+                "https://youtu.be/test", "https://example.com")) {
             create("{\"inputType\":\"URL\",\"url\":\"%s\"}".formatted(url))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.data.code").value("INGESTION_URL_UNSUPPORTED"));
@@ -200,6 +217,8 @@ class IngestionJobCreateApiTest {
         assertThat(fixtures.isAttached(key)).isFalse();
 
         create("{\"inputType\":\"URL\",\"url\":\"https://youtu.be/JeTQ0q46pBM\"}")
+                .andExpect(status().isTooManyRequests());
+        create("{\"inputType\":\"URL\",\"url\":\"https://www.instagram.com/reel/DcdllvBmOgm/\"}")
                 .andExpect(status().isTooManyRequests());
     }
 

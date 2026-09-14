@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
 import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
+import com.star_pick.starpick.domain.ingestion.domain.InstagramUrl;
 import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
@@ -181,6 +182,29 @@ class IngestionJobQueryApiTest {
                 .andExpect(jsonPath("$.data.inputType").value("URL"))
                 .andExpect(jsonPath("$.data.previewImageUrl").value("https://i.ytimg.com/vi/JeTQ0q46pBM/hqdefault.jpg"))
                 .andExpect(jsonPath("$.data.url").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("Instagram Job 은 Worker 가 저장한 원본 이미지를 미리보기로 주고, 저장 전과 소비 뒤에는 null 이다")
+    void returnsInstagramPreviewOnceSaved() throws Exception {
+        Long id = repository.save(IngestionJob.queueInstagram(OWNER_ID,
+                InstagramUrl.parse("https://www.instagram.com/p/DKI9fBzy5FB/").orElseThrow())).getId();
+        query(id)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.inputType").value("URL"))
+                .andExpect(jsonPath("$.data.previewImageUrl").isEmpty())
+                .andExpect(jsonPath("$.data.url").doesNotExist());
+
+        String preview = "https://scontent-ssn1-1.cdninstagram.com/v/1.jpg";
+        jdbcTemplate.update("update ingestion_job set preview_image_url = ? where id = ?", preview, id);
+        query(id).andExpect(jsonPath("$.data.previewImageUrl").value(preview));
+
+        jdbcTemplate.update("""
+                update ingestion_job
+                   set status = 'RESULT_READY', expires_at = now() + interval '1 hour', consumed_at = now()
+                 where id = ?
+                """, id);
+        query(id).andExpect(jsonPath("$.data.previewImageUrl").isEmpty());
     }
 
     @Test
