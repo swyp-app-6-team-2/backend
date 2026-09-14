@@ -12,7 +12,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -60,7 +59,6 @@ public class IngestionWorker {
         ingestionExecutor.shutdownNow();
     }
 
-    @Scheduled(fixedDelayString = "${ingestion.worker.poll-interval}")
     public void poll() {
         int free = properties.worker().concurrency() - inFlight.get();
         if (free <= 0) {

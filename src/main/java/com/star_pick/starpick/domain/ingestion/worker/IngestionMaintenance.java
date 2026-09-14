@@ -5,11 +5,9 @@ import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository
 import com.star_pick.starpick.domain.ingestion.service.IngestionJobPurger;
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -23,7 +21,6 @@ public class IngestionMaintenance {
     private final IngestionJobPurger purger;
     private final IngestionProperties properties;
 
-    @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.MINUTES)
     public void requeueOrFailStale() {
         Instant threshold = Instant.now().minus(properties.job().staleThreshold());
         int requeued = repository.requeueStale(threshold);
@@ -33,7 +30,6 @@ public class IngestionMaintenance {
         }
     }
 
-    @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.MINUTES)
     public void failStuckQueued() {
         int failed = repository.failStuckQueued(
                 Instant.now().minus(properties.job().queueWaitLimit()));
@@ -42,7 +38,6 @@ public class IngestionMaintenance {
         }
     }
 
-    @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.HOURS)
     public void expireResults() {
         int expired = repository.expireResults(Instant.now());
         if (expired > 0) {
@@ -50,7 +45,6 @@ public class IngestionMaintenance {
         }
     }
 
-    @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.HOURS)
     public void purgeOldJobs() {
         Instant threshold = Instant.now().minus(properties.job().retention());
         List<Long> ids = repository.findPurgeTargetIds(

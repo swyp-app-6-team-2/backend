@@ -3,18 +3,13 @@ package com.star_pick.starpick.domain.ingestion.config;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
- * Worker 의 주기 실행을 켠다. 맡을지 말지는 {@link IngestionWorkerCondition} 이 정한다.
- *
- * <p>{@code IngestionWorker} 와 {@code IngestionMaintenance} 는 조건 없이 등록된다. 여기서 켜는
- * 것은 {@code @Scheduled} 를 읽는 기능뿐이라, 맡지 않은 프로세스에서도 두 빈은 존재하되 아무도
- * 부르지 않는다. 테스트가 그 빈을 직접 호출해 검증할 수 있는 이유이기도 하다.
+ * Worker 를 맡는 프로세스에서 기동 로그를 남긴다. 맡을지 말지는 {@link IngestionWorkerCondition} 이 정하고,
+ * 주기 실행은 같은 조건으로 등록되는 {@code IngestionSchedule} 이 한다.
  */
 @Slf4j
 @Configuration
-@EnableScheduling
 @Conditional(IngestionWorkerCondition.class)
 public class IngestionWorkerConfig {
 
