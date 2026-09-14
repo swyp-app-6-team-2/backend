@@ -8,12 +8,13 @@ import java.util.List;
 public record IngestionJobSnapshot(
         Long id,
         IngestionSourceType sourceType,
+        String inputUrl,
         List<String> inputImageKeys,
         int attempt,
         Instant startedAt) {
 
     static IngestionJobSnapshot from(IngestionJob job) {
-        return new IngestionJobSnapshot(job.getId(), job.getSourceType(),
+        return new IngestionJobSnapshot(job.getId(), job.getSourceType(), job.getInputUrl(),
                 job.getInputImageKeys(), job.getAttempt(), job.getStartedAt());
     }
 }

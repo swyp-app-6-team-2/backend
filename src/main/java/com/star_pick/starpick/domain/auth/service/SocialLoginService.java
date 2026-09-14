@@ -5,16 +5,18 @@ import com.star_pick.starpick.domain.auth.client.SocialUserInfoClient;
 import com.star_pick.starpick.domain.auth.client.SocialUserInfoClientResolver;
 import com.star_pick.starpick.domain.auth.dto.SocialLoginRequest;
 import com.star_pick.starpick.domain.auth.dto.SocialLoginResponse;
-import com.star_pick.starpick.domain.auth.exception.InvalidSocialTokenException;
-import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.domain.user.entity.Provider;
 import com.star_pick.starpick.domain.user.entity.SocialCredential;
 import com.star_pick.starpick.domain.user.entity.User;
 import com.star_pick.starpick.domain.user.repository.SocialCredentialRepository;
+import com.star_pick.starpick.global.exception.BusinessException;
+import com.star_pick.starpick.global.exception.CommonErrorCode;
+import com.star_pick.starpick.global.security.jwt.JwtProvider;
+import java.time.LocalDateTime;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDateTime;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -22,16 +24,19 @@ public class SocialLoginService {
     private final SocialUserInfoClientResolver socialUserInfoClientResolver;
     private final SocialCredentialRepository socialCredentialRepository;
     private final JwtProvider jwtProvider;
+    private final TransactionTemplate transactionTemplate;
 
     public SocialLoginResponse login(SocialLoginRequest request) {
         Provider provider = parseProvider(request.provider());
 
         SocialUserInfoClient client = socialUserInfoClientResolver.resolve(provider);
-        SocialUserInfo userInfo = client.getUserInfo(request.authToken());
+        SocialUserInfo userInfo = client.getUserInfo(request.authToken(), request.nonce());
 
-        return socialCredentialRepository.findByProviderAndSocialUid(provider, userInfo.socialUid())
+        // 외부 인증 호출은 끝난 뒤에 DB 트랜잭션을 시작한다.
+        return transactionTemplate.execute(status -> socialCredentialRepository
+                .findByProviderAndSocialUid(provider, userInfo.socialUid())
                 .map(credential -> loginExistingUser(credential, provider))
-                .orElseGet(() -> issueSignupToken(provider, userInfo));
+                .orElseGet(() -> issueSignupToken(provider, userInfo)));
     }
 
     private SocialLoginResponse loginExistingUser(SocialCredential credential, Provider provider) {
@@ -51,9 +56,12 @@ public class SocialLoginService {
 
     private Provider parseProvider(String provider) {
         try {
-            return Provider.valueOf(provider.toUpperCase());
+            if (provider == null || provider.isBlank()) {
+                throw new IllegalArgumentException();
+            }
+            return Provider.valueOf(provider.trim().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            throw new InvalidSocialTokenException();
+            throw new BusinessException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
         }
     }
 }

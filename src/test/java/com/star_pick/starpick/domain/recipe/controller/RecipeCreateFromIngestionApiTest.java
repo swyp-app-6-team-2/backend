@@ -40,7 +40,7 @@ class RecipeCreateFromIngestionApiTest {
 
     private static final Long OWNER_ID = 1L;
     private static final Long OTHER_ID = 2L;
-    private static final String YOUTUBE_URL = "https://www.youtube.com/watch?v=abc123";
+    private static final String YOUTUBE_URL = "https://www.youtube.com/watch?v=kjG6h_LTklo";
     private static final RecipeDraft DRAFT =
             new RecipeDraft("김치찌개", RecipeCategory.KOREAN, null, null, List.of(), List.of());
 

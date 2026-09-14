@@ -3,6 +3,7 @@ package com.star_pick.starpick.domain.ingestion.worker;
 import com.star_pick.starpick.domain.ingredient.service.IngredientService;
 import com.star_pick.starpick.domain.ingestion.config.IngestionProperties;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
+import com.star_pick.starpick.domain.ingestion.domain.IngestionSourceType;
 import com.star_pick.starpick.domain.ingestion.exception.IngestionInputException;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisInput;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisOutcome;
@@ -60,8 +61,13 @@ public class IngestionJobProcessor {
         // Job 하나에 허용한 예산. 사진 읽기와 분석 호출이 이 하나를 나눠 쓴다.
         Instant deadline = snapshot.startedAt().plus(properties.job().deadline());
         try {
-            var images = imageLoader.load(snapshot.inputImageKeys(), deadline);
-            AnalysisOutcome outcome = analyzeWithRetry(snapshot, new AnalysisInput(images), deadline);
+            AnalysisInput input = switch (snapshot.sourceType()) {
+                case IMAGE -> AnalysisInput.ofImages(imageLoader.load(snapshot.inputImageKeys(), deadline));
+                case YOUTUBE -> AnalysisInput.ofVideo(snapshot.inputUrl());
+                // 요청 단계가 Instagram 링크를 거절하므로 도달하지 않는다(3단계에서 채운다).
+                case INSTAGRAM -> throw new IngestionInputException("Instagram 입력은 아직 처리하지 않는다");
+            };
+            AnalysisOutcome outcome = analyzeWithRetry(snapshot, input, deadline);
             if (outcome.verdict() != Verdict.RECIPE) {
                 finishFailed(snapshot, IngestionFailureCode.CONTENT_NOT_RECOGNIZED, startedNanos, outcome);
                 return;
@@ -83,12 +89,20 @@ public class IngestionJobProcessor {
                     IngestionFailureCode.PROCESSING_FAILED);
         } catch (RecipeAnalysisException e) {
             if (e.kind() == Kind.CONTENT_BLOCKED) {
-                // 안전 필터가 사진을 거절한 것은 예상 가능한 결과다. ErrorCode 로 표현되는
+                // 안전 필터가 입력을 거절한 것은 예상 가능한 결과다. ErrorCode 로 표현되는
                 // 비즈니스 실패를 ERROR + Stack Trace 로 남기지 않는다(CLAUDE.md §9).
                 log.warn("안전 차단으로 레시피를 인식하지 못했습니다. ingestionJobId={}, attempt={}, elapsedMs={}",
                         snapshot.id(), snapshot.attempt(), elapsedMs(startedNanos));
                 executionService.saveFailure(snapshot.id(), snapshot.attempt(),
                         IngestionFailureCode.CONTENT_NOT_RECOGNIZED);
+            } else if (e.kind() == Kind.INPUT_REJECTED && snapshot.sourceType() == IngestionSourceType.YOUTUBE) {
+                // 없는 영상·볼 수 없는 영상이 대부분이라 ERROR 로 남기지 않는다(CLAUDE.md §9). 우리 요청 형식
+                // 오류도 같은 400 으로 올 수 있어, 이 WARN 이 몰리면 요청 형식부터 의심한다.
+                log.warn("Gemini 가 영상 입력을 거절했습니다. ingestionJobId={}, sourceType={}, attempt={}, failureCode={}, elapsedMs={}",
+                        snapshot.id(), snapshot.sourceType(), snapshot.attempt(),
+                        IngestionFailureCode.SOURCE_UNAVAILABLE, elapsedMs(startedNanos));
+                executionService.saveFailure(snapshot.id(), snapshot.attempt(),
+                        IngestionFailureCode.SOURCE_UNAVAILABLE);
             } else {
                 log.error("분석이 최종 실패했습니다. ingestionJobId={}, kind={}, attempt={}, elapsedMs={}",
                         snapshot.id(), e.kind(), snapshot.attempt(), elapsedMs(startedNanos), e);

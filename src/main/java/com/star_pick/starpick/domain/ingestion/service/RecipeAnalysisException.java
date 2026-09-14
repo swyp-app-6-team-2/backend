@@ -5,7 +5,9 @@ import java.time.Duration;
 public class RecipeAnalysisException extends RuntimeException {
 
     public enum Kind {
-        RETRYABLE, CONTENT_BLOCKED, UNRECOVERABLE
+        RETRYABLE, CONTENT_BLOCKED, UNRECOVERABLE,
+        /** Gemini 가 입력 자체를 받아들이지 않았다(400 INVALID_ARGUMENT, 키 오류 제외). 재시도하지 않는다. */
+        INPUT_REJECTED
     }
 
     private final Kind kind;

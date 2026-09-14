@@ -51,7 +51,7 @@ class GeminiRecipeAnalyzerTest {
                 """);
 
         var outcome = analyzer().analyze(
-                new AnalysisInput(List.of(new InlineImage("image/jpeg", new byte[]{1, 2, 3}))),
+                AnalysisInput.ofImages(List.of(new InlineImage("image/jpeg", new byte[]{1, 2, 3}))),
                 Duration.ofSeconds(2));
 
         assertThat(outcome.verdict()).isEqualTo(Verdict.RECIPE);
@@ -67,6 +67,45 @@ class GeminiRecipeAnalyzerTest {
         assertThat(request.at("/systemInstruction").has("role")).isFalse();
         assertThat(request.at("/contents/0/parts/0").has("inlineData")).isFalse();
         assertThat(request.at("/contents/0/parts/1").has("text")).isFalse();
+    }
+
+    @Test
+    @DisplayName("영상은 fileData 와 fps 를 먼저, 영상 문구를 뒤에 보낸다")
+    void analyzesYouTubeVideo() throws Exception {
+        respond(200, candidateResponse(
+                "{\"verdict\":\"RECIPE\",\"title\":\"잡채\",\"categoryCode\":\"KOREAN\",\"ingredients\":[],\"steps\":[{\"content\":\"볶는다\"}]}",
+                "STOP"));
+
+        AnalysisOutcome outcome = analyzer().analyze(
+                AnalysisInput.ofVideo("https://www.youtube.com/shorts/T-JwDP_5hEY"), Duration.ofSeconds(2));
+
+        assertThat(outcome.draft().title()).isEqualTo("잡채");
+        var request = JsonMapper.builder().build().readTree(requestBody.get());
+        assertThat(request.at("/contents/0/parts/0/fileData/fileUri").asString())
+                .isEqualTo("https://www.youtube.com/shorts/T-JwDP_5hEY");
+        assertThat(request.at("/contents/0/parts/0/videoMetadata/fps").asDouble()).isEqualTo(0.2);
+        assertThat(request.at("/contents/0/parts").size()).isEqualTo(2);
+        assertThat(request.at("/contents/0/parts/1/text").asString()).isEqualTo("입력: YouTube 영상.");
+        assertThat(request.at("/contents/0/parts/0").has("inlineData")).isFalse();
+    }
+
+    @Test
+    @DisplayName("400 INVALID_ARGUMENT 는 입력 거절이고, 키 오류 400 은 복구 불가능이다")
+    void separatesRejectedInputFromInvalidKey() {
+        respond(400, """
+                {"error":{"code":400,"message":"SENSITIVE_BODY","status":"INVALID_ARGUMENT"}}
+                """);
+        assertFailure(RecipeAnalysisException.Kind.INPUT_REJECTED, Duration.ofSeconds(1));
+
+        restartWith(400, """
+                {"error":{"code":400,"message":"SENSITIVE_BODY","status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com"}]}}
+                """);
+        assertFailure(RecipeAnalysisException.Kind.UNRECOVERABLE, Duration.ofSeconds(1));
+
+        restartWith(400, """
+                {"error":{"code":400,"message":"SENSITIVE_BODY","status":"FAILED_PRECONDITION"}}
+                """);
+        assertFailure(RecipeAnalysisException.Kind.UNRECOVERABLE, Duration.ofSeconds(1));
     }
 
     @Test
@@ -183,12 +222,12 @@ class GeminiRecipeAnalyzerTest {
     private GeminiRecipeAnalyzer analyzer() {
         return new GeminiRecipeAnalyzer(
                 RestClient.builder(), HttpClient.newHttpClient(), JsonMapper.builder().build(),
-                new IngestionProperties.Gemini("test-key", "test-model", baseUrl, Duration.ofSeconds(5)));
+                new IngestionProperties.Gemini("test-key", "test-model", baseUrl, Duration.ofSeconds(5), 0.2));
     }
 
     private AnalysisOutcome analyze(Duration timeout) {
         return analyzer().analyze(
-                new AnalysisInput(List.of(new InlineImage("image/jpeg", new byte[]{1}))), timeout);
+                AnalysisInput.ofImages(List.of(new InlineImage("image/jpeg", new byte[]{1}))), timeout);
     }
 
     private RecipeAnalysisException failure(Duration timeout) {

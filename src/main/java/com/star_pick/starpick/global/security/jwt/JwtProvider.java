@@ -14,10 +14,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
-/*
-  < 토큰 발급·검증 유틸 >
-   - signup token 의 검증은 회원가입 API 담당자가 추가한다
- */
+/** 서비스 로그인 토큰 및 소셜 인증 후 임시 가입 토큰 발급·검증. */
 
 @Component
 public class JwtProvider {
@@ -82,6 +79,27 @@ public class JwtProvider {
         }
         return Long.valueOf(claims.getSubject());
     }
+
+    public SignupIdentity parseSignupToken(String token) {
+        Claims claims = jwtParser.parseSignedClaims(token).getPayload();
+        if (!"signup".equals(claims.get("type", String.class)) || claims.getExpiration() == null) {
+            throw new JwtException("유효한 signup token이 아닙니다.");
+        }
+        String provider = claims.get("provider", String.class);
+        String socialUid = claims.get("socialUid", String.class);
+        String email = claims.get("email", String.class);
+        if (provider == null || socialUid == null || socialUid.isBlank() || socialUid.length() > 255
+                || (email != null && email.length() > 255)) {
+            throw new JwtException("회원가입 식별 정보가 올바르지 않습니다.");
+        }
+        try {
+            return new SignupIdentity(Provider.valueOf(provider), socialUid, email);
+        } catch (IllegalArgumentException e) {
+            throw new JwtException("지원하지 않는 provider입니다.");
+        }
+    }
+
+    public record SignupIdentity(Provider provider, String socialUid, String email) { }
 
     public record TokenPair(String accessToken, String refreshToken) { }
 
