@@ -76,6 +76,18 @@ ingestion:
     max-video-bytes: 52428800
     upload-timeout: 30s
 
+# 실제 FCM Bean 을 만들지 않는다. PushGateway 자리에는 TestcontainersConfiguration 이 FakePushGateway 를 등록한다.
+# project-id 가 비어 있어 알림 스케줄도 등록되지 않는다. 테스트는 NotificationDispatchService 를 직접 호출한다.
+notification:
+  external:
+    enabled: false
+  fcm:
+    project-id: ""
+  message:
+    meal-body: test-meal-body
+  push:
+    deep-link: starpick-test://recommend
+
 logging:
   level:
     org.hibernate.SQL: warn

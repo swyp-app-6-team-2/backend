@@ -81,6 +81,19 @@ ingestion:
     max-video-bytes: 52428800
     upload-timeout: 30s
 
+notification:
+  external:
+    enabled: true
+  fcm:
+    # 비어 있으면 이 프로세스는 알림 Worker 를 맡지 않는다. GEMINI_API_KEY 와 같은 방식이다.
+    project-id: ${FCM_PROJECT_ID:}
+  message:
+    # 기획이 문구를 정하면 환경변수 대신 여기에 직접 적는다.
+    meal-body: ${NOTIFICATION_MEAL_BODY:}
+  push:
+    # 앱 딥링크 실제 주소를 FE 가 확인하면 여기에 직접 적는다.
+    deep-link: ${NOTIFICATION_DEEP_LINK:}
+
 logging:
   level:
     org.hibernate.SQL: debug

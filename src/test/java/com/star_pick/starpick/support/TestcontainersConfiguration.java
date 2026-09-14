@@ -47,4 +47,9 @@ public class TestcontainersConfiguration {
     FakeInstagramClient instagramClient() {
         return new FakeInstagramClient();
     }
+
+    @Bean
+    FakePushGateway pushGateway() {
+        return new FakePushGateway();
+    }
 }
