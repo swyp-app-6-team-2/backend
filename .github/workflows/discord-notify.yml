@@ -1,0 +1,101 @@
+name: Discord 알림
+
+on:
+  issues:
+    types: [ opened ]
+  pull_request:
+    branches: [ main ]
+    types: [ opened, closed ]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  issue-opened:
+    # 공개 저장소라 외부인 이슈는 알리지 않는다. 조직 멤버십이 비공개면 payload에 CONTRIBUTOR로 온다.
+    if: >-
+      github.event_name == 'issues' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 이슈 생성 알림
+        # 제목 같은 사용자 입력은 run에 직접 넣지 않고 env로 넘긴다(스크립트 주입 방지).
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NUMBER: ${{ github.event.issue.number }}
+          TITLE: ${{ github.event.issue.title }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+          LABELS: ${{ join(github.event.issue.labels.*.name, ', ') }}
+          URL: ${{ github.event.issue.html_url }}
+        run: |
+          jq -n \
+            --arg number "$NUMBER" --arg title "$TITLE" --arg author "$AUTHOR" \
+            --arg labels "${LABELS:-없음}" --arg url "$URL" \
+            '{
+              content: "**[이슈 생성]** #\($number) \($title)\n작성 \($author) · 라벨 \($labels)\n<\($url)>",
+              allowed_mentions: { parse: [] }
+            }' \
+          | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"
+
+  pull-request:
+    # 포크 PR에는 Secret이 전달되지 않아 같은 저장소 브랜치의 PR만 알린다.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action == 'opened' || github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: PR 생성·머지 알림
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+          URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # shellcheck disable=SC2016
+          details=$(gh api graphql \
+            -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$NUMBER" \
+            -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) {
+                    closingIssuesReferences(first: 5) { nodes { number } }
+                    files(first: 100) { nodes { path } }
+                  }
+                }
+              }' \
+            --jq '.data.repository.pullRequest')
+
+          # migration 번호는 머지 순서대로 정해져 작업 중인 브랜치와 겹칠 수 있어 머지 때 함께 알린다.
+          jq -n \
+            --argjson pr "$details" --arg merged "$MERGED" \
+            --arg number "$NUMBER" --arg title "$TITLE" --arg author "$AUTHOR" \
+            --arg mergedBy "$MERGED_BY" --arg url "$URL" \
+            '
+              ($merged == "true") as $isMerged
+              | ([$pr.closingIssuesReferences.nodes[].number | "#\(.)"] | join(", ")) as $issues
+              | ([$pr.files.nodes[].path
+                  | select(startswith("src/main/resources/db/migration/"))
+                  | split("/") | last]
+                  | sort_by(ltrimstr("V") | split("__")[0] | (tonumber? // 0))
+                  | map("`\(.)`") | join(", ")) as $migrations
+              | {
+                  content: (
+                    (if $isMerged then "**[PR 머지]** #\($number) \($title)\n머지 \($mergedBy)"
+                     else "**[PR 생성]** #\($number) \($title)\n작성 \($author)" end)
+                    + (if $issues == "" then "" else " · 이슈 \($issues)" end)
+                    + (if $isMerged and $migrations != "" then "\nDB migration \($migrations) — 작업 중인 브랜치의 migration 번호를 확인하세요" else "" end)
+                    + "\n<\($url)>"
+                  ),
+                  allowed_mentions: { parse: [] }
+                }
+            ' \
+          | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"
