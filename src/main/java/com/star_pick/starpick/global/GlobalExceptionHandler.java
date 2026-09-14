@@ -2,6 +2,7 @@ package com.star_pick.starpick.global;
 
 import com.star_pick.starpick.domain.auth.exception.InvalidSocialTokenException;
 import com.star_pick.starpick.domain.auth.exception.SocialAuthServerException;
+import com.star_pick.starpick.domain.auth.exception.SignupException;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import com.star_pick.starpick.global.exception.ErrorCode;
@@ -29,6 +30,12 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+
+    @ExceptionHandler(SignupException.class)
+    public ResponseEntity<ApiResponse<Void>> handleSignup(SignupException e) {
+        return ResponseEntity.status(e.getStatus())
+                .body(ApiResponse.error(e.getStatus().value(), e.getMessage()));
+    }
 
     // domain/auth 소유라 이번 단계에서 손대지 않는다.
     // Auth ErrorCode 가 도입되면 BusinessException 으로 합쳐지고 아래 두 핸들러는 사라진다.

@@ -21,6 +21,13 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long userId;
 
+    // 기존 회원은 확인 이력이 없으므로 null. 신규 가입은 true만 허용한다.
+    @Column(name = "age_over_14_agreed")
+    private Boolean ageOver14Agreed;
+
+    @Column(name = "age_over_14_agreed_at")
+    private LocalDateTime ageOver14AgreedAt;
+
     @Column(nullable = false)
     private boolean serviceTermsAgreed;
 
@@ -29,6 +36,11 @@ public class User {
 
     @Column(nullable = false)
     private boolean marketingAgreed;
+
+    @Column(nullable = false)
+    private boolean serviceAgreed;
+
+    private LocalDateTime serviceAgreedAt;
 
     @Column(nullable = false)
     private LocalDateTime signupCompletedAt;

@@ -36,7 +36,8 @@ public class NaverUserInfoClient implements SocialUserInfoClient {
                     .retrieve()
                     .body(NaverUserInfoResponse.class);
 
-            if(result == null || !"00".equals(result.resultcode()) || result.response() == null) {
+            if(result == null || !"00".equals(result.resultcode()) || result.response() == null
+                    || result.response().id() == null || result.response().id().isBlank()) {
                 throw new InvalidSocialTokenException();
             }
 

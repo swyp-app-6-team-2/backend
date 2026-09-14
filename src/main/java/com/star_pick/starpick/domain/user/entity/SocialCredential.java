@@ -37,7 +37,7 @@ public class SocialCredential {
     @Column(nullable = false)
     private String socialUid;
 
-    @Column(nullable = false, updatable = false)
+    @Column(updatable = false)
     private String email;
 
     @CreationTimestamp

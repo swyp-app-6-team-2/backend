@@ -8,6 +8,7 @@ public record NaverUserInfoResponse (
         String message,
         NaverAccount response
 ) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record NaverAccount(String id, String email) {
     }
 }

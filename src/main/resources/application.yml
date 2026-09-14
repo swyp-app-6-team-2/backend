@@ -26,13 +26,19 @@ starpick:
     icon-base-url: ${INGREDIENT_ICON_BASE_URL}
 
 jwt:
-  secret: starpick-jwt-secret-key-must-be-at-least-32-characters-long
+  secret: ${JWT_SECRET}
   access-token-expiration: 1800000       # 30분
   refresh-token-expiration: 1209600000   # 14일
   signup-token-expiration: 300000        # 5분
 
 google:
   client-id: ${GOOGLE_CLIENT_ID}
+
+kakao:
+  app-id: ${KAKAO_APP_ID}
+
+apple:
+  client-id: ${APPLE_CLIENT_ID}
 
 gcs:
   # 기본값을 두지 않는다. 설정 누락을 fail-fast 로 잡기 위한 의도이며 google.client-id 와 같다.
