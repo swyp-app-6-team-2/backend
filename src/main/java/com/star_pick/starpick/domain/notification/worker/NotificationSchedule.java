@@ -27,7 +27,8 @@ public class NotificationSchedule {
         log.info("알림 Worker 를 시작합니다. projectId={}", properties.fcm().projectId());
     }
 
-    @Scheduled(cron = "0 * * * * *", zone = "Asia/Seoul")
+    // 0초가 아니라 1초. 0초에 돌면 스케줄러가 몇 ms 일찍 깼을 때 이전 분으로 잘려 그 분을 놓친다.
+    @Scheduled(cron = "1 * * * * *", zone = "Asia/Seoul")
     public void run() {
         try {
             dispatchService.dispatch(Instant.now());

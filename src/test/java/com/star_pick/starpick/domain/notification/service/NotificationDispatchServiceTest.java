@@ -72,14 +72,27 @@ class NotificationDispatchServiceTest {
     }
 
     @Test
-    @DisplayName("스케줄러가 몇 ms 일찍 깨어도 그 분의 알림을 보낸다")
-    void earlyWakeRoundsToMinute() {
+    @DisplayName("1초 실행이 몇 ms 일찍 깨어도 그 분의 알림을 보낸다")
+    void earlyWakeStaysInMinute() {
         save(USER_A, true, List.of(DayOfWeek.MONDAY), "점심", "12:00");
         tokenService.register(USER_A, "phone", PushPlatform.IOS);
 
-        dispatchService.dispatch(MONDAY_NOON.minusMillis(5));
+        dispatchService.dispatch(MONDAY_NOON.plusSeconds(1).minusMillis(5));
 
         assertThat(gateway.sent()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("59초까지 늦게 시작해도 다음 분이 아니라 그 분의 알림을 보낸다")
+    void lateStartStaysInMinute() {
+        save(USER_A, true, List.of(DayOfWeek.MONDAY), "점심", "12:00");
+        tokenService.register(USER_A, "phone", PushPlatform.IOS);
+        save(USER_B, true, List.of(DayOfWeek.MONDAY), "점심", "12:01");
+        tokenService.register(USER_B, "other", PushPlatform.IOS);
+
+        dispatchService.dispatch(MONDAY_NOON.plusSeconds(59));
+
+        assertThat(gateway.sent()).extracting(PushMessage::token).containsExactly("phone");
     }
 
     @Test

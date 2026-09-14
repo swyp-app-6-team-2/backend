@@ -38,8 +38,8 @@ public class NotificationDispatchService {
     private final NotificationProperties properties;
 
     public void dispatch(Instant now) {
-        // 반올림: 스케줄러가 11:59:59.998 에 깨면 그냥 자를 때 11:59 가 되어 12:00 을 영영 놓친다.
-        ZonedDateTime minute = now.plusSeconds(30).atZone(SEOUL).truncatedTo(ChronoUnit.MINUTES);
+        // 실행 시각이 속한 분을 그대로 쓴다. 스케줄은 매분 1초에 돌아 몇 ms 일찍 깨도, 59초까지 늦게 시작해도 같은 분이다.
+        ZonedDateTime minute = now.atZone(SEOUL).truncatedTo(ChronoUnit.MINUTES);
         List<DueNotification> due = recorder.record(
                 minute.getDayOfWeek().name(), minute.format(TimeSlot.HH_MM), minute.toInstant());
         if (due.isEmpty()) {
