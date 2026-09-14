@@ -91,7 +91,7 @@ Recipe 1 ── 0..N RecipeStep
 | 속성                       | 필수 | 규칙                                                                     |
 |--------------------------|----|------------------------------------------------------------------------|
 | `userId`                 | O  | Access Token에서 식별한 소유자                                                 |
-| `title`                  | O  | null 또는 빈 값 불가                                                         |
+| `title`                  | O  | null 또는 빈 값 불가, 최대 255자                                                 |
 | `categoryCode`           | O  | `KOREAN`, `WESTERN`, `CHINESE`, `JAPANESE`, `BUNSIK`, `ASIAN`, `OTHER` |
 | `registrationMethod`     | O  | 직접 입력은 `MANUAL`, Ingestion은 Job의 입력 방식에 따라 `URL` 또는 `IMAGE` |
 | `coverImageKey`          | X  | `RECIPE_COVER` 용도로 발급된 GCS 객체 Key                                      |
@@ -106,8 +106,8 @@ Recipe 1 ── 0..N RecipeStep
 |----------------|----|-------------------------------|
 | `recipeId`     | O  | 소유 Recipe                     |
 | `ingredientId` | X  | 공통 Ingredient와 연결할 때만 사용      |
-| `name`         | O  | Recipe 저장 당시 사용자가 확인한 재료명 스냅샷 |
-| `amountText`   | X  | 수량과 단위를 포함한 원문 표현             |
+| `name`         | O  | Recipe 저장 당시 사용자가 확인한 재료명 스냅샷. 최대 255자 |
+| `amountText`   | X  | 수량과 단위를 포함한 원문 표현. 최대 255자    |
 | `displayOrder` | O  | 요청 배열 순서를 기준으로 서버가 결정         |
 
 #### RecipeStep
@@ -200,6 +200,8 @@ Ingredient와 Step은 개별 수정 API 없이 전체 교체한다.
 - 빈 배열: 전체 삭제
 - 값이 있는 배열: 기존 데이터를 전달된 값으로 교체
 
+본문이 없거나 필드를 하나도 전달하지 않은 요청, 필수값(`title`·`categoryCode`·`servings`)이나 배열(`ingredients`·`steps`)에 명시적 `null`을 보낸 요청은 `400 + REQUEST_VALIDATION_FAILED`다.
+
 `coverImageKey`는 미전달 시 유지하고,
 `null`이면 대표 이미지를 제거한다. 새 Key를 전달하면 이미지를 교체하고, 기존 이미지의 GCS 삭제는 DB 커밋 이후 한 번 시도한다([Image Upload Common Spec](./upload.md)의 `주요 처리 흐름`). GCS 삭제가 실패해도 이미 완료된 Recipe 수정은 유지한다.
 
@@ -221,7 +223,7 @@ Ingestion 기반 생성은 MANUAL 생성 범위에 다음 작업을 더해 같�
 
 1. IngestionJob을 비관적 쓰기 잠금(`SELECT ... FOR UPDATE`)하고 소유권을 확인한다.
 2. 같은 `ingestionJobId`로 만든 Recipe가 이미 있으면 기존 Recipe ID와 `200 OK`를 반환하고 종료한다.
-3. Job의 `consumedAt`, 만료 여부, 상태를 이 순서로 확인하고, 통과하면 `consumedAt`을 설정하고 임시 `result`를 제거한다.
+3. Job의 `consumedAt`, 만료 여부, 상태를 이 순서로 확인하고, 통과하면 `consumedAt`을 설정하고 임시 `result`와 `previewImageUrl`을 제거한다.
 4. 출처를 복사해 Recipe, RecipeIngredient, RecipeStep을 저장하고 선택한 `coverImageKey`를 연결한다. IMAGE 방식이면 GCS 객체를 복사하지 않고 IngestionJob의 `inputImageKeys`를 `sourceImageKeys`로 순서 그대로 복사한다. 원본 Job의 Key는 지우지 않는다.
 
 Recipe는 Ingestion의 Repository를 보지 않고, Ingestion이 공개한 잠금·소비 경계만 부른다. 이 경계는 호출자의 트랜잭션 안에서만 부를 수 있다 — 트랜잭션 밖에서 부르면 잠금이 즉시 풀려 직렬화가 깨지기 때문이다. 대표 이미지 존재 확인(원격 호출)은 Job 행 잠금을 쥔 채 일어나며, 같은 Job의 연타 요청만 그만큼 기다린다.

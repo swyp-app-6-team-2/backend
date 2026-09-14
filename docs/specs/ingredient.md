@@ -3,7 +3,7 @@
 **Status:** Approved · 2026-09-09
 **Issue:** [#20 Ingredient 마스터 DB 구축](https://github.com/swyp-app-6-team-2/backend/issues/20)
 
-이 문서는 재료 마스터 도메인의 **계약**을 소유한다. 구현 계획(파일 목록·커밋 단계·테스트 코드)은 이 문서를 근거로 별도 plan 문서가 다룬다.
+이 문서는 재료 마스터 도메인의 **계약**을 소유한다.
 
 ---
 
@@ -33,15 +33,17 @@ PM팀이 확정한 재료 104개를 마스터 데이터로 적재하고, 앱이 
 [앱] --GET /api/v1/ingredients--> IngredientController -> IngredientService -> IngredientRepository
                                                                                       |
 [앱] --POST/PATCH /api/v1/recipes--> RecipeController -> RecipeService --existsAll()---+
-                                                              |
-                                                    recipe_ingredient.ingredient_id (FK)
+                                                              |                       |
+                                                    recipe_ingredient.ingredient_id   |
+                                                              (FK)                    |
+[Ingestion Worker] ---------------> IngestionJobProcessor --loadNameIndex()-----------+
 ```
 
-Recipe는 `IngredientRepository`나 `Ingredient` Entity를 직접 참조하지 않고 `IngredientService`가 공개한 메서드만 호출한다.
+Recipe와 Ingestion은 `IngredientRepository`나 `Ingredient` Entity를 직접 참조하지 않고 `IngredientService`가 공개한 메서드만 호출한다.
 
 ## 4. Global Constraints
 
-플랜과 구현이 그대로 따라야 하는 프로젝트 전역 제약이다. 값은 실제 저장소에서 확인한 것이다.
+구현이 따르는 프로젝트 전역 제약이다. 값은 실제 저장소에서 확인한 것이다.
 
 - Java 25 · Spring Boot 4.1.1 · Hibernate ORM 7.4.5 · PostgreSQL 18 · PostgreSQL JDBC 42.7.13 · Flyway 12.4.0
 - Gradle Wrapper 9.7.1, 단일 모듈. 빌드 명령은 `./gradlew`
@@ -53,20 +55,20 @@ Recipe는 `IngredientRepository`나 `Ingredient` Entity를 직접 참조하지 �
 - 테스트 의존성은 이미 클래스패스에 있다(JUnit Jupiter 6.0.3, AssertJ, Mockito, spring-test). **build.gradle에 추가하지 않는다**
 - `./gradlew test`는 환경변수도 수동 DB도 요구하지 않는다. Docker daemon만 있으면 통과해야 한다
 - Base path `/api/v1`. JSON key는 `camelCase`. 목록이 비면 `null`이 아니라 `[]`
-- 인증 API와 `/images/**` 정적 리소스 외 모든 API는 인증이 필요하다. `/images/**`는 전용 Security Filter Chain에서 공개한다
+- 인증 API, Swagger(`/swagger-ui.html`·`/swagger-ui/**`·`/v3/api-docs/**`), `/images/**` 정적 리소스 외 모든 API는 인증이 필요하다. `/images/**`는 전용 Security Filter Chain에서 공개한다
 - 공통 응답 Envelope는 `ApiResponse<T>`(`status`, `message`, `data`). 성공은 `ApiResponse.ok(message, data)`. 실패의 machine-readable code는 `data.code`
 - ErrorCode는 도메인별 enum이 `com.star_pick.starpick.global.exception.ErrorCode`를 구현하고, **enum 상수명이 그대로 공개 code가 된다**. 형식은 `{RESOURCE_OR_CONTEXT}_{REASON}`
 - Controller는 `@AuthenticationPrincipal AuthenticatedUser user`로 사용자를 받는다(`record AuthenticatedUser(Long userId)`)
-- wildcard import를 쓰지 않는다. 외부 HTTP는 `RestClient`만 쓴다
+- wildcard import를 쓰지 않는다. 외부 HTTP를 직접 호출할 때는 `RestClient`를 쓴다(GCS·FCM은 각 SDK를 쓴다)
 - Lombok을 쓰되 Entity의 불변조건을 우회하는 광범위한 setter를 만들지 않는다
-- 커밋 형식은 `type: 내용`(`feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `style`, `ci`). **커밋 메시지에 trailer(`Co-Authored-By` 등)를 넣지 않는다**
-- **커밋은 사용자가 직접 실행한다.** 에이전트는 메시지만 제안한다
 
 ---
 
 ## 5. Data Model
 
 ### 5.1. `ingredient`
+
+`V2`로 만들고 `V6`에서 `icon_key`를 더한 최종 형태다.
 
 ```sql
 create table ingredient
@@ -275,7 +277,7 @@ Authorization: Bearer {accessToken}
         "code": "MET001",
         "name": "돼지고기(삼겹살)",
         "categoryCode": "MEAT",
-        "aliases": ["돼지고기", "삼겹살"],
+        "aliases": ["삼겹살", "돼지고기"],
         "iconUrl": "https://dev-api.starpick.cloud/images/ingredients/pork.webp"
       },
       {
@@ -335,7 +337,7 @@ Authorization: Bearer {accessToken}
 
 ### 8.1. 요청 — `POST` / `PATCH /api/v1/recipes`
 
-`RecipeIngredientRequest`에 **`ingredientId`(선택)를 추가한다.** 나머지는 그대로다.
+`RecipeIngredientRequest`는 **`ingredientId`(선택)를 받는다.**
 
 ```json
 "ingredients": [
@@ -354,7 +356,7 @@ Authorization: Bearer {accessToken}
 
 ### 8.2. 응답 — `GET /api/v1/recipes/{recipeId}`
 
-`RecipeIngredientResponse`에 **`ingredientId`를 추가한다.**
+`RecipeIngredientResponse`는 **`ingredientId`를 포함한다.**
 
 ```json
 "ingredients": [
@@ -363,7 +365,7 @@ Authorization: Bearer {accessToken}
 ]
 ```
 
-**이것은 기존 계약의 변경이다.** [Recipe Spec](./recipe.md)이 상세 조회에서 *"RecipeIngredient·RecipeStep의 PK와 표시 순서"* 는 포함하지 않는다고 적고 있는데, 그 문장이 가리키는 것은 `RecipeIngredient`의 **PK와 `displayOrder`**다. 그 둘은 계속 노출하지 않는다. `ingredientId`는 내부 식별자가 아니라 **마스터 참조**이고 노출해야 한다 — 이유는 `조회 응답에 ingredientId를 노출`.
+**이것은 Ingredient 도입 때 바뀐 계약이다.** [Recipe Spec](./recipe.md)이 상세 조회에서 *"RecipeIngredient·RecipeStep의 PK와 표시 순서"* 는 포함하지 않는다고 적고 있는데, 그 문장이 가리키는 것은 `RecipeIngredient`의 **PK와 `displayOrder`**다. 그 둘은 계속 노출하지 않는다. `ingredientId`는 내부 식별자가 아니라 **마스터 참조**이고 노출해야 한다 — 이유는 `조회 응답에 ingredientId를 노출`.
 
 ### 8.3. 검증
 
@@ -385,7 +387,7 @@ Authorization: Bearer {accessToken}
 
 **같은 `ingredientId`가 여러 번 나와도 허용한다.** "삼겹살 300g", "삼겹살 100g"처럼 나눠 적을 수 있다.
 
-`RECIPE_INGREDIENT_INVALID`는 `RecipeErrorCode`에 추가한다. Ingredient 도메인이 아니라 Recipe 도메인의 실패다 — Recipe 요청의 값이 잘못된 것이기 때문이다.
+`RECIPE_INGREDIENT_INVALID`는 `RecipeErrorCode`에 있다. Ingredient 도메인이 아니라 Recipe 도메인의 실패다 — Recipe 요청의 값이 잘못된 것이기 때문이다.
 
 ### 8.4. PATCH 전체 교체
 
@@ -397,7 +399,7 @@ Authorization: Bearer {accessToken}
 
 ## 9. Components & Placement
 
-### 9.1. 새로 만드는 것 — `com.star_pick.starpick.domain.ingredient`
+### 9.1. 패키지 — `com.star_pick.starpick.domain.ingredient`
 
 ```
 domain/ingredient
@@ -410,7 +412,8 @@ domain/ingredient
 ├── repository
 │   └── IngredientRepository
 └── service
-    └── IngredientService
+    ├── IngredientService
+    └── IngredientNameIndex
 ```
 
 `exception` 패키지를 만들지 않는다. 이 도메인이 던지는 실패가 없다.
@@ -435,14 +438,15 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 ### 9.4. `IngredientService`
 
-두 가지만 공개한다.
+세 가지를 공개한다.
 
 | 메서드 | 용도 | 계약 |
 |---|---|---|
 | `IngredientListResponse findActiveIngredients()` | 조회 API | `active = true`인 재료를 `정렬` 절이 정한 순서로. 설정된 base URL과 `iconKey`로 절대 `iconUrl` 조립 |
 | `boolean existsAll(Collection<Long> ingredientIds)` | Recipe 검증 | 주어진 id가 **모두 존재**하면 `true`. **`active`를 보지 않는다.** 빈 컬렉션은 `true` |
+| `IngredientNameIndex loadNameIndex()` | Ingestion 재료명 매칭 | 활성 재료의 이름·별칭(공백 제거·소문자)으로 색인. 정확히 한 재료를 가리키는 이름만 담는다 |
 
-`existsAll`은 도메인 경계를 넘는 유일한 창구다. Recipe는 이 메서드만 호출하고 `IngredientRepository`·`Ingredient`를 직접 쓰지 않는다.
+`existsAll`·`loadNameIndex`가 도메인 경계를 넘는 창구다. Recipe·Ingestion은 이 메서드만 호출하고 `IngredientRepository`·`Ingredient`를 직접 쓰지 않는다.
 
 `existsAll`은 Ingredient 도메인의 예외를 던지지 않고 `boolean`을 반환한다. 실패를 어떤 ErrorCode로 표현할지는 호출자인 Recipe가 정한다.
 
@@ -454,15 +458,15 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 캐시를 두지 않는다. 이 규모에서 캐시는 무효화 비용만 늘린다.
 
-### 9.6. 고치는 것 — Recipe
+### 9.6. Recipe 쪽 연동
 
 | 대상 | 변경 |
 |---|---|
-| `RecipeIngredientRequest` | `Long ingredientId` 필드 추가 |
-| `RecipeDetailResponse.RecipeIngredientResponse` | `Long ingredientId` 필드 추가 |
-| `RecipeIngredient` | `ingredientId`를 생성 시점에 받도록 팩토리 변경. `hasSameContentAs`에 `ingredientId` 비교 추가 |
+| `RecipeIngredientRequest` | `Long ingredientId` 필드 |
+| `RecipeDetailResponse.RecipeIngredientResponse` | `Long ingredientId` 필드 |
+| `RecipeIngredient` | `ingredientId`를 생성 시점에 받는다. `hasSameContentAs`가 `ingredientId`도 비교 |
 | `RecipeService` | 생성·수정에서 `ingredientService.existsAll(...)` 호출, 실패 시 `RECIPE_INGREDIENT_INVALID` |
-| `RecipeErrorCode` | `RECIPE_INGREDIENT_INVALID(BAD_REQUEST, "선택한 재료를 찾을 수 없습니다.")` 추가 |
+| `RecipeErrorCode` | `RECIPE_INGREDIENT_INVALID(BAD_REQUEST, "선택한 재료를 찾을 수 없습니다.")` |
 
 ---
 
@@ -498,7 +502,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 **서버가 마스터에서 이름을 복사해 덮어쓰지 말 것.**
 
 - **기각한 대안:** `ingredientId`가 있으면 서버가 `ingredient.name`을 `recipe_ingredient.name`에 복사
-- **기각 이유:** 기준 문서가 `RecipeIngredient.name`을 *"Recipe 저장 당시 **사용자가 확인한** 재료명 스냅샷"*, *"`Ingredient.name`을 동적으로 조회한 값이 아니다"* 로 정의한다. 사용자가 화면에서 본 글자를 남기는 것이 목적이므로 그 값을 아는 쪽은 앱이다. [#22](https://github.com/swyp-app-6-team-2/backend/issues/22)로 마스터 이름이 바뀐 뒤 앱 캐시가 낡은 상태에서 저장하면, 덮어쓰기는 사용자가 본 적 없는 이름을 저장하게 된다
+- **기각 이유:** `RecipeIngredient.name`은 *"Recipe 저장 당시 **사용자가 확인한** 재료명 스냅샷"*, *"`Ingredient.name`을 동적으로 조회한 값이 아니다"* 로 정의돼 있다. 사용자가 화면에서 본 글자를 남기는 것이 목적이므로 그 값을 아는 쪽은 앱이다. [#22](https://github.com/swyp-app-6-team-2/backend/issues/22)로 마스터 이름이 바뀐 뒤 앱 캐시가 낡은 상태에서 저장하면, 덮어쓰기는 사용자가 본 적 없는 이름을 저장하게 된다
 - 두 값이 어긋나도 기능이 깨지지 않는다. 냉장고 필터 매칭은 `ingredient_id`로 하고 `name`은 표시용이라 역할이 분리돼 있다
 
 ### 10.4. 조회 응답에 `ingredientId`를 노출
@@ -531,10 +535,10 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 
 ### 10.8. `recipe_ingredient.ingredient_id`에 FK를 건다
 
-- 저장소에는 FK가 있는 참조(`recipe_ingredient.recipe_id` 등)와 없는 참조(`cook_history.recipe_id`)가 섞여 있다. 없는 쪽은 **의도한 설계가 아니다** — [Cooking Spec](./cooking.md)이 *"스칼라 컬럼에는 JPA가 FK를 만들지 않는다"* 고 적어뒀다
+- 저장소에는 FK가 있는 참조(`recipe_ingredient.recipe_id` 등)와 없는 참조(`cook_history.recipe_id`)가 섞여 있다. 없는 쪽이 FK를 두지 않은 이유와 현재 상태는 [Cooking Spec](./cooking.md)의 `트랜잭션과 동시성 제어`가 소유한다
 - 도메인 경계 규칙(다른 도메인의 JPA Entity를 참조하지 않는다)은 **자바 코드**에서 스칼라 id로 지키고, DB 무결성은 FK로 지킨다. 두 축은 충돌하지 않는다
 - **기각한 대안:** `cook_history.recipe_id` 선례를 따라 FK를 두지 않음
-- **기각 이유:** `cook_history`가 FK를 미룬 이유는 Recipe 삭제 시 잠금·삭제 순서 때문이다. `ingredient`는 **삭제하지 않는 마스터**라(`active` 플래그를 쓴다) 그 문제가 발생하지 않는다. `recipe_ingredient` INSERT는 참조된 `ingredient` 행에 공유 락만 걸고 공유 락끼리는 경합하지 않는다
+- **기각 이유:** `cook_history`의 FK는 Recipe 삭제 시 잠금·삭제 순서와 함께 정할 과제로 남아 있다. `ingredient`는 **삭제하지 않는 마스터**라(`active` 플래그를 쓴다) 그 문제가 발생하지 않는다. `recipe_ingredient` INSERT는 참조된 `ingredient` 행에 공유 락만 걸고 공유 락끼리는 경합하지 않는다
 - FK는 최후의 방어선이지 1차 검증이 아니다. 없는 id는 `검증` 절이 먼저 `400`으로 거른다
 
 ### 10.9. `display_order` 컬럼을 두지 않음
@@ -545,7 +549,7 @@ public enum IngredientCategory { MEAT, SEAFOOD, VEGETABLE, SAUCE, ETC }
 ### 10.10. 응답은 평탄한 배열, 카테고리로 묶지 않음
 
 - **기각한 대안:** `categories[].ingredients[]` 중첩 + `categoryName` 한글 라벨
-- **기각 이유:** 이 화면의 핵심 기능이 검색인데(기능명세서 F-06 *"카테고리별 대표 식재료 리스트 제공 및 검색창 지원"*) 검색 결과는 그룹이 아니라 평탄한 목록이다. 앱은 어차피 평탄한 배열을 갖게 된다. 소비 화면이 둘인데(F-06 재료 관리, F-13 레시피 재료 필터) 구조가 서로 다를 수 있고, 평탄한 배열은 둘 다 커버한다. 카테고리 순서는 이미 배열 순서로 전달된다. 그리고 서버가 `육류` 같은 화면 문구를 소유하지 않게 된다
+- **기각 이유:** 이 화면의 핵심 기능이 검색인데(카테고리별 대표 식재료 리스트와 검색창) 검색 결과는 그룹이 아니라 평탄한 목록이다. 앱은 어차피 평탄한 배열을 갖게 된다. 소비 화면이 둘인데(재료 관리, 레시피 재료 필터) 구조가 서로 다를 수 있고, 평탄한 배열은 둘 다 커버한다. 카테고리 순서는 이미 배열 순서로 전달된다. 그리고 서버가 `육류` 같은 화면 문구를 소유하지 않게 된다
 - `categoryName`이 필요해지면 응답에 필드를 추가하면 된다. 필드 추가는 하위호환이다
 
 ---

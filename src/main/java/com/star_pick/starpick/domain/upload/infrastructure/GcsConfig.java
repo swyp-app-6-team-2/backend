@@ -81,8 +81,9 @@ public class GcsConfig {
      * 트랜잭션 밖에서 최대 14MB 를 받는 전송이라 길어야 한다. 한 클라이언트로는 둘 중 하나가
      * 반드시 잘못된 예산을 쓴다.
      *
-     * <p>재시도는 기본값을 그대로 둔다. 다운로드 실패를 여기서 몇 번 다시 시도할지는
-     * 호출자(Ingestion Worker)의 deadline 예산과 맞물려 있고, 이 어댑터는 그 예산을 모른다.
+     * <p>재시도는 {@code MAX_ATTEMPTS} 와 {@code DOWNLOAD_TOTAL_TIMEOUT} 로 짧게 묶는다. 다운로드
+     * 실패를 몇 번 더 시도할지는 호출자(Ingestion Worker)의 deadline 예산과 맞물려 있고, 이
+     * 어댑터는 그 예산을 모르므로 SDK 기본값처럼 길게 반복하지 않는다.
      */
     @Bean
     Storage downloadStorage() {

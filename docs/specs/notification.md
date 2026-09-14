@@ -36,11 +36,11 @@ Notification은 사용자가 정한 요일·시각에 식사 리마인드 푸시
 
 | 제외 | 이유 |
 |---|---|
-| 3일 미접속 알림 | 사용자 활동 시각(`last_active_at`)이 아직 없고 담당도 정해지지 않았다 |
+| 3일 미접속 알림 | 기능정의서에서 제외됐다(2026-09-15). 활동 시각 컬럼(`users.last_activity_at`)과 `User.updateLastActivity()`는 남기고 갱신 로직은 구현하지 않는다 |
 | 발송 재시도·대기열·오래된 `PROCESSING` 복구 | 식사 리마인드 1건 누락은 체감이 작고, 재시도는 이미 받은 알림을 다시 보낼 수 있다 |
 | 알림함·발송 이력 조회 API | 화면이 없다 |
 | 설정 시각을 놓쳤을 때 뒤늦게 보내기 | 설정 직후 지난 시각 알림이 바로 나가는 문제가 생긴다 |
-| 탈퇴 시 정리 | 탈퇴 기능이 생기면 `push_log → push_token → notification_setting` 순으로 지워야 한다 |
+| 탈퇴 시 정리 | 탈퇴 방식(행 삭제 여부)이 정해지지 않았다. 사용자 행을 지우는 방식이면 `push_log → push_token → notification_setting` 순으로 지워야 한다 |
 
 ### 2.3. 도메인 협력
 
@@ -151,6 +151,7 @@ row를 지우지 않고 `active`로 끈다. `platform`은 발송에 쓰지 않�
 ```
 
 - 내 토큰이면 비활성화한다. 남의 토큰·없는 토큰이어도 아무것도 바꾸지 않고 `200`이다(소유 여부를 드러내지 않는다).
+- `token` 필수·512자 이하. 위반하면 `400 REQUEST_VALIDATION_FAILED`.
 - 응답 `200`, `data: null`, 메시지 `푸시 토큰이 해제되었습니다.`
 
 #### `POST /api/v1/notifications/{notificationId}/open`
@@ -170,6 +171,7 @@ row를 지우지 않고 `active`로 끈다. `platform`은 발송에 쓰지 않�
 | `data.deepLink` | 설정값 `notification.push.deep-link` |
 | 유효 시간 | 10분(Android `ttl`, iOS `apns-expiration`). 꺼져 있던 폰에 한참 지난 알림이 가지 않는다 |
 | 우선순위 | Android `HIGH`, iOS `apns-priority: 10` |
+| 사운드 | iOS `aps.sound: default`. Android는 채널 기본값 |
 
 OS가 표시하는 알림이라 앱이 꺼져 있어도 뜬다. 기기가 여러 대면 모든 기기에 가고, 누른 기기의 기록만 남는다.
 
@@ -213,7 +215,7 @@ OS가 표시하는 알림이라 앱이 꺼져 있어도 뜬다. 기기가 여러
 ### 3.5. 실행 구조와 설정
 
 - 스케줄링은 `global/config/SchedulingConfig`에서 조건 없이 켠다. `@EnableScheduling`은 한 번 켜지면 컨텍스트의 모든 `@Scheduled`를 실행하므로, 실행 여부는 도메인별 `*Schedule` Bean이 자기 조건으로 등록될지로 정한다(Ingestion은 `IngestionSchedule`).
-- **`notification.fcm.project-id`가 있는 프로세스가 알림 Worker를 맡는다.** 켜고 끄는 스위치는 없다. Worker를 맡는데 본문이나 딥링크가 비어 있으면 기동이 실패한다.
+- **`notification.fcm.project-id`가 있는 프로세스가 알림 Worker를 맡는다.** 운영용 on/off 스위치는 없다. 테스트만 `notification.external.enabled=false`로 끄며 이때는 Worker도 맡지 않는다(Ingestion과 같다). Worker를 맡는데 본문이나 딥링크가 비어 있으면 기동이 실패한다.
 - `FirebaseApp`은 첫 발송 때 ADC로 초기화한다. 발송하지 않는 프로세스와 ADC가 없는 로컬에서도 앱이 뜬다. connect·read·write timeout은 각 5초다.
 - API와 같은 프로세스에서 돈다. 스케줄 스레드 풀은 3이다.
 
@@ -256,8 +258,7 @@ notification:
 
 | 항목 | 결정 주체 | 막는 것 |
 |---|---|---|
-| 식사 알림 본문 문구 | 기획 | 운영에서 Worker 켜기 |
-| 앱 딥링크 실제 주소 | FE | 운영에서 Worker 켜기 |
+| 식사 알림 본문 문구 | 기획 | 없음. dev는 임시값으로 가동 중이며 확정되면 값만 교체한다 |
+| 앱 딥링크 실제 주소 | FE | 없음. dev는 임시값으로 가동 중이며 확정되면 값만 교체한다 |
 | 온보딩 칩별 기본 시각·요일 | 기획·FE | 서버 작업 없음(앱이 보유) |
-| 3일 미접속 알림 도입과 활동 시각 담당 | 팀 | 후속 설계 |
 | 탈퇴 방식과 Notification 정리 | 팀 | 탈퇴 구현 |

@@ -23,7 +23,7 @@ import org.springframework.data.domain.Persistable;
  * 이 Entity 가 "누구에게 어떤 용도로 발급했고 아직 어디에도 붙지 않았는지"를 대신 기억한다.
  *
  * <p>소유자는 {@code userId} 스칼라로만 갖는다. 다른 도메인의 JPA Entity 를 직접 참조하지
- * 않는다는 규칙(CLAUDE.md §4) 때문이며, 그 결과 DB 에 user FK 가 없다. {@code Recipe} 와 같다.
+ * 않는다는 규칙(CLAUDE.md §4) 때문이다. DB 의 user FK 는 V5 migration 이 따로 건다. {@code Recipe} 와 같다.
  *
  * <p>연결({@code attachedAt} 설정)은 이 클래스가 아니라 Repository 의 조건부 UPDATE 가 수행한다.
  * "미연결일 때만 연결"을 한 문장으로 처리해야 동시 요청에서도 한 번만 연결되기 때문이다.
