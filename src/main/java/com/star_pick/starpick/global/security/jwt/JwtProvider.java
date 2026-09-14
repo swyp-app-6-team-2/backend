@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Value;
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.UUID;
+import java.time.Instant;
 
 /** 서비스 로그인 토큰 및 소셜 인증 후 임시 가입 토큰 발급·검증. */
 
@@ -58,6 +60,7 @@ public class JwtProvider {
 
     private String generateToken(String subject, String type, long expiration) {
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(subject)
                 .claim("type", type)
                 .issuedAt(new Date())
@@ -65,6 +68,22 @@ public class JwtProvider {
                 .signWith(secretKey)
                 .compact();
     }
+
+    /** 서비스에서 발급한 refresh token만 허용하며, exp는 필수다. */
+    public RefreshIdentity parseRefreshToken(String token) {
+        Claims claims = jwtParser.parseSignedClaims(token).getPayload();
+        if (!"refresh".equals(claims.get("type", String.class)) || claims.getExpiration() == null
+                || claims.getId() == null || claims.getId().isBlank()) {
+            throw new JwtException("유효한 refresh token이 아닙니다.");
+        }
+        long userId = Long.parseLong(claims.getSubject());
+        if (userId <= 0) {
+            throw new JwtException("유효한 사용자 식별자가 아닙니다.");
+        }
+        return new RefreshIdentity(userId, claims.getExpiration().toInstant());
+    }
+
+    public record RefreshIdentity(Long userId, Instant expiresAt) { }
 
     /**
      * access token 을 검증하고 userId 를 반환한다.

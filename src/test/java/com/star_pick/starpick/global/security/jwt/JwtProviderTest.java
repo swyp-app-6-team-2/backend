@@ -11,6 +11,17 @@ import org.junit.jupiter.api.Test;
 /** parseAccessToken 단위 테스트. Spring Context 를 띄우지 않는다. */
 class JwtProviderTest {
 
+    @Test
+    void eachIssuanceHasUniqueTokensEvenWithoutWaiting() {
+        var access = new java.util.HashSet<String>();
+        var refresh = new java.util.HashSet<String>();
+        for (int i = 0; i < 50; i++) {
+            var pair = jwtProvider.generateTokens(42L);
+            assertThat(access.add(pair.accessToken())).isTrue();
+            assertThat(refresh.add(pair.refreshToken())).isTrue();
+        }
+    }
+
     private static final String SECRET = "starpick-test-only-jwt-secret-key-not-for-any-real-environment";
     private static final String OTHER_SECRET = "starpick-another-secret-key-that-is-long-enough-for-hmac-sha";
     private static final long THIRTY_MINUTES = 1_800_000L;
