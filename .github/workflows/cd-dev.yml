@@ -1,0 +1,86 @@
+name: CD - Dev
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  REGION: asia-northeast3
+  ARTIFACT_REPOSITORY: starpick
+  IMAGE_NAME: backend
+
+jobs:
+  deploy:
+    # main push로 실행된 CI가 성공한 경우에만 배포
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # CI를 통과한 실제 main 커밋을 체크아웃
+      - name: 코드 체크아웃
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # GitHub OIDC → Workload Identity Federation → GCP Service Account
+      - name: GCP 인증
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: gcloud 설정
+        uses: google-github-actions/setup-gcloud@v3
+
+      # GitHub Actions가 Artifact Registry에 이미지를 push할 수 있도록 인증
+      - name: Artifact Registry Docker 인증
+        run: |
+          gcloud auth configure-docker \
+            ${{ env.REGION }}-docker.pkg.dev \
+            --quiet
+
+      # CI를 통과한 commit SHA를 Docker image tag로 사용
+      - name: Docker 이미지 빌드 및 Push
+        env:
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ env.IMAGE_NAME }}:${DEPLOY_SHA}"
+
+          docker build -t "${IMAGE}" .
+          docker push "${IMAGE}"
+
+      # GitHub Secret에 저장한 CD 전용 개인키 준비
+      - name: SSH 키 설정
+        run: |
+          mkdir -p ~/.ssh
+
+          printf '%s\n' "${{ secrets.VM_SSH_PRIVATE_KEY }}" > ~/.ssh/starpick-dev
+          chmod 600 ~/.ssh/starpick-dev
+
+      - name: Dev VM 배포
+        env:
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ env.IMAGE_NAME }}:${DEPLOY_SHA}"
+
+          ssh \
+            -i ~/.ssh/starpick-dev \
+            -o StrictHostKeyChecking=accept-new \
+            -o ProxyCommand="gcloud compute start-iap-tunnel ${{ vars.VM_NAME }} 22 --listen-on-stdin --project=${{ vars.GCP_PROJECT_ID }} --zone=${{ vars.VM_ZONE }} --verbosity=warning" \
+            "${{ vars.VM_USER }}@${{ vars.VM_NAME }}" \
+            "cd ~/starpick && \
+             git fetch origin main && \
+             git reset --hard ${DEPLOY_SHA} && \
+             APP_IMAGE='${IMAGE}' docker compose --env-file .env.vm -f docker-compose.vm.yml pull app && \
+             APP_IMAGE='${IMAGE}' docker compose --env-file .env.vm -f docker-compose.vm.yml up -d"
