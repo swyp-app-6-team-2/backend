@@ -52,6 +52,9 @@ public class User {
 
     private LocalDateTime lastLoginAt;
 
+    @Column(name = "last_activity_at")
+    private LocalDateTime lastActivityAt;
+
     @CreationTimestamp
     @Column(nullable = false)
     private LocalDateTime createdAt;
@@ -61,5 +64,9 @@ public class User {
     public void updateLastLogin(Provider provider, LocalDateTime loginAt) {
         this.lastLoginProvider = provider;
         this.lastLoginAt = loginAt;
+    }
+
+    public void updateLastActivity(LocalDateTime activityAt) {
+        this.lastActivityAt = activityAt;
     }
 }
