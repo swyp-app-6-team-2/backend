@@ -12,7 +12,7 @@ services:
     # 포트를 공개하지 않는다 — app 컨테이너만 내부 네트워크로 접근한다
 
   app:
-    build: .
+    image: ${APP_IMAGE}
     container_name: starpick-vm-app
     restart: unless-stopped
     depends_on:
