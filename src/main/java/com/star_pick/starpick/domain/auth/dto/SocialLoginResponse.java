@@ -8,13 +8,14 @@ public record SocialLoginResponse (
         Long userId,
         String accessToken,
         String refreshToken,
-        String signupToken
+        String signupToken,
+        boolean onboardingRequired
 ) {
-    public static SocialLoginResponse ofExistingUser(Long userId, String accessToken, String refreshToken) {
-        return new SocialLoginResponse(false, userId, accessToken, refreshToken, null);
+    public static SocialLoginResponse ofExistingUser(Long userId, String accessToken, String refreshToken, boolean onboardingRequired) {
+        return new SocialLoginResponse(false, userId, accessToken, refreshToken, null, onboardingRequired);
     }
 
     public static SocialLoginResponse ofNewUser(String signupToken) {
-        return new SocialLoginResponse(true, null, null, null, signupToken);
+        return new SocialLoginResponse(true, null, null, null, signupToken, true);
     }
 }

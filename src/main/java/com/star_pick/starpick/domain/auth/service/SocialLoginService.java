@@ -46,7 +46,7 @@ public class SocialLoginService {
 
         JwtProvider.TokenPair tokens = refreshTokenService.issueAndStore(user.getUserId());
 
-        return SocialLoginResponse.ofExistingUser(user.getUserId(), tokens.accessToken(), tokens.refreshToken());
+        return SocialLoginResponse.ofExistingUser(user.getUserId(), tokens.accessToken(), tokens.refreshToken(), user.isOnboardingRequired());
     }
 
     private SocialLoginResponse issueSignupToken(Provider provider, SocialUserInfo userInfo) {

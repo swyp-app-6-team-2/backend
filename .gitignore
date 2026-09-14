@@ -4,6 +4,7 @@ HELP.md
 AGENT.md
 FIX_DOCS.md
 SIGNUP_RESULT.md
+ONBOARDING.md
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
