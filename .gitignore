@@ -2,6 +2,8 @@ HELP.md
 .gradle
 .env
 AGENT.md
+FIX_DOCS.md
+SIGNUP_RESULT.md
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/

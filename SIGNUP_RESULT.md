@@ -121,7 +121,7 @@ Profile은 이번 요청 필드에 닉네임/프로필 이미지나 기본값 �
 
 ## DB 변경
 
-새 마이그레이션: `src/main/resources/db/migration/V10__add_signup_service_consent.sql`
+새 마이그레이션: `src/main/resources/db/migration/V12__add_signup_service_consent.sql`
 
 | users 컬럼 | 저장 규칙 / 기존 회원 처리 |
 | --- | --- |
@@ -158,7 +158,7 @@ V1~V9를 변경하지 않았으며, V10은 앱 시작 시 Flyway가 적용한다
 - `global/security/jwt/JwtProvider.java`: signupToken 검증 및 SignupIdentity 추가.
 - `global/GlobalExceptionHandler.java`: signup 오류 응답 처리.
 - `domain/user/entity/User.java`: 서비스 알림/만 14세 이상 동의 필드 추가.
-- `db/migration/V10__add_signup_service_consent.sql`: DB 컬럼 추가.
+- `db/migration/V12__add_signup_service_consent.sql`: DB 컬럼 추가.
 - `domain/auth/controller/SignupApiTest.java`: 회원가입 통합/동시성 테스트 추가.
 
 Java 경로는 `src/main/java/com/star_pick/starpick/`, 테스트 경로는 `src/test/java/com/star_pick/starpick/`, DB 경로는 `src/main/resources/` 기준이다.
