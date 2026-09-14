@@ -48,7 +48,7 @@
 ## 2. 이메일 선택 처리
 
 - `SocialCredential.email`의 `nullable = false`를 제거했다.
-- `V9__make_social_credential_email_optional.sql`에서 기존 컬럼의 NOT NULL 제약을 해제한다.
+- `V11__make_social_credential_email_optional.sql`에서 기존 컬럼의 NOT NULL 제약을 해제한다.
 - 적용된 V1~V8 파일은 수정하지 않는다. Flyway가 다음 시작 시 V9를 적용한다.
 - 카카오 `kakao_account`가 없어도 유효한 회원번호가 있으면 로그인한다. 이메일은 null로 전달한다.
 - Google, Naver, Apple도 이메일 없이 로그인할 수 있다.
