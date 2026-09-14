@@ -8,9 +8,14 @@ import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus;
 import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
+import com.star_pick.starpick.domain.ingestion.domain.InstagramUrl;
 import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
+import com.star_pick.starpick.domain.ingestion.service.AnalysisInput;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisOutcome;
+import com.star_pick.starpick.domain.ingestion.service.InstagramFetchException;
+import com.star_pick.starpick.domain.ingestion.service.InstagramMedia;
+import com.star_pick.starpick.domain.ingestion.service.InstagramPost;
 import com.star_pick.starpick.domain.ingestion.service.IngestionJobExecutionService;
 import com.star_pick.starpick.domain.ingestion.service.IngestionImageLoader;
 import com.star_pick.starpick.domain.ingestion.service.PreemptedJob;
@@ -18,7 +23,9 @@ import com.star_pick.starpick.domain.ingestion.service.RecipeAnalysisException;
 import com.star_pick.starpick.domain.ingestion.service.RecipeDraftNormalizer;
 import com.star_pick.starpick.domain.ingestion.service.TokenUsage;
 import com.star_pick.starpick.domain.ingestion.service.Verdict;
+import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
+import com.star_pick.starpick.support.FakeInstagramClient;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.FakeRecipeAnalyzer;
 import com.star_pick.starpick.support.IntegrationTest;
@@ -60,12 +67,19 @@ class IngestionJobProcessorTest {
     @Autowired
     private IngredientService ingredientService;
 
+    @Autowired
+    private FakeInstagramClient instagram;
+
     private static final String YOUTUBE_URL = "https://www.youtube.com/watch?v=kjG6h_LTklo";
+    private static final String CDN = "https://scontent-ssn1-1.cdninstagram.com/";
+    private static final String POST_URL = "https://www.instagram.com/p/DKI9fBzy5FB/";
+    private static final String REEL_URL = "https://www.instagram.com/reel/DcdllvBmOgm/";
 
     @BeforeEach
     void setUp() {
         fixtures.reset();
         analyzer.clear();
+        instagram.clear();
         fixtures.seedUser(1L);
     }
 
@@ -144,7 +158,7 @@ class IngestionJobProcessorTest {
     }
 
     @Test
-    @DisplayName("레시피가 아니거나 차단된 입력은 CONTENT_NOT_RECOGNIZED다")
+    @DisplayName("레시피가 아니거나 차단된 입력은 CONTENT_NOT_RECOGNIZED, 여러 레시피는 MULTIPLE_RECIPES 다")
     void mapsUnrecognizedContent() {
         PreemptedJob notRecipe = queuedAndPreempted();
         analyzer.enqueue(new AnalysisOutcome(Verdict.NOT_RECIPE, null, new TokenUsage(null, null)));
@@ -161,7 +175,7 @@ class IngestionJobProcessorTest {
         analyzer.enqueue(new AnalysisOutcome(
                 Verdict.MULTIPLE_RECIPES, null, new TokenUsage(null, null)));
         processor.process(multiple);
-        assertFailure(multiple.id(), IngestionFailureCode.CONTENT_NOT_RECOGNIZED);
+        assertFailure(multiple.id(), IngestionFailureCode.MULTIPLE_RECIPES);
 
         PreemptedJob emptyDraft = queuedAndPreempted();
         analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE,
@@ -281,6 +295,204 @@ class IngestionJobProcessorTest {
         assertFailure(image.id(), IngestionFailureCode.PROCESSING_FAILED);
     }
 
+    @Test
+    @DisplayName("img_index 없는 carousel 은 이미지 카드 전부를 caption 과 함께 분석하고 첫 이미지를 미리보기로 저장한다")
+    void analyzesAllImageCardsOfCarousel() {
+        instagram.enqueuePost(new InstagramPost("콩나물밥 만드는 법", List.of(
+                image(CDN + "1.jpg"), video(CDN + "2.jpg", CDN + "2.mp4"), image(CDN + "3.jpg"))));
+        instagram.putMedia(CDN + "1.jpg", new byte[]{1});
+        instagram.putMedia(CDN + "3.jpg", new byte[]{3});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL);
+
+        processor.process(job);
+
+        AnalysisInput input = analyzer.lastInput();
+        assertThat(input.source()).isEqualTo(AnalysisInput.Source.INSTAGRAM_POST);
+        assertThat(input.images()).extracting(image -> image.content()[0]).containsExactly((byte) 1, (byte) 3);
+        assertThat(input.caption()).isEqualTo("콩나물밥 만드는 법");
+        assertThat(instagram.lastFetch()).isEqualTo("DKI9fBzy5FB post");
+        assertThat(instagram.imageLimits()).containsExactly(
+                properties.image().maxTotalBytes(), properties.image().maxTotalBytes() - 1);
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
+        assertThat(saved.getPreviewImageUrl()).isEqualTo(CDN + "1.jpg");
+    }
+
+    @Test
+    @DisplayName("img_index 가 가리키는 이미지 카드 하나만 분석한다")
+    void analyzesIndexedCard() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "1.jpg"), image(CDN + "2.jpg"))));
+        instagram.putMedia(CDN + "2.jpg", new byte[]{2});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL + "?img_index=2");
+
+        processor.process(job);
+
+        assertThat(analyzer.lastInput().images()).extracting(image -> image.content()[0]).containsExactly((byte) 2);
+        assertThat(repository.findById(job.id()).orElseThrow().getPreviewImageUrl()).isEqualTo(CDN + "2.jpg");
+    }
+
+    @Test
+    @DisplayName("분석할 카드가 없으면 Gemini 를 부르지 않는다 — 영상 카드는 CONTENT_NOT_RECOGNIZED, 카드 수 초과는 SOURCE_UNAVAILABLE")
+    void failsWithoutAnalyzableCard() {
+        InstagramPost carousel = new InstagramPost(null, List.of(image(CDN + "1.jpg"), video(CDN + "2.jpg", CDN + "2.mp4")));
+
+        instagram.enqueuePost(carousel);
+        PreemptedJob videoCard = queuedInstagramAndPreempted(POST_URL + "?img_index=2");
+        processor.process(videoCard);
+        assertFailure(videoCard.id(), IngestionFailureCode.CONTENT_NOT_RECOGNIZED);
+        assertThat(repository.findById(videoCard.id()).orElseThrow().getPreviewImageUrl()).isEqualTo(CDN + "2.jpg");
+
+        instagram.enqueuePost(carousel);
+        PreemptedJob outOfRange = queuedInstagramAndPreempted(POST_URL + "?img_index=9");
+        processor.process(outOfRange);
+        assertFailure(outOfRange.id(), IngestionFailureCode.SOURCE_UNAVAILABLE);
+        assertThat(repository.findById(outOfRange.id()).orElseThrow().getPreviewImageUrl()).isNull();
+
+        assertThat(analyzer.calls()).isZero();
+    }
+
+    @Test
+    @DisplayName("원본을 쓸 수 없으면 SOURCE_UNAVAILABLE, 이미지 상한 초과는 PROCESSING_FAILED, 둘 다 재시도하지 않는다")
+    void mapsInstagramFetchFailures() {
+        instagram.enqueuePostFailure(new InstagramFetchException(InstagramFetchException.Kind.UNAVAILABLE, "없음"));
+        PreemptedJob unavailable = queuedInstagramAndPreempted(POST_URL);
+        processor.process(unavailable);
+        assertFailure(unavailable.id(), IngestionFailureCode.SOURCE_UNAVAILABLE);
+        assertThat(instagram.fetchCalls()).isOne();
+
+        instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "big.jpg"))));
+        instagram.failMedia(CDN + "big.jpg", new InstagramFetchException(InstagramFetchException.Kind.TOO_LARGE, "큼"));
+        PreemptedJob tooLarge = queuedInstagramAndPreempted(POST_URL);
+        processor.process(tooLarge);
+        assertFailure(tooLarge.id(), IngestionFailureCode.PROCESSING_FAILED);
+
+        assertThat(analyzer.calls()).isZero();
+    }
+
+    @Test
+    @DisplayName("embed 수집의 재시도 가능한 실패는 분석과 같은 재시도 규칙을 따른다")
+    void retriesInstagramFetch() {
+        InstagramFetchException retryable = new InstagramFetchException(InstagramFetchException.Kind.RETRYABLE, "timeout");
+        instagram.enqueuePostFailure(retryable);
+        instagram.enqueuePostFailure(retryable);
+        instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "1.jpg"))));
+        instagram.putMedia(CDN + "1.jpg", new byte[]{1});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL);
+
+        processor.process(job);
+
+        assertThat(instagram.fetchCalls()).isEqualTo(3);
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("embed 수집의 재시도 가능한 실패가 세 번 이어지면 PROCESSING_FAILED 다")
+    void failsAfterInstagramRetriesAreExhausted() {
+        for (int i = 0; i < 3; i++) {
+            instagram.enqueuePostFailure(new InstagramFetchException(InstagramFetchException.Kind.RETRYABLE, "timeout"));
+        }
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL);
+
+        processor.process(job);
+
+        assertThat(instagram.fetchCalls()).isEqualTo(3);
+        assertFailure(job.id(), IngestionFailureCode.PROCESSING_FAILED);
+        assertThat(analyzer.calls()).isZero();
+    }
+
+    @Test
+    @DisplayName("미리보기는 유효한 시도에서만 저장된다")
+    void savesPreviewOnlyForCurrentAttempt() {
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL);
+
+        executionService.savePreview(job.id(), job.attempt() + 1, CDN + "stale.jpg");
+        assertThat(repository.findById(job.id()).orElseThrow().getPreviewImageUrl()).isNull();
+
+        executionService.savePreview(job.id(), job.attempt(), CDN + "1.jpg");
+        assertThat(repository.findById(job.id()).orElseThrow().getPreviewImageUrl()).isEqualTo(CDN + "1.jpg");
+    }
+
+    @Test
+    @DisplayName("Reel 은 임시 파일로 받아 올리고 ACTIVE 가 되면 분석한 뒤 올린 파일과 임시 파일을 지운다")
+    void analyzesReelThroughUploadedFile() {
+        instagram.enqueuePost(new InstagramPost("막김치", List.of(video(CDN + "thumb.jpg", CDN + "reel.mp4"))));
+        instagram.putMedia(CDN + "reel.mp4", new byte[]{9, 9, 9});
+        analyzer.enqueueVideoState(VideoFileState.PROCESSING);
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        AnalysisInput input = analyzer.lastInput();
+        assertThat(input.source()).isEqualTo(AnalysisInput.Source.INSTAGRAM_REEL);
+        assertThat(input.videoUrl()).isEqualTo(FakeRecipeAnalyzer.UPLOADED.uri());
+        assertThat(input.caption()).isEqualTo("막김치");
+        assertThat(instagram.lastFetch()).isEqualTo("DcdllvBmOgm reel");
+        assertThat(analyzer.lastUploadedBytes()).containsExactly(9, 9, 9);
+        assertThat(analyzer.deletedVideos()).isOne();
+        assertThat(analyzer.lastUploadedFile()).doesNotExist();
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
+        assertThat(saved.getPreviewImageUrl()).isEqualTo(CDN + "thumb.jpg");
+    }
+
+    @Test
+    @DisplayName("파일 처리가 FAILED 거나 deadline 까지 ACTIVE 가 되지 않으면 분석 없이 PROCESSING_FAILED 이고, 올린 파일은 지운다")
+    void failsWhenUploadedVideoIsNotUsable() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", CDN + "reel.mp4"))));
+        instagram.putMedia(CDN + "reel.mp4", new byte[]{9});
+        analyzer.enqueueVideoState(VideoFileState.FAILED);
+        PreemptedJob failed = queuedInstagramAndPreempted(REEL_URL);
+        processor.process(failed);
+        assertFailure(failed.id(), IngestionFailureCode.PROCESSING_FAILED);
+
+        instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", CDN + "reel.mp4"))));
+        for (int i = 0; i < 20; i++) {
+            analyzer.enqueueVideoState(VideoFileState.PROCESSING);
+        }
+        PreemptedJob neverActive = queuedInstagramAndPreempted(REEL_URL);
+        // 테스트 deadline 10초 중 3초가 지난 것으로 둔다. 남은 약 7초로 업로드까지 통과하고, 상태 확인이 1~2회 뒤 5초 규칙에 걸린다.
+        setStartedAt(neverActive.id(), Instant.now().minusSeconds(3));
+        processor.process(neverActive);
+        assertFailure(neverActive.id(), IngestionFailureCode.PROCESSING_FAILED);
+        assertThat(analyzer.uploads()).isEqualTo(2);
+
+        assertThat(analyzer.calls()).isZero();
+        assertThat(analyzer.deletedVideos()).isEqualTo(2);
+        assertThat(analyzer.lastUploadedFile()).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("영상이 상한을 넘으면 올리지 않고 PROCESSING_FAILED 이며 임시 파일을 지운다")
+    void rejectsOversizedReelBeforeUpload() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", CDN + "big.mp4"))));
+        instagram.failMedia(CDN + "big.mp4", new InstagramFetchException(InstagramFetchException.Kind.TOO_LARGE, "큼"));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        assertFailure(job.id(), IngestionFailureCode.PROCESSING_FAILED);
+        assertThat(analyzer.uploads()).isZero();
+        assertThat(analyzer.deletedVideos()).isZero();
+        assertThat(instagram.lastVideoTarget()).doesNotExist();
+    }
+
+    private PreemptedJob queuedInstagramAndPreempted(String url) {
+        repository.save(IngestionJob.queueInstagram(1L, InstagramUrl.parse(url).orElseThrow()));
+        return executionService.preempt(1).getFirst();
+    }
+
+    private static InstagramMedia image(String url) {
+        return new InstagramMedia(false, url, null);
+    }
+
+    private static InstagramMedia video(String thumbnailUrl, String videoUrl) {
+        return new InstagramMedia(true, thumbnailUrl, videoUrl);
+    }
+
     private PreemptedJob queuedYouTubeAndPreempted() {
         repository.save(IngestionJob.queueYouTube(1L, YouTubeUrl.parse(YOUTUBE_URL).orElseThrow()));
         return executionService.preempt(1).getFirst();
@@ -310,9 +522,10 @@ class IngestionJobProcessorTest {
                 properties.image(), properties.external(),
                 new IngestionProperties.Gemini(
                         properties.gemini().apiKey(), properties.gemini().model(),
-                        properties.gemini().baseUrl(), analyzeTimeout, properties.gemini().videoFps()));
+                        properties.gemini().baseUrl(), analyzeTimeout, properties.gemini().videoFps()),
+                properties.instagram());
         return new IngestionJobProcessor(
-                executionService, imageLoader, analyzer, normalizer, ingredientService, custom);
+                executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom);
     }
 
     private void assertFailure(Long id, IngestionFailureCode code) {

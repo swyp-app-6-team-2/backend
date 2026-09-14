@@ -62,6 +62,13 @@ ingestion:
     analyze-timeout: 5s
     # 영상을 5초에 한 장면씩 본다. 1fps 대비 입력 토큰 58% 감소, 추출 품질 거의 동일(2026-09-13 실측).
     video-fps: 0.2
+  instagram:
+    # 단계별 상한(2026-09-14 실측: embed 최대 1.7초, 이미지 0.3초, MP4 17MB 0.5초, 업로드 약 3.5MB/s)
+    fetch-timeout: 10s
+    media-timeout: 30s
+    # 50MB 는 업로드 약 15초라 upload-timeout 안에 든다. 더 큰 영상은 PROCESSING_FAILED.
+    max-video-bytes: 52428800
+    upload-timeout: 30s
 
 logging:
   level:

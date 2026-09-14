@@ -65,6 +65,12 @@ public class IngestionJobExecutionService {
         return true;
     }
 
+    /** 결과보다 먼저 저장해 분석 중 화면에 원본 썸네일이 보이게 한다. 무효가 된 시도면 아무것도 하지 않는다. */
+    @Transactional
+    public void savePreview(Long jobId, int attempt, String previewImageUrl) {
+        repository.savePreviewImageUrl(jobId, attempt, previewImageUrl);
+    }
+
     /**
      * 선점은 됐지만 실행 슬롯에 넘기지 못한 Job 을 대기로 되돌린다.
      *

@@ -42,4 +42,9 @@ public class TestcontainersConfiguration {
     FakeRecipeAnalyzer recipeAnalyzer() {
         return new FakeRecipeAnalyzer();
     }
+
+    @Bean
+    FakeInstagramClient instagramClient() {
+        return new FakeInstagramClient();
+    }
 }

@@ -12,7 +12,8 @@ public record IngestionProperties(
         Retry retry,
         Image image,
         External external,
-        Gemini gemini) {
+        Gemini gemini,
+        Instagram instagram) {
 
     public record Worker(int concurrency, Duration pollInterval) {
     }
@@ -31,5 +32,9 @@ public record IngestionProperties(
     }
 
     public record Gemini(String apiKey, String model, String baseUrl, Duration analyzeTimeout, double videoFps) {
+    }
+
+    /** 단계별 상한. 실제 timeout 은 {@code min(상한, deadline 까지 남은 시간)}. ACTIVE 대기는 deadline 까지다. */
+    public record Instagram(Duration fetchTimeout, Duration mediaTimeout, long maxVideoBytes, Duration uploadTimeout) {
     }
 }

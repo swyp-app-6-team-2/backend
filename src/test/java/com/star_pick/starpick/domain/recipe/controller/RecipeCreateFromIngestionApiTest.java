@@ -137,6 +137,7 @@ class RecipeCreateFromIngestionApiTest {
     @DisplayName("URL Job 으로 저장하면 등록 방식 URL, 원본 URL 복사")
     void urlJobCreatesUrlRecipe() throws Exception {
         Long jobId = fixtures.saveReadyUrlJob(OWNER_ID, YOUTUBE_URL);
+        jdbcTemplate.update("update ingestion_job set preview_image_url = 'https://scontent-ssn1-1.cdninstagram.com/1.jpg' where id = ?", jobId);
 
         create(jobId).andExpect(status().isCreated());
 
@@ -144,6 +145,8 @@ class RecipeCreateFromIngestionApiTest {
         assertThat(saved.getRegistrationMethod()).isEqualTo(RegistrationMethod.URL);
         assertThat(saved.getSourceUrl()).isEqualTo(YOUTUBE_URL);
         assertThat(saved.getSourceImageKeys()).isEmpty();
+        assertThat(jdbcTemplate.queryForObject(
+                "select preview_image_url from ingestion_job where id = ?", String.class, jobId)).isNull();
     }
 
     @Test

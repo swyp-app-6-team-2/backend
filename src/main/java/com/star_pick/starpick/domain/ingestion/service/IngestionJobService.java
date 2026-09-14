@@ -13,6 +13,7 @@ import com.star_pick.starpick.domain.ingestion.controller.response.IngestionJobR
 import com.star_pick.starpick.domain.ingestion.domain.IngestionInputType;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus;
+import com.star_pick.starpick.domain.ingestion.domain.InstagramUrl;
 import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
@@ -22,6 +23,7 @@ import com.star_pick.starpick.global.exception.BusinessException;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,17 +40,13 @@ public class IngestionJobService {
 
     @Transactional
     public IngestionJobCreateResponse create(Long userId, IngestionJobCreateRequest request) {
-        YouTubeUrl youTubeUrl = null;
-        if (request.inputType() == IngestionInputType.URL) {
-            youTubeUrl = YouTubeUrl.parse(request.url())
-                    .orElseThrow(() -> new BusinessException(INGESTION_URL_UNSUPPORTED));
-        }
+        IngestionJob urlJob = request.inputType() == IngestionInputType.URL ? urlJob(userId, request.url()) : null;
         Instant today = ZonedDateTime.now(SEOUL).toLocalDate().atStartOfDay(SEOUL).toInstant();
         if (repository.countByUserIdAndCreatedAtGreaterThanEqual(userId, today) >= properties.dailyLimit()) {
             throw new BusinessException(INGESTION_DAILY_LIMIT_EXCEEDED);
         }
-        if (youTubeUrl != null) {
-            return new IngestionJobCreateResponse(repository.save(IngestionJob.queueYouTube(userId, youTubeUrl)).getId());
+        if (urlJob != null) {
+            return new IngestionJobCreateResponse(repository.save(urlJob).getId());
         }
         for (String key : request.inputImageKeys()) {
             switch (uploadService.attach(userId, key, UploadPurpose.INGESTION_INPUT)) {
@@ -59,6 +57,17 @@ public class IngestionJobService {
         }
         IngestionJob job = repository.save(IngestionJob.queueImage(userId, request.inputImageKeys()));
         return new IngestionJobCreateResponse(job.getId());
+    }
+
+    /** 받는 링크 형식은 {@link YouTubeUrl}·{@link InstagramUrl} 이 정한다. 원본이 실제로 있는지는 Worker 가 확인한다. */
+    private static IngestionJob urlJob(Long userId, String url) {
+        Optional<YouTubeUrl> youTube = YouTubeUrl.parse(url);
+        if (youTube.isPresent()) {
+            return IngestionJob.queueYouTube(userId, youTube.get());
+        }
+        return InstagramUrl.parse(url)
+                .map(instagram -> IngestionJob.queueInstagram(userId, instagram))
+                .orElseThrow(() -> new BusinessException(INGESTION_URL_UNSUPPORTED));
     }
 
     /** 조회 URL 서명이 DB 커넥션을 점유하지 않도록 이 메서드는 트랜잭션을 열지 않는다. */
@@ -81,7 +90,8 @@ public class IngestionJobService {
             case IMAGE -> uploadService.getViewUrl(userId, job.getInputImageKeys().getFirst());
             // 주소만 만든다. 서명·조회가 필요 없는 공개 이미지라 앱이 직접 불러온다.
             case YOUTUBE -> YouTubeUrl.parse(job.getInputUrl()).map(YouTubeUrl::thumbnailUrl).orElse(null);
-            case INSTAGRAM -> null;
+            // Worker 가 embed 를 읽은 뒤 저장한 CDN 주소. 읽기 전에는 null 이다.
+            case INSTAGRAM -> job.getPreviewImageUrl();
         };
     }
 }
