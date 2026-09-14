@@ -22,7 +22,13 @@ import com.star_pick.starpick.domain.ingestion.service.RecipeAnalysisException;
 import com.star_pick.starpick.domain.ingestion.service.RecipeAnalysisException.Kind;
 import com.star_pick.starpick.domain.ingestion.service.RecipeAnalyzer;
 import com.star_pick.starpick.domain.ingestion.service.RecipeDraftNormalizer;
+import com.star_pick.starpick.domain.ingestion.service.UploadedVideo;
 import com.star_pick.starpick.domain.ingestion.service.Verdict;
+import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -37,6 +43,10 @@ import org.springframework.stereotype.Component;
 public class IngestionJobProcessor {
 
     private static final Duration MIN_REMAINING_TO_CALL = Duration.ofSeconds(5);
+    /** 올린 영상의 처리 상태를 확인하는 간격. 실측에서 ACTIVE 까지 6~7초였다. */
+    private static final Duration VIDEO_STATE_POLL_INTERVAL = Duration.ofSeconds(1);
+    /** 결과와 무관한 정리라 deadline 을 쓰지 않고 짧게 한 번만 시도한다. Gemini 도 48시간 뒤 스스로 지운다. */
+    private static final Duration VIDEO_DELETE_TIMEOUT = Duration.ofSeconds(5);
 
     private final IngestionJobExecutionService executionService;
     private final IngestionImageLoader imageLoader;
@@ -154,7 +164,7 @@ public class IngestionJobProcessor {
             throw new IngestionInputException(selection.failureCode(), "분석할 카드가 없다");
         }
         if (selection.videoUrl() != null) {
-            throw new IngestionInputException("Instagram 영상은 아직 처리하지 않는다");
+            return analyzeReel(snapshot, selection.videoUrl(), post.caption(), deadline);
         }
         return analyzeWithRetry(snapshot,
                 AnalysisInput.ofInstagramPost(downloadImages(snapshot, selection.imageUrls(), deadline), post.caption()),
@@ -173,6 +183,80 @@ public class IngestionJobProcessor {
             images.add(image);
         }
         return images;
+    }
+
+    private AnalysisOutcome analyzeReel(IngestionJobSnapshot snapshot, String videoUrl, String caption, Instant deadline) {
+        IngestionProperties.Instagram config = properties.instagram();
+        Path file = null;
+        UploadedVideo uploaded = null;
+        try {
+            file = Files.createTempFile("starpick-reel-", ".mp4");
+            Path target = file;
+            long size = callWithRetry(snapshot, deadline, config.mediaTimeout(), "instagram-video",
+                    timeout -> instagramClient.downloadVideo(videoUrl, target, config.maxVideoBytes(), timeout));
+            uploaded = uploadOnce(target, size, deadline);
+            awaitActive(snapshot, uploaded, deadline);
+            return analyzeWithRetry(snapshot, AnalysisInput.ofInstagramReel(uploaded.uri(), caption), deadline);
+        } catch (IOException e) {
+            throw new UncheckedIOException("영상 임시 파일을 만들 수 없다", e);
+        } finally {
+            deleteUploadedVideo(snapshot, uploaded);
+            deleteTempFile(snapshot, file);
+        }
+    }
+
+    /**
+     * 업로드는 재시도하지 않는다. 본문이 서버에 도착했는데 응답만 늦으면 재시도가 새 파일을 만들고,
+     * 첫 파일은 이름을 몰라 지울 수 없기 때문이다(Gemini 가 48시간 뒤 지운다).
+     */
+    private UploadedVideo uploadOnce(Path file, long size, Instant deadline) {
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        if (remaining.compareTo(MIN_REMAINING_TO_CALL) < 0) {
+            throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "deadline 이 남지 않았다", null);
+        }
+        return analyzer.uploadVideo(file, size, min(properties.instagram().uploadTimeout(), remaining));
+    }
+
+    /** ACTIVE 가 될 때까지 deadline 안에서 확인한다. 한 번 확인할 때마다 5초 규칙을 거친다. */
+    private void awaitActive(IngestionJobSnapshot snapshot, UploadedVideo video, Instant deadline) {
+        while (true) {
+            VideoFileState state = callWithRetry(snapshot, deadline, properties.instagram().fetchTimeout(),
+                    "video-state", timeout -> analyzer.videoState(video, timeout));
+            if (state == VideoFileState.ACTIVE) {
+                return;
+            }
+            if (state == VideoFileState.FAILED) {
+                throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "분석용 영상 처리에 실패했다", null);
+            }
+            try {
+                Thread.sleep(VIDEO_STATE_POLL_INTERVAL);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "영상 준비를 기다리다 중단됐다", null);
+            }
+        }
+    }
+
+    private void deleteUploadedVideo(IngestionJobSnapshot snapshot, UploadedVideo video) {
+        if (video == null) {
+            return;
+        }
+        try {
+            analyzer.deleteVideo(video, VIDEO_DELETE_TIMEOUT);
+        } catch (RuntimeException e) {
+            log.warn("분석용 영상을 지우지 못했습니다. ingestionJobId={}, reason={}", snapshot.id(), e.getMessage());
+        }
+    }
+
+    private void deleteTempFile(IngestionJobSnapshot snapshot, Path file) {
+        if (file == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException e) {
+            log.warn("영상 임시 파일을 지우지 못했습니다. ingestionJobId={}", snapshot.id());
+        }
     }
 
     private AnalysisOutcome analyzeWithRetry(IngestionJobSnapshot snapshot, AnalysisInput input, Instant deadline) {

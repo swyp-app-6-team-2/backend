@@ -23,6 +23,7 @@ import com.star_pick.starpick.domain.ingestion.service.RecipeAnalysisException;
 import com.star_pick.starpick.domain.ingestion.service.RecipeDraftNormalizer;
 import com.star_pick.starpick.domain.ingestion.service.TokenUsage;
 import com.star_pick.starpick.domain.ingestion.service.Verdict;
+import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.support.FakeInstagramClient;
 import com.star_pick.starpick.support.FakeObjectStorage;
@@ -72,6 +73,7 @@ class IngestionJobProcessorTest {
     private static final String YOUTUBE_URL = "https://www.youtube.com/watch?v=kjG6h_LTklo";
     private static final String CDN = "https://scontent-ssn1-1.cdninstagram.com/";
     private static final String POST_URL = "https://www.instagram.com/p/DKI9fBzy5FB/";
+    private static final String REEL_URL = "https://www.instagram.com/reel/DcdllvBmOgm/";
 
     @BeforeEach
     void setUp() {
@@ -411,6 +413,71 @@ class IngestionJobProcessorTest {
 
         executionService.savePreview(job.id(), job.attempt(), CDN + "1.jpg");
         assertThat(repository.findById(job.id()).orElseThrow().getPreviewImageUrl()).isEqualTo(CDN + "1.jpg");
+    }
+
+    @Test
+    @DisplayName("Reel 은 임시 파일로 받아 올리고 ACTIVE 가 되면 분석한 뒤 올린 파일과 임시 파일을 지운다")
+    void analyzesReelThroughUploadedFile() {
+        instagram.enqueuePost(new InstagramPost("막김치", List.of(video(CDN + "thumb.jpg", CDN + "reel.mp4"))));
+        instagram.putMedia(CDN + "reel.mp4", new byte[]{9, 9, 9});
+        analyzer.enqueueVideoState(VideoFileState.PROCESSING);
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        AnalysisInput input = analyzer.lastInput();
+        assertThat(input.source()).isEqualTo(AnalysisInput.Source.INSTAGRAM_REEL);
+        assertThat(input.videoUrl()).isEqualTo(FakeRecipeAnalyzer.UPLOADED.uri());
+        assertThat(input.caption()).isEqualTo("막김치");
+        assertThat(instagram.lastFetch()).isEqualTo("DcdllvBmOgm reel");
+        assertThat(analyzer.lastUploadedBytes()).containsExactly(9, 9, 9);
+        assertThat(analyzer.deletedVideos()).isOne();
+        assertThat(analyzer.lastUploadedFile()).doesNotExist();
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
+        assertThat(saved.getPreviewImageUrl()).isEqualTo(CDN + "thumb.jpg");
+    }
+
+    @Test
+    @DisplayName("파일 처리가 FAILED 거나 deadline 까지 ACTIVE 가 되지 않으면 분석 없이 PROCESSING_FAILED 이고, 올린 파일은 지운다")
+    void failsWhenUploadedVideoIsNotUsable() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", CDN + "reel.mp4"))));
+        instagram.putMedia(CDN + "reel.mp4", new byte[]{9});
+        analyzer.enqueueVideoState(VideoFileState.FAILED);
+        PreemptedJob failed = queuedInstagramAndPreempted(REEL_URL);
+        processor.process(failed);
+        assertFailure(failed.id(), IngestionFailureCode.PROCESSING_FAILED);
+
+        instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", CDN + "reel.mp4"))));
+        for (int i = 0; i < 20; i++) {
+            analyzer.enqueueVideoState(VideoFileState.PROCESSING);
+        }
+        PreemptedJob neverActive = queuedInstagramAndPreempted(REEL_URL);
+        // 테스트 deadline 10초 중 3초가 지난 것으로 둔다. 남은 약 7초로 업로드까지 통과하고, 상태 확인이 1~2회 뒤 5초 규칙에 걸린다.
+        setStartedAt(neverActive.id(), Instant.now().minusSeconds(3));
+        processor.process(neverActive);
+        assertFailure(neverActive.id(), IngestionFailureCode.PROCESSING_FAILED);
+        assertThat(analyzer.uploads()).isEqualTo(2);
+
+        assertThat(analyzer.calls()).isZero();
+        assertThat(analyzer.deletedVideos()).isEqualTo(2);
+        assertThat(analyzer.lastUploadedFile()).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("영상이 상한을 넘으면 올리지 않고 PROCESSING_FAILED 이며 임시 파일을 지운다")
+    void rejectsOversizedReelBeforeUpload() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", CDN + "big.mp4"))));
+        instagram.failMedia(CDN + "big.mp4", new InstagramFetchException(InstagramFetchException.Kind.TOO_LARGE, "큼"));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        assertFailure(job.id(), IngestionFailureCode.PROCESSING_FAILED);
+        assertThat(analyzer.uploads()).isZero();
+        assertThat(analyzer.deletedVideos()).isZero();
+        assertThat(instagram.lastVideoTarget()).doesNotExist();
     }
 
     private PreemptedJob queuedInstagramAndPreempted(String url) {

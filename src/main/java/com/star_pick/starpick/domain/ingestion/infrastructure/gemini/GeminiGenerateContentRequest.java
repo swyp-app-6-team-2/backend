@@ -25,7 +25,7 @@ record GeminiPart(String text, GeminiInlineData inlineData, GeminiFileData fileD
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
-record GeminiFileData(String fileUri) {
+record GeminiFileData(String mimeType, String fileUri) {
 }
 
 @JsonInclude(JsonInclude.Include.NON_NULL)

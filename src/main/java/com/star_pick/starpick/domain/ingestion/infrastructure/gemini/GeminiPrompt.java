@@ -48,6 +48,10 @@ final class GeminiPrompt {
                 .formatted(count, hasCaption ? "과 캡션" : "");
     }
 
+    static String instagramReelInstruction(boolean hasCaption) {
+        return "입력: Instagram Reel 영상%s.".formatted(hasCaption ? "과 캡션" : "");
+    }
+
     /**
      * 외부 텍스트는 이 블록으로만 넣는다. SYSTEM_INSTRUCTION 이 블록 안의 지시를 따르지 않게 한다.
      * caption 안에 연속된 {@code >} 3개 이상은 블록을 일찍 닫지 못하게 {@code >>} 로 줄여 넣는다(한 번만 바꾸면 5개 이상에서 다시 생긴다).

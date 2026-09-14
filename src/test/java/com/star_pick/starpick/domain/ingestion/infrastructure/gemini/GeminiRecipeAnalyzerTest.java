@@ -3,6 +3,7 @@ package com.star_pick.starpick.domain.ingestion.infrastructure.gemini;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.star_pick.starpick.domain.ingestion.config.IngestionProperties;
@@ -10,11 +11,15 @@ import com.star_pick.starpick.domain.ingestion.service.AnalysisInput;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisOutcome;
 import com.star_pick.starpick.domain.ingestion.service.InlineImage;
 import com.star_pick.starpick.domain.ingestion.service.RecipeAnalysisException;
+import com.star_pick.starpick.domain.ingestion.service.UploadedVideo;
 import com.star_pick.starpick.domain.ingestion.service.Verdict;
+import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -22,6 +27,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -124,6 +130,158 @@ class GeminiRecipeAnalyzerTest {
         assertThat(parts.size()).isEqualTo(2);
         assertThat(parts.get(0).path("text").asString())
                 .isEqualTo("입력: Instagram 게시물 이미지 1장. 순서대로 하나의 레시피를 이룰 수 있다.");
+    }
+
+    @Test
+    @DisplayName("Reel 은 올린 파일을 mimeType 과 함께 fps 없이 보내고 caption 블록을 뒤에 둔다")
+    void analyzesInstagramReel() throws Exception {
+        respond(200, candidateResponse(
+                "{\"verdict\":\"RECIPE\",\"title\":\"막김치\",\"categoryCode\":\"KOREAN\",\"ingredients\":[],\"steps\":[{\"content\":\"절인다\"}]}",
+                "STOP"));
+
+        analyzer().analyze(AnalysisInput.ofInstagramReel("https://gemini.test/v1beta/files/abc", "막김치 레시피"),
+                Duration.ofSeconds(2));
+
+        var parts = JsonMapper.builder().build().readTree(requestBody.get()).at("/contents/0/parts");
+        assertThat(parts.size()).isEqualTo(3);
+        assertThat(parts.get(0).at("/fileData/mimeType").asString()).isEqualTo("video/mp4");
+        assertThat(parts.get(0).at("/fileData/fileUri").asString()).isEqualTo("https://gemini.test/v1beta/files/abc");
+        assertThat(parts.get(0).has("videoMetadata")).isFalse();
+        assertThat(parts.get(1).path("text").asString()).isEqualTo("입력: Instagram Reel 영상과 캡션.");
+        assertThat(parts.get(2).path("text").asString()).isEqualTo("분석할 데이터(게시물 캡션):\n<<<\n막김치 레시피\n>>>");
+    }
+
+    @Test
+    @DisplayName("영상은 재개형 업로드 두 단계로 올리고 파일 이름과 URI 를 돌려준다")
+    void uploadsVideoInTwoSteps(@TempDir Path dir) throws Exception {
+        Path file = Files.write(dir.resolve("reel.mp4"), new byte[]{9, 8, 7});
+        AtomicReference<Headers> startHeaders = new AtomicReference<>();
+        AtomicReference<Headers> finalizeHeaders = new AtomicReference<>();
+        AtomicReference<byte[]> uploaded = new AtomicReference<>();
+        server.createContext("/upload/v1beta/files", exchange -> {
+            startHeaders.set(exchange.getRequestHeaders());
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("X-Goog-Upload-URL", baseUrl + "/upload-session?upload_id=SENSITIVE_SESSION");
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.createContext("/upload-session", exchange -> {
+            finalizeHeaders.set(exchange.getRequestHeaders());
+            uploaded.set(exchange.getRequestBody().readAllBytes());
+            byte[] body = ("{\"file\":{\"name\":\"files/abc\",\"uri\":\"" + baseUrl + "/v1beta/files/abc\",\"state\":\"PROCESSING\"}}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+
+        UploadedVideo video = analyzer().uploadVideo(file, 3, Duration.ofSeconds(2));
+
+        assertThat(video).isEqualTo(new UploadedVideo("files/abc", baseUrl + "/v1beta/files/abc"));
+        assertThat(startHeaders.get().getFirst("x-goog-api-key")).isEqualTo("test-key");
+        assertThat(startHeaders.get().getFirst("X-Goog-Upload-Protocol")).isEqualTo("resumable");
+        assertThat(startHeaders.get().getFirst("X-Goog-Upload-Command")).isEqualTo("start");
+        assertThat(startHeaders.get().getFirst("X-Goog-Upload-Header-Content-Length")).isEqualTo("3");
+        assertThat(startHeaders.get().getFirst("X-Goog-Upload-Header-Content-Type")).isEqualTo("video/mp4");
+        assertThat(finalizeHeaders.get().getFirst("X-Goog-Upload-Command")).isEqualTo("upload, finalize");
+        assertThat(finalizeHeaders.get().getFirst("X-Goog-Upload-Offset")).isEqualTo("0");
+        assertThat(finalizeHeaders.get().getFirst("Content-Length")).isEqualTo("3");
+        assertThat(uploaded.get()).containsExactly(9, 8, 7);
+    }
+
+    @Test
+    @DisplayName("파일 상태를 ACTIVE·FAILED·그 밖으로 나누고, 지우기는 DELETE 한 번이다")
+    void readsVideoStateAndDeletes() {
+        AtomicReference<String> state = new AtomicReference<>("PROCESSING");
+        AtomicReference<String> deleted = new AtomicReference<>();
+        server.createContext("/v1beta/files/abc", exchange -> {
+            if (exchange.getRequestMethod().equals("DELETE")) {
+                deleted.set(exchange.getRequestHeaders().getFirst("x-goog-api-key"));
+                exchange.sendResponseHeaders(200, -1);
+                exchange.close();
+                return;
+            }
+            write(exchange, 200, "{\"name\":\"files/abc\",\"state\":\"" + state.get() + "\"}");
+        });
+        server.start();
+        UploadedVideo video = new UploadedVideo("files/abc", baseUrl + "/v1beta/files/abc");
+        GeminiRecipeAnalyzer analyzer = analyzer();
+
+        assertThat(analyzer.videoState(video, Duration.ofSeconds(2))).isEqualTo(VideoFileState.PROCESSING);
+        state.set("ACTIVE");
+        assertThat(analyzer.videoState(video, Duration.ofSeconds(2))).isEqualTo(VideoFileState.ACTIVE);
+        state.set("FAILED");
+        assertThat(analyzer.videoState(video, Duration.ofSeconds(2))).isEqualTo(VideoFileState.FAILED);
+        analyzer.deleteVideo(video, Duration.ofSeconds(2));
+        assertThat(deleted.get()).isEqualTo("test-key");
+    }
+
+    @Test
+    @DisplayName("업로드 5xx 는 재시도 가능, 업로드 주소가 없거나 Gemini 주소가 아니면 복구 불가능이고 본문·세션 주소를 새지 않는다")
+    void classifiesUploadFailures(@TempDir Path dir) throws Exception {
+        Path file = Files.write(dir.resolve("reel.mp4"), new byte[]{1});
+        server.createContext("/upload/v1beta/files", exchange -> write(exchange, 503, "{\"error\":{\"message\":\"SENSITIVE_BODY\"}}"));
+        server.start();
+        RecipeAnalysisException unavailable = catchThrowableOfType(RecipeAnalysisException.class,
+                () -> analyzer().uploadVideo(file, 1, Duration.ofSeconds(2)));
+        assertThat(unavailable.kind()).isEqualTo(RecipeAnalysisException.Kind.RETRYABLE);
+        assertNoResponseBodyLeak(unavailable);
+
+        restartEmpty();
+        server.createContext("/upload/v1beta/files", exchange -> write(exchange, 200, "{}"));
+        server.start();
+        RecipeAnalysisException noSession = catchThrowableOfType(RecipeAnalysisException.class,
+                () -> analyzer().uploadVideo(file, 1, Duration.ofSeconds(2)));
+        assertThat(noSession.kind()).isEqualTo(RecipeAnalysisException.Kind.UNRECOVERABLE);
+
+        for (String sessionUrl : List.of("https://evil.test/upload?upload_id=SENSITIVE_SESSION", "::not a uri SENSITIVE_SESSION")) {
+            restartEmpty();
+            server.createContext("/upload/v1beta/files", exchange -> {
+                exchange.getRequestBody().readAllBytes();
+                exchange.getResponseHeaders().set("X-Goog-Upload-URL", sessionUrl);
+                exchange.sendResponseHeaders(200, -1);
+                exchange.close();
+            });
+            server.start();
+            RecipeAnalysisException foreign = catchThrowableOfType(RecipeAnalysisException.class,
+                    () -> analyzer().uploadVideo(file, 1, Duration.ofSeconds(2)));
+            assertThat(foreign.kind()).as(sessionUrl).isEqualTo(RecipeAnalysisException.Kind.UNRECOVERABLE);
+            assertThat(foreign.getMessage()).doesNotContain("SENSITIVE_SESSION", "evil.test");
+        }
+    }
+
+    @Test
+    @DisplayName("업로드 응답에 파일 이름만 있고 URI 가 없으면 그 파일을 지우고 복구 불가능으로 끝낸다")
+    void deletesFileWhenUploadResponseHasNoUri(@TempDir Path dir) throws Exception {
+        Path file = Files.write(dir.resolve("reel.mp4"), new byte[]{1});
+        AtomicReference<String> deletedMethod = new AtomicReference<>();
+        server.createContext("/upload/v1beta/files", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("X-Goog-Upload-URL", baseUrl + "/upload-session?upload_id=s");
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.createContext("/upload-session", exchange -> write(exchange, 200, "{\"file\":{\"name\":\"files/abc\"}}"));
+        server.createContext("/v1beta/files/abc", exchange -> {
+            deletedMethod.set(exchange.getRequestMethod());
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+
+        RecipeAnalysisException failure = catchThrowableOfType(RecipeAnalysisException.class,
+                () -> analyzer().uploadVideo(file, 1, Duration.ofSeconds(2)));
+
+        assertThat(failure.kind()).isEqualTo(RecipeAnalysisException.Kind.UNRECOVERABLE);
+        assertThat(deletedMethod.get()).isEqualTo("DELETE");
+    }
+
+    private void restartEmpty() throws IOException {
+        server.stop(0);
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        baseUrl = "http://localhost:" + server.getAddress().getPort();
     }
 
     @Test

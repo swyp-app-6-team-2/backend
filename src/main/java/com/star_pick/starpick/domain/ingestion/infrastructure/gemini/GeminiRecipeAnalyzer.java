@@ -11,12 +11,22 @@ import com.star_pick.starpick.domain.ingestion.service.AnalysisInput;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisOutcome;
 import com.star_pick.starpick.domain.ingestion.service.InlineImage;
 import com.star_pick.starpick.domain.ingestion.service.RecipeAnalyzer;
+import com.star_pick.starpick.domain.ingestion.service.UploadedVideo;
+import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.http.HttpClient;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -29,6 +39,8 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
 
     private static final List<String> BLOCKED_FINISH_REASONS = List.of(
             "SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY");
+    private static final String VIDEO_MP4 = "video/mp4";
+    private static final Duration UPLOAD_START_TIMEOUT = Duration.ofSeconds(10);
 
     private final RestClient.Builder restClientBuilder;
     private final HttpClient httpClient;
@@ -64,13 +76,18 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
                 addImages(parts, input.images());
             }
             case YOUTUBE -> {
-                parts.add(new GeminiPart(null, null, new GeminiFileData(input.videoUrl()),
+                parts.add(new GeminiPart(null, null, new GeminiFileData(null, input.videoUrl()),
                         new GeminiVideoMetadata(config.videoFps())));
                 parts.add(GeminiPart.text(GeminiPrompt.VIDEO_INSTRUCTION));
             }
             case INSTAGRAM_POST -> {
                 parts.add(GeminiPart.text(GeminiPrompt.instagramPostInstruction(input.images().size(), hasCaption)));
                 addImages(parts, input.images());
+            }
+            case INSTAGRAM_REEL -> {
+                // fps 를 주지 않는다(기본 1fps). 72초 Reel 에서 fps 0.2 는 조리 단계가 5~6개에서 3개로 줄었다(2026-09-14 실측).
+                parts.add(new GeminiPart(null, null, new GeminiFileData(VIDEO_MP4, input.videoUrl()), null));
+                parts.add(GeminiPart.text(GeminiPrompt.instagramReelInstruction(hasCaption)));
             }
         }
         if (hasCaption) {
@@ -89,13 +106,121 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
     }
 
     private GeminiGenerateContentResponse post(GeminiGenerateContentRequest request, Duration timeout) {
-        try {
-            return clientFor(timeout).post()
-                    .uri(config.baseUrl() + "/v1beta/models/" + config.model() + ":generateContent")
+        return call(() -> clientFor(timeout).post()
+                .uri(config.baseUrl() + "/v1beta/models/" + config.model() + ":generateContent")
+                .header("x-goog-api-key", config.apiKey())
+                .body(request)
+                .retrieve()
+                .body(GeminiGenerateContentResponse.class));
+    }
+
+    @Override
+    public UploadedVideo uploadVideo(Path file, long size, Duration timeout) {
+        // 요청 두 번이 timeout 하나를 나눠 쓴다. 본문 요청에는 세션 시작 뒤 남은 시간만 준다.
+        Instant uploadDeadline = Instant.now().plus(timeout);
+        return call(() -> {
+            String uploadUrl = clientFor(min(UPLOAD_START_TIMEOUT, timeout)).post()
+                    .uri(URI.create(config.baseUrl() + "/upload/v1beta/files"))
                     .header("x-goog-api-key", config.apiKey())
-                    .body(request)
+                    .header("X-Goog-Upload-Protocol", "resumable")
+                    .header("X-Goog-Upload-Command", "start")
+                    .header("X-Goog-Upload-Header-Content-Length", Long.toString(size))
+                    .header("X-Goog-Upload-Header-Content-Type", VIDEO_MP4)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("file", Map.of("display_name", "starpick-ingestion")))
                     .retrieve()
-                    .body(GeminiGenerateContentResponse.class);
+                    .toBodilessEntity()
+                    .getHeaders()
+                    .getFirst("X-Goog-Upload-URL");
+            URI session = uploadSession(uploadUrl);
+            Duration remaining = Duration.between(Instant.now(), uploadDeadline);
+            if (remaining.isNegative() || remaining.isZero()) {
+                throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "영상을 올릴 시간이 남지 않았습니다.", null);
+            }
+            // 업로드 주소 자체가 세션 토큰이다. 로그·예외에 남기지 않고 API 키도 보내지 않는다(실측과 같음).
+            GeminiFileEnvelope uploaded = clientFor(remaining).post()
+                    .uri(session)
+                    .header("X-Goog-Upload-Offset", "0")
+                    .header("X-Goog-Upload-Command", "upload, finalize")
+                    .contentType(MediaType.parseMediaType(VIDEO_MP4))
+                    .body(new FileSystemResource(file))
+                    .retrieve()
+                    .body(GeminiFileEnvelope.class);
+            GeminiFile uploadedFile = uploaded == null ? null : uploaded.file();
+            if (uploadedFile == null || uploadedFile.name() == null) {
+                throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "업로드 응답을 해석할 수 없습니다.", null);
+            }
+            UploadedVideo video = new UploadedVideo(uploadedFile.name(), uploadedFile.uri());
+            if (uploadedFile.uri() == null) {
+                // 파일은 이미 만들어졌다. 분석에 쓸 수 없으니 이름을 아는 지금 지운다.
+                deleteQuietly(video);
+                throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "업로드 응답을 해석할 수 없습니다.", null);
+            }
+            return video;
+        });
+    }
+
+    private void deleteQuietly(UploadedVideo video) {
+        try {
+            deleteVideo(video, UPLOAD_START_TIMEOUT);
+        } catch (RecipeAnalysisException ignored) {
+            // 정리 실패는 분석 실패 원인이 아니다. Gemini 가 48시간 뒤 스스로 지운다.
+        }
+    }
+
+    @Override
+    public VideoFileState videoState(UploadedVideo video, Duration timeout) {
+        GeminiFile file = call(() -> clientFor(timeout).get()
+                .uri(URI.create(config.baseUrl() + "/v1beta/" + video.name()))
+                .header("x-goog-api-key", config.apiKey())
+                .retrieve()
+                .body(GeminiFile.class));
+        if (file == null) {
+            throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "파일 상태 응답이 비었습니다.", null);
+        }
+        return switch (String.valueOf(file.state())) {
+            case "ACTIVE" -> VideoFileState.ACTIVE;
+            case "FAILED" -> VideoFileState.FAILED;
+            default -> VideoFileState.PROCESSING;
+        };
+    }
+
+    @Override
+    public void deleteVideo(UploadedVideo video, Duration timeout) {
+        call(() -> clientFor(timeout).delete()
+                .uri(URI.create(config.baseUrl() + "/v1beta/" + video.name()))
+                .header("x-goog-api-key", config.apiKey())
+                .retrieve()
+                .toBodilessEntity());
+    }
+
+    /**
+     * 응답 헤더로 받은 업로드 주소는 설정한 Gemini 주소와 스킴·호스트·포트가 같을 때만 쓴다.
+     * 영상을 다른 곳으로 보내지 않고, 해석 예외에 주소가 실리지 않게 고정 메시지로 바꾼다.
+     */
+    private URI uploadSession(String uploadUrl) {
+        URI base = URI.create(config.baseUrl());
+        try {
+            URI session = new URI(uploadUrl);
+            if (base.getScheme().equalsIgnoreCase(session.getScheme())
+                    && base.getHost().equalsIgnoreCase(session.getHost())
+                    && base.getPort() == session.getPort()
+                    && session.getRawUserInfo() == null) {
+                return session;
+            }
+        } catch (URISyntaxException | RuntimeException ignored) {
+            // 아래 고정 메시지로 끝낸다.
+        }
+        throw new RecipeAnalysisException(Kind.UNRECOVERABLE, "업로드 주소를 받지 못했습니다.", null);
+    }
+
+    private static Duration min(Duration first, Duration second) {
+        return first.compareTo(second) <= 0 ? first : second;
+    }
+
+    private <T> T call(Supplier<T> request) {
+        try {
+            return request.get();
         } catch (ResourceAccessException e) {
             throw new RecipeAnalysisException(Kind.RETRYABLE, "Gemini 연결 또는 timeout 실패", null);
         } catch (RestClientResponseException e) {
