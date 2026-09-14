@@ -17,7 +17,7 @@ import org.springframework.util.StringUtils;
  * <p>키가 없는 팀원 로컬은 앱이 그대로 뜨고 Worker 만 맡지 않는다. Ingestion 과 무관한 작업을
  * 하려고 Gemini 키를 받아야 하는 상황을 만들지 않기 위해서다.
  */
-class IngestionWorkerCondition implements Condition {
+public class IngestionWorkerCondition implements Condition {
 
     @Override
     public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {

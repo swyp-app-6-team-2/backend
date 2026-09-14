@@ -61,6 +61,10 @@ public class TestFixtures {
      */
     public void reset() {
         refreshTokenRepository.deleteAll();
+        // push_log → push_token → notification_setting 은 FK 순서다.
+        jdbcTemplate.update("delete from push_log");
+        jdbcTemplate.update("delete from push_token");
+        jdbcTemplate.update("delete from notification_setting");
         // recipe.ingestion_job_id FK 때문에 recipe 를 먼저 지운다.
         cookHistoryRepository.deleteAll();
         recipeRepository.deleteAll();

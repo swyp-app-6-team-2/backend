@@ -18,8 +18,8 @@ spring:
   task:
     scheduling:
       pool:
-        # 기본값 1이면 1시간 정리가 2초 선점을 막는다.
-        size: 2
+        # Ingestion 선점(2초)·Ingestion 정리·알림 발송이 한 스레드씩. 알림 발송은 FCM 응답을 기다리며 스레드를 잡는다.
+        size: 3
 
 starpick:
   ingredient:
@@ -80,6 +80,19 @@ ingestion:
     # 50MB 는 업로드 약 15초라 upload-timeout 안에 든다. 더 큰 영상은 PROCESSING_FAILED.
     max-video-bytes: 52428800
     upload-timeout: 30s
+
+notification:
+  external:
+    enabled: true
+  fcm:
+    # 비어 있으면 이 프로세스는 알림 Worker 를 맡지 않는다. GEMINI_API_KEY 와 같은 방식이다.
+    project-id: ${FCM_PROJECT_ID:}
+  message:
+    # 기획이 문구를 정하면 환경변수 대신 여기에 직접 적는다.
+    meal-body: ${NOTIFICATION_MEAL_BODY:}
+  push:
+    # 앱 딥링크 실제 주소를 FE 가 확인하면 여기에 직접 적는다.
+    deep-link: ${NOTIFICATION_DEEP_LINK:}
 
 logging:
   level:
