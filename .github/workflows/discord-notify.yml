@@ -33,9 +33,12 @@ jobs:
         run: |
           jq -n \
             --arg number "$NUMBER" --arg title "$TITLE" --arg author "$AUTHOR" \
-            --arg labels "${LABELS:-없음}" --arg url "$URL" \
+            --arg labels "$LABELS" --arg url "$URL" \
             '{
-              content: "**[이슈 생성]** #\($number) \($title)\n작성 \($author) · 라벨 \($labels)\n<\($url)>",
+              content: (
+                "📝 **이슈 생성** [#\($number)](<\($url)>) \($title)\n-# \($author)"
+                + (if $labels == "" then "" else " · \($labels)" end)
+              ),
               allowed_mentions: { parse: [] }
             }' \
           | curl -fsS -H 'Content-Type: application/json' -d @- "$WEBHOOK_URL"
@@ -67,7 +70,7 @@ jobs:
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
                   pullRequest(number: $number) {
-                    closingIssuesReferences(first: 5) { nodes { number } }
+                    closingIssuesReferences(first: 5) { nodes { number url } }
                     files(first: 100) { nodes { path } }
                   }
                 }
@@ -81,7 +84,7 @@ jobs:
             --arg mergedBy "$MERGED_BY" --arg url "$URL" \
             '
               ($merged == "true") as $isMerged
-              | ([$pr.closingIssuesReferences.nodes[].number | "#\(.)"] | join(", ")) as $issues
+              | ([$pr.closingIssuesReferences.nodes[] | "[#\(.number)](<\(.url)>)"] | join(", ")) as $issues
               | ([$pr.files.nodes[].path
                   | select(startswith("src/main/resources/db/migration/"))
                   | split("/") | last]
@@ -89,11 +92,11 @@ jobs:
                   | map("`\(.)`") | join(", ")) as $migrations
               | {
                   content: (
-                    (if $isMerged then "**[PR 머지]** #\($number) \($title)\n머지 \($mergedBy)"
-                     else "**[PR 생성]** #\($number) \($title)\n작성 \($author)" end)
+                    (if $isMerged then "✅ **PR 머지**" else "🔀 **PR 생성**" end)
+                    + " [#\($number)](<\($url)>) \($title)"
+                    + "\n-# \(if $isMerged then $mergedBy else $author end)"
                     + (if $issues == "" then "" else " · 이슈 \($issues)" end)
-                    + (if $isMerged and $migrations != "" then "\nDB migration \($migrations) — 작업 중인 브랜치의 migration 번호를 확인하세요" else "" end)
-                    + "\n<\($url)>"
+                    + (if $isMerged and $migrations != "" then "\n> ⚠️ migration \($migrations)\n> 작업 중인 브랜치의 번호를 확인하세요" else "" end)
                   ),
                   allowed_mentions: { parse: [] }
                 }
