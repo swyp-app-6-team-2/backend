@@ -158,7 +158,7 @@ class IngestionJobProcessorTest {
     }
 
     @Test
-    @DisplayName("레시피가 아니거나 차단된 입력은 CONTENT_NOT_RECOGNIZED다")
+    @DisplayName("레시피가 아니거나 차단된 입력은 CONTENT_NOT_RECOGNIZED, 여러 레시피는 MULTIPLE_RECIPES 다")
     void mapsUnrecognizedContent() {
         PreemptedJob notRecipe = queuedAndPreempted();
         analyzer.enqueue(new AnalysisOutcome(Verdict.NOT_RECIPE, null, new TokenUsage(null, null)));
@@ -175,7 +175,7 @@ class IngestionJobProcessorTest {
         analyzer.enqueue(new AnalysisOutcome(
                 Verdict.MULTIPLE_RECIPES, null, new TokenUsage(null, null)));
         processor.process(multiple);
-        assertFailure(multiple.id(), IngestionFailureCode.CONTENT_NOT_RECOGNIZED);
+        assertFailure(multiple.id(), IngestionFailureCode.MULTIPLE_RECIPES);
 
         PreemptedJob emptyDraft = queuedAndPreempted();
         analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE,

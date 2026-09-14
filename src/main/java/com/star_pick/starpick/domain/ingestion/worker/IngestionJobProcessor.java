@@ -91,7 +91,9 @@ public class IngestionJobProcessor {
                 case INSTAGRAM -> analyzeInstagram(snapshot, deadline);
             };
             if (outcome.verdict() != Verdict.RECIPE) {
-                finishFailed(snapshot, IngestionFailureCode.CONTENT_NOT_RECOGNIZED, startedNanos, outcome);
+                IngestionFailureCode code = outcome.verdict() == Verdict.MULTIPLE_RECIPES
+                        ? IngestionFailureCode.MULTIPLE_RECIPES : IngestionFailureCode.CONTENT_NOT_RECOGNIZED;
+                finishFailed(snapshot, code, startedNanos, outcome);
                 return;
             }
             var draft = normalizer.normalize(outcome.draft(), ingredientService.loadNameIndex());
