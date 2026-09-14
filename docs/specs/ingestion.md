@@ -67,7 +67,7 @@ IngestionJob의 생명주기는 다음과 같다.
 |----|-------------------------------------------------|
 | 1  | 사진 입력, 분석 요청·조회 API, Worker, Gemini 연동, 주기 작업   |
 | 2  | Recipe 저장 연동, YouTube                            |
-| 3  | Instagram. 비공식 수집 수용(팀)과 GCE IP 접근 실측이 끝난 뒤 착수 |
+| 3  | Instagram(공개 embed 수집, 게시물·carousel·Reel)          |
 
 
 ### 2.4. 도메인 협력
@@ -77,7 +77,7 @@ Recipe    ── Job 잠금·소비 ──▶ Ingestion
 Ingestion ── 입력 사진 연결·읽기·조회 URL·해제 ──▶ Upload
 Ingestion ── 활성 재료 조회 ──▶ Ingredient
 Ingestion ── 분석 ──▶ Gemini
-Ingestion ── 게시물 수집 ──▶ Instagram (3단계)
+Ingestion ── 게시물 수집 ──▶ Instagram
 ```
 
 Ingestion은 Recipe를 알지 못한다. 호출은 항상 Recipe에서 Ingestion으로만 향한다.
@@ -101,7 +101,7 @@ Ingestion은 Recipe를 알지 못한다. 호출은 항상 Recipe에서 Ingestion
 3. 입력을 조립한다.
    - 사진: 크기를 먼저 확인하고, GCS에서 읽어 순서대로 요청에 넣는다.
    - YouTube: 정규화한 URL을 넘기고, 영상은 5초에 한 장면씩(`fps 0.2`) 보게 한다.
-   - Instagram: `외부 연동`
+   - Instagram: embed를 읽어 분석할 카드를 고르고 미리보기 주소를 먼저 저장한 뒤, 이미지는 받아 요청에 넣고 Reel은 Files API로 올린다(`외부 연동`).
 4. Gemini로 분석한다.
 5. 결과를 정규화하고 재료를 매칭한다.
 6. 결과를 `RESULT_READY`로 저장하거나, 실패 이유와 함께 `FAILED`로 저장한다.
@@ -131,8 +131,8 @@ IngestionJob 1 ── 0..1 Recipe   (2단계)
 | `inputImageKeys`  | X  | 사진 입력일 때만, 1개 이상. `INGESTION_INPUT` 용도 Key이며 배열 순서가 분석 순서다                          |
 | `status`          | O  | `QUEUED`, `PROCESSING`, `RESULT_READY`, `FAILED`, `EXPIRED`                         |
 | `result`          | X  | 소비되지 않은 `RESULT_READY`일 때만 값이 있다. RecipeDraft(JSON)                                 |
-| `failureCode`     | X  | `FAILED`일 때만. `SOURCE_UNAVAILABLE`, `CONTENT_NOT_RECOGNIZED`, `PROCESSING_FAILED`  |
-| `previewImageUrl` | X  | **컬럼을 두지 않는다.** 조회 시점에 계산하는 응답 전용 값이다. 입력 종류별 규칙은 `분석 상태 조회`에 있다. Instagram(3단계)에서 저장이 필요해지면 그때 컬럼을 추가한다 |
+| `failureCode`     | X  | `FAILED`일 때만. `SOURCE_UNAVAILABLE`, `CONTENT_NOT_RECOGNIZED`, `MULTIPLE_RECIPES`, `PROCESSING_FAILED`  |
+| `previewImageUrl` | X  | **Instagram만 저장한다.** Worker가 embed를 읽은 뒤 고른 카드의 CDN 주소(영상은 썸네일)를 결과보다 먼저 조건부로 저장하고, Recipe로 소비되면 지운다. 사진·YouTube는 조회 시점에 계산한다. 입력 종류별 규칙은 `분석 상태 조회`에 있다 |
 | `attempt`         | O  | 선점 횟수. 늦게 끝난 처리의 결과를 버리는 기준이자 stale 복구를 1회로 제한하는 기준                                 |
 | `createdAt`       | O  | 일일 한도 계산 기준                                                                         |
 | `startedAt`       | X  | 마지막 선점 시각. 120초 deadline, stale 판정, 실패 Job 7일 정리의 기준                               |
@@ -197,12 +197,17 @@ IngestionJob 1 ── 0..1 Recipe   (2단계)
 { "status": 202, "message": "레시피 분석 요청이 접수되었습니다.", "data": { "ingestionJobId": 321 } }
 ```
 
-- **받는 URL은 단계마다 늘어난다.** 1단계는 사진만 받았고, 현재(2단계)는 YouTube만 받는다. Instagram은 3단계에 받는다.
+- **받는 URL은 YouTube와 Instagram 공유 링크다.** 원본이 실제로 있는지는 요청 때 확인하지 않고 분석 단계에서 드러난다.
 - **YouTube는 공유 링크 세 형식만 받는다.** 영상 id는 11자 `[A-Za-z0-9_-]`이고, 저장할 때 공유 추적 쿼리(`si` 등)를 버린다.
   - `youtube.com/watch?v={id}`(`www`·`m`·스킴 `http` 포함, 다른 쿼리 순서 무관) → `https://www.youtube.com/watch?v={id}`
   - `youtu.be/{id}` → `https://www.youtube.com/watch?v={id}`
   - `youtube.com/shorts/{id}`(끝 `/` 허용) → `https://www.youtube.com/shorts/{id}`. 앱이 원본을 쇼츠 화면으로 열 수 있게 쇼츠 형식을 유지한다
-  - 그 밖의 링크(Instagram, 채널·재생목록·embed·live, `music.youtube.com`, 스킴 없는 링크 등)는 `400 + INGESTION_URL_UNSUPPORTED`다
+  - 그 밖의 링크(채널·재생목록·embed·live, `music.youtube.com`, 스킴 없는 링크 등)는 `400 + INGESTION_URL_UNSUPPORTED`다
+- **Instagram은 게시물·Reel 링크만 받는다.** 코드는 5~64자 `[A-Za-z0-9_-]`이고, 공유 추적 쿼리(`utm_source`·`stkn`·`igsh` 등)를 버린다.
+  - `instagram.com/p/{code}`(`www`·`m`·스킴 `http`, 끝 `/` 유무, 앞에 `/{사용자명}` 허용) → `https://www.instagram.com/p/{code}/`
+  - 게시물의 `img_index`는 보존한다 → `https://www.instagram.com/p/{code}/?img_index={n}`. 1부터 세는 카드 번호이며(앱 공유 링크에도 붙는다) 1~99 정수로 정확히 한 번 와야 한다
+  - `instagram.com/reel/{code}`(앞에 `/{사용자명}` 허용) → `https://www.instagram.com/reel/{code}/`. `img_index`는 버린다
+  - `/reels/`·`/tv/`·`/stories/`·프로필, 코드 뒤 추가 경로, `%` 인코딩된 코드, 값이 잘못됐거나 두 번 온 `img_index`는 `400 + INGESTION_URL_UNSUPPORTED`다
 - **요청 시점에 영상이 실제로 있는지 확인하지 않는다.** 요청 트랜잭션에 원격 호출을 넣지 않기 위해서다. 없는 영상은 분석 단계에서 `SOURCE_UNAVAILABLE`로 드러난다(2026-09-13 실측). 비공개·연령 제한·라이브 영상의 응답은 확인하지 못했고, `400`이 아니면 `PROCESSING_FAILED`로 끝난다.
 - **일일 한도는 오늘(Asia/Seoul 자정 기준) 만든 Job 수로 센다.**
   - 실패한 Job도 센다. 분석 비용이 이미 나갔기 때문이다.
@@ -254,10 +259,11 @@ IngestionJob 1 ── 0..1 Recipe   (2단계)
 - **`result`**: 보이는 상태가 `RESULT_READY`이고 소비되지 않았을 때만 객체다.
 - **`failureCode`**: `FAILED`일 때만 값이 있다.
 - **`ingredientId`**: 재료명을 소문자로 바꾸고 공백을 모두 뺀 뒤, 활성 재료의 이름·별칭 중 **정확히 하나**와 같을 때만 값이 있다. 없거나 여러 개면 `null`이다.
-- **`previewImageUrl`**: 분석 중 화면에 원본 썸네일을 보여 주는 용도다.
+- **`previewImageUrl`**: 분석 Job 동안만 유효한 원본 이미지 주소다. 분석 중 화면은 원본과 무관한 로딩 화면이라 지금 이 값을 쓰는 앱 화면은 없다. 저장한 레시피의 원본 링크는 레시피 상세의 `source.originalUrl`로 제공한다.
   - 사진: 첫 사진의 조회 URL. 조회할 때마다 트랜잭션 밖에서 만들고, 실패하면 `null`
   - YouTube: `https://i.ytimg.com/vi/{id}/hqdefault.jpg`. URL에서 계산한다
-  - Instagram(3단계): embed에서 얻은 이미지 URL. Worker가 읽기 전인 `QUEUED` 동안은 `null`
+  - Instagram: Worker가 embed에서 고른 카드의 이미지 URL(영상은 썸네일). Worker가 embed를 읽기 전에는 `null`이고, stale 복구로 다시 `QUEUED`가 돼도 남는다. `img_index`가 카드 수를 넘으면 `null`이다. CDN 서명이 수일 뒤 만료되므로, 7일 보존되는 `FAILED` Job을 늦게 조회하면 깨진 주소일 수 있다
+  - 서버는 입력 종류와 관계없이 `FAILED`에서도 값을 돌려준다
   - 소비된 Job: `null`. Recipe가 삭제되면 원본 사진도 지워지기 때문이다
 - 원본 URL, 사진 Key, 시각, 시도 횟수는 노출하지 않는다.
 - 7일 정리로 삭제된 Job은 `404`다.
@@ -305,18 +311,21 @@ IngestionJob 1 ── 0..1 Recipe   (2단계)
 #### 시간과 재시도
 
 - **Job 전체 deadline은 `startedAt`부터 120초다.** 남은 시간이 너무 짧으면 새 호출을 시작하지 않고 `PROCESSING_FAILED`로 끝낸다. 그래서 Job 하나가 stale 기준 3분과 겹치지 않는다.
-- **단계마다 상한을 두고, 남은 시간을 넘지 않게 한다.** 호출 timeout은 `min(단계 상한, 남은 시간)`이다. 단계는 Gemini 분석, 그리고 3단계의 원본 다운로드·파일 업로드·처리 완료 대기다. 단계를 나누는 이유는 실측에서 파일 업로드만 6회 중 1회가 366초 걸렸기 때문이다.
-- **재시도는 처리 시도 한 번 안에서 2회까지다.** 외부 호출 재시도와 stale 복구는 따로 센다. 즉 stale로 다시 선점되면 그 시도에서 예산이 새로 시작된다.
+- **단계마다 상한을 두고, 남은 시간을 넘지 않게 한다.** 호출 timeout은 `min(단계 상한, 남은 시간)`이다. 단계는 Gemini 분석과, Instagram의 embed 수집·이미지 다운로드(카드마다)·영상 다운로드·파일 업로드·처리 상태 확인이다. 단계를 나누는 이유는 실측에서 파일 업로드만 6회 중 1회가 366초 걸렸기 때문이다.
+- **재시도는 외부 호출마다 같은 규칙으로, 처리 시도 한 번 안에서 2회까지다.** 외부 호출 재시도와 stale 복구는 따로 센다. 즉 stale로 다시 선점되면 그 시도에서 예산이 새로 시작된다.
+- **파일 업로드만 재시도하지 않는다.** 본문이 서버에 도착했는데 응답만 늦으면 재시도가 새 파일을 만들고, 첫 파일은 이름을 몰라 지울 수 없기 때문이다. 업로드 실패는 `PROCESSING_FAILED`이고 사용자는 다시 요청한다.
+- **처리 완료(ACTIVE) 확인은 1초 간격으로 deadline까지 반복한다.** 따로 대기 상한을 두지 않는다.
 - **대기 시간은 2초 → 8초로 늘리고 jitter를 더한다.** Gemini가 `RetryInfo`로 대기 시간을 주면 그 값을 우선한다. 대기 뒤 남은 시간이 부족하면 재시도하지 않는다.
-- **설정값으로 관리하는 것**: 동시 처리 수, 확인 주기(2초), deadline(120초), stale 기준(3분), 대기 상한(10분), 결과 유효기간(24시간), 보존 기간(7일), 재시도 횟수·대기, 단계별 상한, 사진 합계 상한(14MB), 영상 fps(0.2), 일일 한도, 모델 이름. 값을 코드에 고정하지 않는다.
+- **설정값으로 관리하는 것**: 동시 처리 수, 확인 주기(2초), deadline(120초), stale 기준(3분), 대기 상한(10분), 결과 유효기간(24시간), 보존 기간(7일), 재시도 횟수·대기, 단계별 상한(Instagram embed 10초·미디어 30초·업로드 30초), 사진 합계 상한(14MB, Instagram 이미지에도 적용), Reel 크기 상한(50MB), YouTube 영상 fps(0.2), 일일 한도, 모델 이름. 값을 코드에 고정하지 않는다.
 - **설정값이 아닌 것**: 사진 최대 개수(10장)는 Bean Validation 제약이라 **컴파일 상수**여야 한다. Worker를 맡을지는 `GEMINI_API_KEY` 유무로 정하며 별도 on/off 설정을 두지 않는다.
 
 | 결과                       | 조건                                                                          |
 |--------------------------|-----------------------------------------------------------------------------|
-| 재시도                      | timeout, 연결 끊김, 5xx, `RetryInfo`가 있는 429                                    |
-| `CONTENT_NOT_RECOGNIZED` | 안전 차단 응답, 레시피가 아니거나 여러 개라는 판정, 정규화 후 재료·단계가 모두 없음                            |
-| `SOURCE_UNAVAILABLE`     | YouTube 입력에 Gemini가 `400 INVALID_ARGUMENT`로 답함(없는 영상에서 실측. **API 키 오류는 제외**), Instagram 수집 실패(3단계) |
-| `PROCESSING_FAILED`      | 그 밖의 전부. 재시도 소진, `RetryInfo`가 없는 429(선불 잔액 소진 등), 인증·모델 설정 오류, 응답 해석 실패, 사진 합계 14MB 초과 |
+| 재시도                      | timeout, 연결 끊김, 본문 읽기 멈춤, 5xx, `RetryInfo`가 있는 429(Gemini). 파일 업로드는 제외                  |
+| `CONTENT_NOT_RECOGNIZED` | 안전 차단 응답, 레시피가 아니라는 판정, 정규화 후 재료·단계가 모두 없음, Instagram에서 분석할 이미지 카드가 없음(`img_index`가 영상 카드이거나 이미지 카드 0장. Gemini를 부르지 않는다) |
+| `MULTIPLE_RECIPES`       | 원본 하나에 서로 다른 레시피가 여러 개라는 판정(사진·YouTube·Instagram 공통). 앱은 레시피 하나만 담긴 카드 링크나 스크린샷으로 다시 요청하도록 안내한다 |
+| `SOURCE_UNAVAILABLE`     | YouTube 입력에 Gemini가 `400 INVALID_ARGUMENT`로 답함(없는 영상에서 실측. **API 키 오류는 제외**). Instagram 원본을 쓸 수 없음: redirect·4xx(429 포함), embed에 게시물 정보가 없음(없는 게시물은 200에 정보 없음으로 실측), 분석할 카드의 주소가 없거나 허용 밖, 지원하지 않거나 빈 미디어, `img_index`가 카드 수를 넘음 |
+| `PROCESSING_FAILED`      | 그 밖의 전부. 재시도 소진, `RetryInfo`가 없는 429(선불 잔액 소진 등), 인증·모델 설정 오류, 응답 해석 실패, 사진 합계 14MB 초과(Instagram 이미지 포함), Reel 50MB 초과, 파일 업로드 실패, 올린 파일 처리 `FAILED`·deadline까지 ACTIVE가 안 됨 |
 
 - **오류를 분류하는 곳과 결정하는 곳이 다르다.** 외부 Adapter는 실패를 재시도 가능·불가능과 원인 종류로 분류하기만 한다. 재시도 여부와 최종 `failureCode`는 Worker가 정한다.
 
@@ -383,25 +392,36 @@ Job 행과 `consumedAt`은 남긴다. 같은 Job으로 다시 저장하면 `409 
 - **사진 입력**은 앞에 `입력: 이미지 {n}장. 순서대로 하나의 레시피를 이룰 수 있다.` 한 줄을 붙인다.
 - **YouTube 입력**은 `fileData.fileUri`(정규화한 URL)와 `videoMetadata.fps`(설정값 0.2)를 먼저, `입력: YouTube 영상.` 한 줄을 뒤에 넣는다.
 - **서버 정규화**
-  - `verdict`가 `NOT_RECIPE`·`MULTIPLE_RECIPES`면 `CONTENT_NOT_RECOGNIZED`로 끝낸다.
+  - `verdict`가 `NOT_RECIPE`면 `CONTENT_NOT_RECOGNIZED`, `MULTIPLE_RECIPES`면 `MULTIPLE_RECIPES`로 끝낸다.
   - 앞뒤 공백을 지우고 빈 재료·단계를 뺀다. `title`·재료 `name`·`amountText`가 255자를 넘으면 자른다. 조리 단계는 자르지 않는다(Recipe API에 길이 제한이 없다).
   - 범위를 벗어난 숫자는 `null`로 바꾼다.
   - 그 뒤 재료와 단계가 모두 없으면 `CONTENT_NOT_RECOGNIZED`다.
 
-#### Instagram (3단계)
+#### Instagram
 
-- **게시물**: 이미지를 받아 요청에 넣는다.
-  - `img_index`가 있으면 그 카드만 분석한다.
-  - 없으면 이미지 카드 전부를 caption과 함께 한 번에 분석하고 `verdict`로 판정한다.
-  - 영상 카드는 분석하지 않는다.
-- **Reel**: 영상을 임시 파일로 받아 Gemini Files API로 올린 뒤, 처리 완료(ACTIVE)를 확인하고 분석한다. 업로드한 파일과 임시 파일은 성공·실패와 무관하게 지운다.
-  - 단계마다 상한을 두고, 넘으면 한 번 재시도한 뒤 실패로 끝낸다. 실측에서 업로드가 한 번 366초 걸렸는데, 이런 경우까지 기다리려고 120초 deadline을 늘리지 않는다. 사용자는 다시 시도하면 된다.
-  - 3단계에서 Reel 처리 시간의 p95·p99를 측정해 deadline과 단계별 상한을 다시 조정한다.
+- **수집**: 공개 embed(`/p/{code}/embed/captioned/`, Reel은 `/reel/{code}/…`)의 `contextJSON`에서 caption과 카드 순서대로의 미디어를 읽는다. 로그인·유료 API·앱 쪽 수집은 쓰지 않는다(`Instagram은 공개 embed만 수집`).
+- **분석할 카드 고르기**: 링크 종류가 아니라 embed의 미디어 구성으로 정한다.
+
+| embed 미디어      | `img_index` | 분석                  | 미리보기       | 실패                                          |
+|-----------------|-------------|---------------------|------------|---------------------------------------------|
+| 1개, 이미지         | 무시          | 그 이미지               | 그 이미지      | —                                           |
+| 1개, 영상(Reel 등)  | 무시          | 영상                  | 썸네일        | —                                           |
+| 여러 개(carousel) | 없음          | 이미지 카드 전부(순서 유지, 개수 제한 없이 14MB 합계 상한만) | 첫 이미지 카드 | 이미지 카드 0장이면 `CONTENT_NOT_RECOGNIZED`          |
+| 여러 개            | 1..n        | 그 카드가 이미지면 그 카드     | 그 카드       | 영상 카드면 `CONTENT_NOT_RECOGNIZED`(OQ5), n 초과면 `SOURCE_UNAVAILABLE` |
+
+  - 주소가 없거나 허용 밖인 카드는 게시물 전체를 실패시키지 않는다. 분석에 실제로 쓰는 카드의 주소만 요구하고, 그 주소가 없으면 `SOURCE_UNAVAILABLE`이다.
+  - 카드를 지정해도 caption을 함께 넣는다. 레시피 카드는 모음집 caption이 붙어도 `RECIPE`로 판정됐다(2026-09-14 실측).
+- **게시물 요청**: `입력: Instagram 게시물 이미지 {n}장과 캡션. 순서대로 하나의 레시피를 이룰 수 있다.` → 이미지들(inline) → caption 데이터 블록. caption이 없으면 "과 캡션"과 블록을 뺀다.
+- **Reel 요청**: 영상을 임시 파일로 받아 Files API 재개형 업로드(시작 → 본문)로 올리고, ACTIVE를 확인한 뒤 `fileData`(mimeType `video/mp4`) → `입력: Instagram Reel 영상과 캡션.` → caption 블록으로 분석한다. **fps를 지정하지 않는다(기본 1fps)** — 72초 Reel에서 fps 0.2는 조리 단계가 5~6개에서 3개로 줄었다.
+  - 이름을 아는 업로드 파일은 성공·실패와 무관하게 5초로 한 번 지우고, 임시 파일도 지운다. 업로드 응답을 받지 못한 파일은 Gemini가 48시간 뒤 스스로 지운다.
+  - 실측 처리 시간은 72초·17MB Reel에서 18~24초였다. 운영 로그의 처리 시간으로 deadline과 단계별 상한을 다시 본다.
+- **caption 데이터 블록**: `분석할 데이터(게시물 캡션):\n<<<\n{caption}\n>>>`. caption 안의 `>>>`는 블록을 일찍 닫지 못하게 바꿔 넣는다.
 - **요청 대상 제한**
-  - embed 주소는 파싱한 게시물 코드로 서버가 직접 만든다.
-  - 미디어는 https이면서 Instagram CDN 허용 호스트(`cdninstagram.com`, `fbcdn.net` 계열)일 때만 받는다.
-  - 영상은 스트리밍으로 받으면서 크기 상한과 MIME을 검증한다.
-  - CDN URL과 caption 원문은 로그에 남기지 않는다.
+  - embed 주소는 파싱한 게시물 코드로 서버가 직접 만든다. redirect는 따라가지 않는다(로그인 페이지 이동을 수집 실패로 드러낸다).
+  - 미디어는 https이면서 Instagram CDN 허용 호스트(`cdninstagram.com`, `fbcdn.net` 계열)일 때만 받는다. 앱에 내려가는 미리보기 주소도 같은 규칙을 통과한 것만 쓴다.
+  - 이미지·영상은 받으면서 크기 상한과 MIME을 검증하고, 상한을 넘으면 남은 본문을 받지 않고 끊는다.
+  - Files API 업로드 주소는 설정한 Gemini 주소와 스킴·호스트·포트가 같을 때만 쓴다.
+  - CDN URL, 업로드 주소, 파일 URI, caption 원문은 로그와 예외 메시지에 남기지 않는다.
 
 ## 4. 주요 설계 결정과 선택 이유
 
@@ -520,6 +540,34 @@ Key 목록은 Job에서도 Recipe에서도 통째로 쓰고 통째로 읽는다.
 - **길이 상한은 두지 않는다.** 사용자별 일일 한도가 호출 수를 막는다. 입력 한도(약 100만 토큰)를 넘는 영상은 `400`으로 와 `SOURCE_UNAVAILABLE`로 보일 것으로 추정한다(fps 0.2 기준 약 7시간, 측정하지 않음).
 - **400을 입력 거절과 설정 오류로 나눈다.** 잘못된 API 키도 `400 INVALID_ARGUMENT`로 오기 때문에(`ErrorInfo.reason = API_KEY_INVALID`), 이것까지 `SOURCE_UNAVAILABLE`로 두면 설정 사고가 "영상을 볼 수 없음"으로 가려진다. 키 오류는 `PROCESSING_FAILED`다. 우리 요청 형식 오류도 같은 400으로 올 수 있어, 해당 WARN 로그가 몰리면 요청 형식부터 의심한다.
 
+### 4.10. Instagram은 공개 embed만 수집
+
+| 대안                        | 장점                    | 단점                                                   |
+|---------------------------|-----------------------|------------------------------------------------------|
+| 공식 API(Graph API·oEmbed)   | 약관상 안전                | 남의 게시물 caption·미디어를 얻을 수 없다                           |
+| 유료 스크래핑 API               | 구조 변경 대응을 업체가 맡음      | 약관 문제는 같고, 건당 비용·외부 의존이 늘며 사용자 링크가 제3자에게 넘어간다       |
+| 앱 WebView에서 수집             | 서버 IP 차단을 피함          | FE 작업이 크고 구조 변경에 약한 건 같다                              |
+| **서버가 공개 embed 파싱 (채택)** | 로그인·토큰이 없고 PoC로 게시물·carousel·Reel이 검증됨 | 비공식이라 예고 없이 깨질 수 있고, 약관의 자동 수집 금지에 걸릴 소지가 있다 |
+
+- **2026-09-14 결정(OQ6).** 공식 경로로는 기능 자체를 만들 수 없어 리스크를 받아들였다. 막혔을 때의 대체 수집 경로는 두지 않는다.
+- **리스크를 줄인 방식**: 사용자 요청 1건당 embed 1회와 미디어만 받고 일일 한도가 막는다. 미디어는 분석 후 버리고 URL만 남긴다. 파싱은 Adapter 안에만 있어 깨지면 `SOURCE_UNAVAILABLE`로만 드러난다.
+- **GCE IP 접근(OQ7)** 은 2026-09-14 dev VM에서 embed 16회 전부 200, redirect 없음, CDN 이미지 0.3초·Reel 17MB 0.5초로 확인했다. 장시간·대량 요청의 rate limit은 측정하지 않았다.
+
+### 4.11. carousel은 이미지 카드 전부를 한 번에
+
+| 대안                     | 결과                                           |
+|------------------------|----------------------------------------------|
+| 첫 카드만                  | 첫 카드는 보통 표지라 `NOT_RECIPE`. 서버가 임의로 고르는 것이기도 하다 |
+| `img_index` 없으면 거절     | carousel 공유가 대부분 실패한다                        |
+| caption만               | 레시피가 이미지에만 있는 게시물을 놓친다                       |
+| 앞 10장만                 | 뒤 카드를 임의로 버린다                                |
+| **이미지 카드 전부 + caption (채택)** | 여러 장에 걸친 한 레시피를 처리하는 유일한 안. 여러 레시피면 `MULTIPLE_RECIPES`로 정직하게 실패한다 |
+
+- **2026-09-14 결정(OQ10).** 레시피 케이스 게시물 실측(`gemini-3.5-flash-lite`):
+  - 한 레시피 7장·3장 → `RECIPE`, 여러 레시피 8·9·10장 → `MULTIPLE_RECIPES`
+  - 이미지 19장 게시물 → `RECIPE`, 원본 9.6MB·입력 21k 토큰·5.5초. 앞 10장만 넣었을 때보다 조리시간·인분이 더 채워졌다
+- 개수 제한을 따로 두지 않는다. Instagram이 carousel을 20장으로 제한하고, 사진 합계 14MB 상한이 메모리를 지킨다. 사진 입력의 10장 제한은 사용자가 올리는 사진의 계약이라 별개다.
+
 ## 5. 미결정 사항
 
 | #   | 질문                                                     | 결정 주체  | 막는 것    |
@@ -528,10 +576,11 @@ Key 목록은 Job에서도 Recipe에서도 통째로 쓰고 통째로 읽는다.
 | OQ2 | 사진 최대 개수 — **10장으로 확정·구현**(2026-09-12). 값을 바꾸려면 상수를 고쳐야 한다 | 제품     | 해결      |
 | OQ3 | 앱의 업로드 전 사진 축소, 다시 시도할 때 사진 재업로드                        | FE     | 없음(FE 합의 필요) |
 | OQ4 | 같은 URL 결과 재사용, URL로 등록한 레시피의 대표 사진(지금은 비어 있다. 썸네일은 분석 중 미리보기에만 쓴다) | 제품     | 없음      |
-| OQ5 | carousel 영상 카드 지원                                      | 제품     | 없음      |
-| OQ6 | Instagram 비공식 수집 수용                                    | 팀      | 3단계     |
-| OQ7 | GCE IP에서 Instagram embed·CDN 접근                         | 실측     | 3단계     |
+| OQ5 | carousel 영상 카드 지원 — 지금은 선택한 카드가 영상이면 `CONTENT_NOT_RECOGNIZED`, 전부 분석할 때는 영상 카드를 뺀다 | 제품     | 없음      |
+| OQ6 | Instagram 비공식 수집 수용 — **공개 embed만 수집으로 결정**(2026-09-14, Glenn) | 팀      | 해결      |
+| OQ7 | GCE IP에서 Instagram embed·CDN 접근 — **dev VM 실측으로 접근 가능 확인**(2026-09-14) | 실측     | 해결      |
 | OQ8 | 폼의 조리시간 칸(상세에는 보이는데 입력·편집에 없음), 사진 등록 흐름의 분석 중 화면 문구("영상 속") | 디자인    | 없음      |
 | OQ9 | 작은 Reel을 Files API 없이 inline으로 보내기, 해상도 낮추기(속도 최적화)      | 실측     | 없음      |
-| OQ10 | `img_index`가 없는 carousel을 "이미지 카드 전부 분석"으로 둘지(`외부 연동`) | 팀·제품 | 3단계     |
+| OQ10 | `img_index`가 없는 carousel을 "이미지 카드 전부 분석"으로 둘지 — **전부 분석으로 결정**(2026-09-14, Glenn) | 팀·제품 | 해결      |
 | OQ11 | 선불 잔액 자동 충전·알림 기준. 서비스 관측·알림 기준과 함께 정한다        | 팀·운영  | 없음      |
+| OQ12 | 원본 하나에 레시피가 여러 개일 때 하나 고르기·다중 등록·묶음 저장 — 지금은 `MULTIPLE_RECIPES` 실패로 안내한다 | 제품·디자인 | 없음      |
