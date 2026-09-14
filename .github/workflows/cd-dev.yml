@@ -82,5 +82,5 @@ jobs:
             "cd ~/starpick && \
              git fetch origin main && \
              git reset --hard ${DEPLOY_SHA} && \
-             APP_IMAGE='${IMAGE}' docker compose --env-file .env.vm -f docker-compose.vm.yml pull app && \
-             APP_IMAGE='${IMAGE}' docker compose --env-file .env.vm -f docker-compose.vm.yml up -d"
+             APP_IMAGE='${IMAGE}' docker compose -p swyp-backend --env-file .env.vm -f docker-compose.vm.yml pull app && \
+             APP_IMAGE='${IMAGE}' docker compose -p swyp-backend --env-file .env.vm -f docker-compose.vm.yml up -d
