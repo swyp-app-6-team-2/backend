@@ -1,13 +1,17 @@
 package com.star_pick.starpick.domain.recipe.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
+import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,6 +42,9 @@ class RecipeListApiTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private FakeObjectStorage objectStorage;
 
     private String accessToken;
 
@@ -112,7 +119,7 @@ class RecipeListApiTest {
      * 키 집합을 통째로 비교해 목록 응답의 필드를 정확히 고정한다.
      */
     @Test
-    @DisplayName("목록 응답의 필드는 카드에 필요한 5개뿐이다")
+    @DisplayName("목록 응답의 필드는 카드에 필요한 6개뿐이다")
     void exposesOnlySummaryFields() throws Exception {
         Long recipeId = fixtures.saveRecipeWithChildren(OWNER_ID);
         fixtures.attachCover(OWNER_ID, recipeId);
@@ -125,7 +132,46 @@ class RecipeListApiTest {
                 com.jayway.jsonpath.JsonPath.parse(body).read("$.data.recipes[0]");
 
         org.assertj.core.api.Assertions.assertThat(first).containsOnlyKeys(
-                "recipeId", "title", "categoryCode", "coverImageUrl", "ingredientNames");
+                "recipeId", "title", "categoryCode", "coverImageUrl", "thumbnailUrl", "ingredientNames");
+    }
+
+    @Test
+    @DisplayName("항목마다 원본 대표 이미지를 준다 — 직접 입력은 null, YouTube 는 공식 썸네일, Instagram 은 저장한 객체, 사진은 첫 원본 사진")
+    void returnsSourceThumbnailPerRecipe() throws Exception {
+        Long manual = fixtures.saveRecipe(OWNER_ID);
+        Long youTube = fixtures.saveUrlRecipe(OWNER_ID, "https://www.youtube.com/watch?v=kjG6h_LTklo").getId();
+        Recipe instagram = fixtures.saveInstagramRecipe(OWNER_ID);
+        Recipe image = fixtures.saveImageRecipe(OWNER_ID);
+
+        String body = list("")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        java.util.Map<Long, java.util.Map<String, Object>> byId = new java.util.HashMap<>();
+        List<java.util.Map<String, Object>> recipes = com.jayway.jsonpath.JsonPath.parse(body).read("$.data.recipes");
+        recipes.forEach(item -> byId.put(((Number) item.get("recipeId")).longValue(), item));
+        org.assertj.core.api.Assertions.assertThat(byId.get(manual)).containsEntry("thumbnailUrl", null);
+        org.assertj.core.api.Assertions.assertThat(byId.get(youTube))
+                .containsEntry("thumbnailUrl", "https://i.ytimg.com/vi/kjG6h_LTklo/hqdefault.jpg");
+        org.assertj.core.api.Assertions.assertThat(byId.get(instagram.getId()))
+                .containsEntry("thumbnailUrl", FakeObjectStorage.VIEW_URL_PREFIX + instagram.getSourceThumbnailKey());
+        org.assertj.core.api.Assertions.assertThat(byId.get(image.getId()))
+                .containsEntry("thumbnailUrl", FakeObjectStorage.VIEW_URL_PREFIX + image.getSourceImageKeys().getFirst());
+    }
+
+    @Test
+    @DisplayName("대표 이미지 서명에 실패해도 200 이고 thumbnailUrl 은 null 이다")
+    void degradesThumbnailUrlToNullOnSigningFailure() throws Exception {
+        fixtures.saveInstagramRecipe(OWNER_ID);
+        objectStorage.startFailing();
+        try {
+            list("")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.recipes[0].coverImageUrl").value(nullValue()))
+                    .andExpect(jsonPath("$.data.recipes[0].thumbnailUrl").value(nullValue()));
+        } finally {
+            objectStorage.clear();
+        }
     }
 
     @Test

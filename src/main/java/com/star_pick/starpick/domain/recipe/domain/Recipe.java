@@ -84,6 +84,10 @@ public class Recipe {
     @Column(columnDefinition = "text[]", updatable = false)
     private String[] sourceImageKeys;
 
+    /** URL 방식에서 Worker 가 복사한 원본 대표 이미지(Instagram)의 저장소 Key. YouTube 는 조회 시 계산해 저장하지 않는다. */
+    @Column(updatable = false)
+    private String sourceThumbnailKey;
+
     // Hibernate 가 로딩 시 PersistentBag 으로 교체하므로 final 로 둘 수 없다.
     // 대신 replace* 안에서 인스턴스를 재대입하지 않는다. 재대입하면 orphanRemoval 이
     // "A collection with cascade=all-delete-orphan was no longer referenced" 로 터진다.
@@ -108,7 +112,7 @@ public class Recipe {
     private Recipe(Long userId, String title, RecipeCategory categoryCode,
                    Integer cookTimeMinutes, Integer servings, String memo,
                    RegistrationMethod registrationMethod, Long ingestionJobId,
-                   String sourceUrl, List<String> sourceImageKeys) {
+                   String sourceUrl, List<String> sourceImageKeys, String sourceThumbnailKey) {
         this.userId = Objects.requireNonNull(userId, "userId");
         this.title = Objects.requireNonNull(title, "title");
         this.categoryCode = Objects.requireNonNull(categoryCode, "categoryCode");
@@ -119,24 +123,26 @@ public class Recipe {
         this.ingestionJobId = ingestionJobId;
         this.sourceUrl = sourceUrl;
         this.sourceImageKeys = sourceImageKeys == null ? null : sourceImageKeys.toArray(String[]::new);
+        this.sourceThumbnailKey = sourceThumbnailKey;
     }
 
     /** 직접 입력으로 생성한다. 등록 방식은 서버가 MANUAL 로 결정한다. */
     public static Recipe createManual(Long userId, String title, RecipeCategory categoryCode,
                                       Integer cookTimeMinutes, Integer servings, String memo) {
         return new Recipe(userId, title, categoryCode, cookTimeMinutes, servings, memo,
-                RegistrationMethod.MANUAL, null, null, null);
+                RegistrationMethod.MANUAL, null, null, null, null);
     }
 
     /**
      * 분석 결과로 생성한다. 등록 방식은 출처로 정해진다 — URL 이 있으면 URL, 사진 Key 가 있으면 IMAGE.
      *
      * <p>출처는 요청이 아니라 IngestionJob 에서 온 값이라, 둘 다 있거나 둘 다 없으면 호출부 버그다.
+     * {@code sourceThumbnailKey} 가 URL 방식에만 있어야 한다는 규칙은 DB CHECK 가 지킨다.
      */
     public static Recipe createFromIngestion(Long userId, String title, RecipeCategory categoryCode,
                                              Integer cookTimeMinutes, Integer servings, String memo,
                                              Long ingestionJobId, String sourceUrl,
-                                             List<String> sourceImageKeys) {
+                                             List<String> sourceImageKeys, String sourceThumbnailKey) {
         Objects.requireNonNull(ingestionJobId, "ingestionJobId");
         boolean hasUrl = sourceUrl != null;
         boolean hasImages = sourceImageKeys != null && !sourceImageKeys.isEmpty();
@@ -145,7 +151,7 @@ public class Recipe {
         }
         return new Recipe(userId, title, categoryCode, cookTimeMinutes, servings, memo,
                 hasUrl ? RegistrationMethod.URL : RegistrationMethod.IMAGE,
-                ingestionJobId, sourceUrl, hasImages ? sourceImageKeys : null);
+                ingestionJobId, sourceUrl, hasImages ? sourceImageKeys : null, sourceThumbnailKey);
     }
 
     public List<String> getSourceImageKeys() {

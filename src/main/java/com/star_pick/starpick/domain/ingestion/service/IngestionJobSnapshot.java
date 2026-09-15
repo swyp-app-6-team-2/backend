@@ -7,6 +7,7 @@ import java.util.List;
 
 public record IngestionJobSnapshot(
         Long id,
+        Long userId,
         IngestionSourceType sourceType,
         String inputUrl,
         List<String> inputImageKeys,
@@ -14,7 +15,7 @@ public record IngestionJobSnapshot(
         Instant startedAt) {
 
     static IngestionJobSnapshot from(IngestionJob job) {
-        return new IngestionJobSnapshot(job.getId(), job.getSourceType(), job.getInputUrl(),
+        return new IngestionJobSnapshot(job.getId(), job.getUserId(), job.getSourceType(), job.getInputUrl(),
                 job.getInputImageKeys(), job.getAttempt(), job.getStartedAt());
     }
 }

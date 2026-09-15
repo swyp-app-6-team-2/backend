@@ -78,7 +78,7 @@ class IngestionJobQueryApiTest {
     void returnsReadyResultAndHidesExpiredResult() throws Exception {
         IngestionJob ready = IngestionJob.queueImage(OWNER_ID, List.of("ingestion-inputs/1/a.jpg"));
         ready.startProcessing(Instant.now());
-        ready.completeWithResult(draft(), Instant.now().plusSeconds(3600));
+        ready.completeWithResult(draft(), Instant.now().plusSeconds(3600), null);
         Long readyId = repository.save(ready).getId();
 
         query(readyId)
@@ -89,7 +89,7 @@ class IngestionJobQueryApiTest {
 
         IngestionJob expired = IngestionJob.queueImage(OWNER_ID, List.of("ingestion-inputs/1/b.jpg"));
         expired.startProcessing(Instant.now());
-        expired.completeWithResult(draft(), Instant.now().minusSeconds(1));
+        expired.completeWithResult(draft(), Instant.now().minusSeconds(1), null);
         Long expiredId = repository.save(expired).getId();
         query(expiredId)
                 .andExpect(status().isOk())

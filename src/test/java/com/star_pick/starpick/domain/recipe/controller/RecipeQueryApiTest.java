@@ -6,9 +6,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
+import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -217,5 +220,53 @@ class RecipeQueryApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.source.sourceType").value("URL"))
                 .andExpect(jsonPath("$.data.source.originalUrl").value("https://www.youtube.com/watch?v=kjG6h_LTklo"));
+    }
+
+    @Test
+    @DisplayName("Instagram 레시피의 대표 이미지는 저장한 객체의 조회 URL 이다")
+    void instagramRecipeExposesStoredThumbnail() throws Exception {
+        Recipe recipe = fixtures.saveInstagramRecipe(OWNER_ID);
+
+        read(recipe.getId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.coverImageUrl").value(nullValue()))
+                .andExpect(jsonPath("$.data.source.thumbnailUrl")
+                        .value(FakeObjectStorage.VIEW_URL_PREFIX + recipe.getSourceThumbnailKey()));
+    }
+
+    @Test
+    @DisplayName("YouTube 레시피의 대표 이미지는 영상 id 로 계산한 공식 썸네일이다 — 일반 영상과 쇼츠 모두")
+    void youTubeRecipeExposesOfficialThumbnail() throws Exception {
+        Long watch = fixtures.saveUrlRecipe(OWNER_ID, "https://www.youtube.com/watch?v=kjG6h_LTklo").getId();
+        Long shorts = fixtures.saveUrlRecipe(OWNER_ID, "https://www.youtube.com/shorts/Rjfzpzj3bug").getId();
+
+        read(watch).andExpect(jsonPath("$.data.source.thumbnailUrl")
+                .value("https://i.ytimg.com/vi/kjG6h_LTklo/hqdefault.jpg"));
+        read(shorts).andExpect(jsonPath("$.data.source.thumbnailUrl")
+                .value("https://i.ytimg.com/vi/Rjfzpzj3bug/hqdefault.jpg"));
+    }
+
+    @Test
+    @DisplayName("사진 레시피의 대표 이미지는 첫 원본 사진의 조회 URL 이다")
+    void imageRecipeExposesFirstSourceImage() throws Exception {
+        Recipe recipe = fixtures.saveImageRecipe(OWNER_ID);
+
+        read(recipe.getId())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.source.thumbnailUrl")
+                        .value(FakeObjectStorage.VIEW_URL_PREFIX + recipe.getSourceImageKeys().getFirst()));
+    }
+
+    @Test
+    @DisplayName("대표 이미지가 없는 Instagram 레시피와 직접 입력 레시피는 thumbnailUrl 이 없다")
+    void thumbnailUrlIsNullWithoutThumbnail() throws Exception {
+        Long instagram = fixtures.saveInstagramRecipe(OWNER_ID).getId();
+        jdbcTemplate.update("update recipe set source_thumbnail_key = null where id = ?", instagram);
+        Long manual = fixtures.saveRecipe(OWNER_ID);
+
+        String instagramBody = read(instagram).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(instagramBody).contains("\"thumbnailUrl\":null");
+        read(manual).andExpect(jsonPath("$.data.source").value(nullValue()));
     }
 }

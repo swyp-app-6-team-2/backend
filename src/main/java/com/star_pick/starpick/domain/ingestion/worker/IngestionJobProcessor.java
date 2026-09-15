@@ -25,6 +25,7 @@ import com.star_pick.starpick.domain.ingestion.service.RecipeDraftNormalizer;
 import com.star_pick.starpick.domain.ingestion.service.UploadedVideo;
 import com.star_pick.starpick.domain.ingestion.service.Verdict;
 import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
+import com.star_pick.starpick.domain.upload.service.UploadService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -55,6 +56,7 @@ public class IngestionJobProcessor {
     private final RecipeDraftNormalizer normalizer;
     private final IngredientService ingredientService;
     private final IngestionProperties properties;
+    private final UploadService uploadService;
 
     public IngestionJobProcessor(IngestionJobExecutionService executionService,
                                  IngestionImageLoader imageLoader,
@@ -62,7 +64,8 @@ public class IngestionJobProcessor {
                                  RecipeAnalyzer analyzer,
                                  RecipeDraftNormalizer normalizer,
                                  IngredientService ingredientService,
-                                 IngestionProperties properties) {
+                                 IngestionProperties properties,
+                                 UploadService uploadService) {
         this.executionService = executionService;
         this.imageLoader = imageLoader;
         this.instagramClient = instagramClient;
@@ -70,6 +73,11 @@ public class IngestionJobProcessor {
         this.normalizer = normalizer;
         this.ingredientService = ingredientService;
         this.properties = properties;
+        this.uploadService = uploadService;
+    }
+
+    /** 분석 결과와, 성공하면 원본 대표 이미지로 복사할 주소. 대표 이미지는 Instagram 게시물의 첫 카드만 있다. */
+    private record Analysis(AnalysisOutcome outcome, String thumbnailImageUrl) {
     }
 
     public void process(PreemptedJob job) {
@@ -84,12 +92,14 @@ public class IngestionJobProcessor {
         // Job 하나에 허용한 예산. 입력 준비와 분석 호출이 이 하나를 나눠 쓴다.
         Instant deadline = snapshot.startedAt().plus(properties.job().deadline());
         try {
-            AnalysisOutcome outcome = switch (snapshot.sourceType()) {
-                case IMAGE -> analyzeWithRetry(snapshot,
-                        AnalysisInput.ofImages(imageLoader.load(snapshot.inputImageKeys(), deadline)), deadline);
-                case YOUTUBE -> analyzeWithRetry(snapshot, AnalysisInput.ofVideo(snapshot.inputUrl()), deadline);
+            Analysis analysis = switch (snapshot.sourceType()) {
+                case IMAGE -> new Analysis(analyzeWithRetry(snapshot,
+                        AnalysisInput.ofImages(imageLoader.load(snapshot.inputImageKeys(), deadline)), deadline), null);
+                case YOUTUBE -> new Analysis(
+                        analyzeWithRetry(snapshot, AnalysisInput.ofVideo(snapshot.inputUrl()), deadline), null);
                 case INSTAGRAM -> analyzeInstagram(snapshot, deadline);
             };
+            AnalysisOutcome outcome = analysis.outcome();
             if (outcome.verdict() != Verdict.RECIPE) {
                 IngestionFailureCode code = outcome.verdict() == Verdict.MULTIPLE_RECIPES
                         ? IngestionFailureCode.MULTIPLE_RECIPES : IngestionFailureCode.CONTENT_NOT_RECOGNIZED;
@@ -101,7 +111,8 @@ public class IngestionJobProcessor {
                 finishFailed(snapshot, IngestionFailureCode.CONTENT_NOT_RECOGNIZED, startedNanos, outcome);
                 return;
             }
-            if (executionService.saveResult(snapshot.id(), snapshot.attempt(), draft)) {
+            String thumbnailKey = storeSourceThumbnail(snapshot, analysis.thumbnailImageUrl(), deadline);
+            if (executionService.saveResult(snapshot.id(), snapshot.attempt(), draft, thumbnailKey)) {
                 log.info("분석을 완료했습니다. ingestionJobId={}, sourceType={}, attempt={}, elapsedMs={}, tokens={}",
                         snapshot.id(), snapshot.sourceType(), snapshot.attempt(),
                         elapsedMs(startedNanos), outcome.usage());
@@ -152,7 +163,11 @@ public class IngestionJobProcessor {
         }
     }
 
-    private AnalysisOutcome analyzeInstagram(IngestionJobSnapshot snapshot, Instant deadline) {
+    /**
+     * 대표 이미지는 분석 카드와 따로 <b>게시물의 첫 카드</b>다. 게시자가 고른 얼굴이고, 카드 지정 링크({@code img_index})로
+     * 레시피 한 장만 분석하게 하는 흐름을 대표 이미지가 방해하지 않는다. 첫 카드가 영상이면 그 썸네일이다.
+     */
+    private Analysis analyzeInstagram(IngestionJobSnapshot snapshot, Instant deadline) {
         InstagramUrl url = InstagramUrl.parse(snapshot.inputUrl())
                 .orElseThrow(() -> new IngestionInputException("저장된 Instagram 링크를 해석할 수 없다"));
         InstagramPost post = callWithRetry(snapshot, deadline, properties.instagram().fetchTimeout(), "instagram-embed",
@@ -165,12 +180,41 @@ public class IngestionJobProcessor {
         if (selection.failureCode() != null) {
             throw new IngestionInputException(selection.failureCode(), "분석할 카드가 없다");
         }
+        String thumbnailImageUrl = post.media().getFirst().displayUrl();
         if (selection.videoUrl() != null) {
-            return analyzeReel(snapshot, selection.videoUrl(), post.caption(), deadline);
+            return new Analysis(analyzeReel(snapshot, selection.videoUrl(), post.caption(), deadline), thumbnailImageUrl);
         }
-        return analyzeWithRetry(snapshot,
+        return new Analysis(analyzeWithRetry(snapshot,
                 AnalysisInput.ofInstagramPost(downloadImages(snapshot, selection.imageUrls(), deadline), post.caption()),
-                deadline);
+                deadline), thumbnailImageUrl);
+    }
+
+    /**
+     * 원본 대표 이미지를 받아 저장소에 복사하고 Key 를 돌려준다. 분석 결과와 무관한 best-effort 라 실패하면 null 이다.
+     *
+     * <p>{@link #callWithRetry} 를 쓰지 않는다. 그 메서드는 deadline 이 모자라면 분석 실패 예외를 던져, 대표 이미지
+     * 때문에 이미 성공한 분석이 실패로 바뀐다. 재시도도 하지 않는다.
+     *
+     * <p>로그에 예외 메시지를 남기지 않는다. HTTP 클라이언트 예외 메시지에는 서명된 CDN 주소가 들어갈 수 있다.
+     */
+    private String storeSourceThumbnail(IngestionJobSnapshot snapshot, String imageUrl, Instant deadline) {
+        if (imageUrl == null) {
+            return null;
+        }
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        if (remaining.compareTo(MIN_REMAINING_TO_CALL) < 0) {
+            log.warn("deadline 이 남지 않아 원본 대표 이미지를 건너뜁니다. ingestionJobId={}", snapshot.id());
+            return null;
+        }
+        try {
+            InlineImage image = instagramClient.downloadImage(imageUrl, properties.image().maxTotalBytes(),
+                    min(properties.instagram().mediaTimeout(), remaining));
+            return uploadService.storeSourceThumbnail(snapshot.userId(), image.content(), image.mimeType());
+        } catch (RuntimeException e) {
+            log.warn("원본 대표 이미지를 저장하지 못했습니다. ingestionJobId={}, error={}",
+                    snapshot.id(), e.getClass().getSimpleName());
+            return null;
+        }
     }
 
     /** 이미지 카드를 순서대로 받는다. 합계 상한은 사진 입력과 같은 값이고, 남은 몫을 다음 카드의 상한으로 넘긴다. */

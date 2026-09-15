@@ -82,12 +82,13 @@ class EnumCheckConstraintTest {
         // ck_ingestion_job_input 은 enum 값 집합이 아니라 컬럼 조합 제약이라 제외한다.
         // (IMAGE 면 input_url 이 없고 input_image_keys 가 1개 이상, 나머지는 그 반대)
         // ck_recipe_source 도 같은 이유로 제외한다. (등록 방식과 출처 컬럼 3개의 조합)
+        // ck_recipe_source_thumbnail 도 같다. (원본 대표 이미지 Key 는 URL 방식에만)
         List<String> inDatabase = jdbcTemplate.queryForList("""
                 select conname from pg_constraint
                 where contype = 'c'
                   and connamespace = 'public'::regnamespace
                   and conname like 'ck\\_%'
-                  and conname not in ('ck_ingestion_job_input', 'ck_recipe_source')
+                  and conname not in ('ck_ingestion_job_input', 'ck_recipe_source', 'ck_recipe_source_thumbnail')
                 """, String.class);
 
         assertThat(inDatabase)

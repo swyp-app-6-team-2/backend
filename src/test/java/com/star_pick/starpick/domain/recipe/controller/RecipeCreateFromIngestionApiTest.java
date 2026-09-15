@@ -150,6 +150,21 @@ class RecipeCreateFromIngestionApiTest {
     }
 
     @Test
+    @DisplayName("원본 대표 이미지가 있는 Instagram Job 으로 저장하면 Key 를 Recipe 로 옮기고 Job 에서는 비운다")
+    void instagramJobMovesSourceThumbnailKey() throws Exception {
+        IngestionJob job = fixtures.saveReadyInstagramJob(OWNER_ID);
+        String thumbnailKey = job.getSourceThumbnailKey();
+
+        Long recipeId = recipeIdOf(create(job.getId()).andExpect(status().isCreated()));
+
+        assertThat(recipeRepository.findById(recipeId).orElseThrow().getSourceThumbnailKey()).isEqualTo(thumbnailKey);
+        assertThat(reload(job.getId()).getSourceThumbnailKey()).isNull();
+
+        create(job.getId()).andExpect(status().isOk());
+        assertThat(recipeRepository.findById(recipeId).orElseThrow().getSourceThumbnailKey()).isEqualTo(thumbnailKey);
+    }
+
+    @Test
     @DisplayName("같은 Job 으로 다시 요청하면 새로 만들지 않고 기존 recipeId 와 200")
     void retryReturnsExistingRecipe() throws Exception {
         Long jobId = fixtures.saveReadyImageJob(OWNER_ID).getId();
@@ -227,11 +242,11 @@ class RecipeCreateFromIngestionApiTest {
     @DisplayName("만료 시각이 지났거나 EXPIRED 로 바뀐 Job 은 409 INGESTION_JOB_EXPIRED")
     void expiredJobIsConflict() throws Exception {
         IngestionJob pastExpiry = IngestionJob.queueImage(OWNER_ID, List.of("ingestion-inputs/1/a.jpg"));
-        pastExpiry.completeWithResult(DRAFT, Instant.now().minusSeconds(1));
+        pastExpiry.completeWithResult(DRAFT, Instant.now().minusSeconds(1), null);
         Long pastExpiryId = jobRepository.save(pastExpiry).getId();
 
         IngestionJob expired = IngestionJob.queueImage(OWNER_ID, List.of("ingestion-inputs/1/b.jpg"));
-        expired.completeWithResult(DRAFT, Instant.now().minusSeconds(1));
+        expired.completeWithResult(DRAFT, Instant.now().minusSeconds(1), null);
         Long expiredId = jobRepository.save(expired).getId();
         jdbcTemplate.update("update ingestion_job set status = 'EXPIRED', result = null where id = ?", expiredId);
 

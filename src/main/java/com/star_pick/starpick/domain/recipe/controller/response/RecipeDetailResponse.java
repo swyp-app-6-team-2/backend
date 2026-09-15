@@ -17,6 +17,9 @@ import java.util.List;
  *
  * <p>{@code coverImageUrl} 은 저장된 Key 로 만든 조회용 서명 URL 이다. 대표 이미지가 없거나
  * 서명에 실패하면 null 이다. {@code source} 는 MANUAL 이면 null 이다. 원본 사진 Key 는 노출하지 않는다.
+ *
+ * <p>{@code source.thumbnailUrl} 은 분석으로 만든 레시피의 원본 대표 이미지다. 사용자가 올린 {@code coverImageUrl} 과 뜻이
+ * 달라 섞지 않는다. 대체 표시가 필요하면 앱이 {@code coverImageUrl ?? source.thumbnailUrl} 로 고른다.
  */
 public record RecipeDetailResponse(
         Long recipeId,
@@ -39,7 +42,8 @@ public record RecipeDetailResponse(
 
     public record RecipeSourceResponse(
             @Schema(allowableValues = {"URL", "IMAGE"}) String sourceType,
-            String originalUrl) {
+            String originalUrl,
+            String thumbnailUrl) {
     }
 
     /**
@@ -48,7 +52,7 @@ public record RecipeDetailResponse(
      * <p>{@code coverImageUrl} 을 인자로 받는 이유: 조회용 URL 을 만들려면 Upload 를 호출해야
      * 하는데, 응답 DTO 가 다른 도메인의 Service 를 호출하지 않도록 Service 에서 만들어 넘긴다.
      */
-    public static RecipeDetailResponse from(Recipe recipe, String coverImageUrl) {
+    public static RecipeDetailResponse from(Recipe recipe, String coverImageUrl, String sourceThumbnailUrl) {
         return new RecipeDetailResponse(
                 recipe.getId(),
                 recipe.getTitle(),
@@ -67,6 +71,7 @@ public record RecipeDetailResponse(
                         .toList(),
                 recipe.getRegistrationMethod() == RegistrationMethod.MANUAL
                         ? null
-                        : new RecipeSourceResponse(recipe.getRegistrationMethod().name(), recipe.getSourceUrl()));
+                        : new RecipeSourceResponse(recipe.getRegistrationMethod().name(), recipe.getSourceUrl(),
+                                sourceThumbnailUrl));
     }
 }

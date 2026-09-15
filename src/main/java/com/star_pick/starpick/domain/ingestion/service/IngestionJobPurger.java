@@ -17,7 +17,7 @@ public class IngestionJobPurger {
     private final UploadService uploadService;
 
     /**
-     * Job 하나를 트랜잭션 하나로 지우고 입력 사진을 해제한다.
+     * Job 하나를 트랜잭션 하나로 지우고 입력 사진을 해제한다. 원본 대표 이미지 파일도 커밋 후 지운다.
      *
      * <p>이 메서드는 유지보수 스케줄러와 별도 Bean에 있어야 호출이 Spring 프록시를 거치고 건별
      * 트랜잭션이 적용된다. 여러 Job을 한 트랜잭션에 묶으면 업로드 파일의 커밋 후 삭제가 한꺼번에
@@ -35,6 +35,7 @@ public class IngestionJobPurger {
             uploadService.releaseAndDeleteFiles(
                     job.getUserId(), keys, UploadPurpose.INGESTION_INPUT);
         }
+        uploadService.deleteSourceThumbnail(job.getSourceThumbnailKey());
         repository.delete(job);
     }
 }

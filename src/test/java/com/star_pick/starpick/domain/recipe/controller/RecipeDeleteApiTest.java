@@ -240,4 +240,15 @@ class RecipeDeleteApiTest {
         assertThat(countWhere("select count(*) from ingestion_job where id = ? and consumed_at is not null",
                 recipe.getIngestionJobId())).isEqualTo(1);
     }
+
+    @Test
+    @DisplayName("Instagram 레시피를 지우면 원본 대표 이미지 파일도 지운다")
+    void deletesSourceThumbnail() throws Exception {
+        Recipe recipe = fixtures.saveInstagramRecipe(OWNER_ID);
+        String thumbnailKey = recipe.getSourceThumbnailKey();
+
+        requestDelete(recipe.getId()).andExpect(status().isOk());
+
+        assertThat(objectStorage.contains(thumbnailKey)).isFalse();
+    }
 }

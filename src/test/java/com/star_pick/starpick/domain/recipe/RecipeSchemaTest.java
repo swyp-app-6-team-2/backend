@@ -240,4 +240,26 @@ class RecipeSchemaTest {
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_recipe_source");
     }
+
+    @Test
+    @DisplayName("원본 대표 이미지 Key 는 URL 방식에만 둘 수 있다")
+    void sourceThumbnailOnlyForUrlRecipe() {
+        fixtures.reset();
+        Long urlJob = fixtures.saveReadyUrlJob(1L, "https://www.youtube.com/watch?v=aaaaaaaaaaa");
+        Long imageJob = fixtures.saveReadyImageJob(1L).getId();
+        String sql = """
+                insert into recipe (user_id, title, category_code, registration_method, servings, created_at, updated_at,
+                                    ingestion_job_id, source_url, source_image_keys, source_thumbnail_key)
+                values (1, '김치찌개', 'KOREAN', ?, 1, now(), now(), ?, ?, ?, 'source-thumbnails/1/a.jpg')
+                """;
+
+        assertThat(nullable("recipe", "source_thumbnail_key")).isEqualTo("YES");
+        assertThatCode(() -> jdbcTemplate.update(sql, "URL", urlJob, "https://x", null)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> jdbcTemplate.update(sql, "MANUAL", null, null, null))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_recipe_source_thumbnail");
+        assertThatThrownBy(() -> jdbcTemplate.update(sql, "IMAGE", imageJob, null, new String[]{"ingestion-inputs/1/a.jpg"}))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("ck_recipe_source_thumbnail");
+    }
 }

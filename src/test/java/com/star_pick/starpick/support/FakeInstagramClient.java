@@ -22,6 +22,7 @@ public class FakeInstagramClient implements InstagramClient {
     private final Deque<Object> posts = new ArrayDeque<>();
     private final Map<String, Object> media = new ConcurrentHashMap<>();
     private final List<Long> imageLimits = new CopyOnWriteArrayList<>();
+    private final List<String> imageDownloads = new CopyOnWriteArrayList<>();
     private final AtomicInteger fetchCalls = new AtomicInteger();
     private volatile String lastFetch;
     private volatile Path lastVideoTarget;
@@ -56,6 +57,7 @@ public class FakeInstagramClient implements InstagramClient {
     @Override
     public InlineImage downloadImage(String mediaUrl, long maxBytes, Duration timeout) {
         imageLimits.add(maxBytes);
+        imageDownloads.add(mediaUrl);
         return new InlineImage("image/jpeg", content(mediaUrl));
     }
 
@@ -87,10 +89,16 @@ public class FakeInstagramClient implements InstagramClient {
         return lastVideoTarget;
     }
 
+    /** {@code downloadImage} 가 받은 주소. 실패한 호출도 순서대로 남는다. */
+    public List<String> imageDownloads() {
+        return List.copyOf(imageDownloads);
+    }
+
     public synchronized void clear() {
         posts.clear();
         media.clear();
         imageLimits.clear();
+        imageDownloads.clear();
         fetchCalls.set(0);
         lastFetch = null;
         lastVideoTarget = null;

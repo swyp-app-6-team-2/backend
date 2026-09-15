@@ -3,6 +3,7 @@ package com.star_pick.starpick.support;
 import com.star_pick.starpick.domain.cooking.domain.CookHistory;
 import com.star_pick.starpick.domain.cooking.repository.CookHistoryRepository;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
+import com.star_pick.starpick.domain.ingestion.domain.InstagramUrl;
 import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
 import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
@@ -145,8 +146,30 @@ public class TestFixtures {
         IngestionJob job = IngestionJob.queueYouTube(ownerId, YouTubeUrl.parse(url).orElseThrow());
         job.completeWithResult(
                 new RecipeDraft("김치찌개", RecipeCategory.KOREAN, null, null, List.of(), List.of()),
-                Instant.now().plus(1, ChronoUnit.HOURS));
+                Instant.now().plus(1, ChronoUnit.HOURS), null);
         return ingestionJobRepository.save(job).getId();
+    }
+
+    /** 결과가 준비된 Instagram 분석 Job. Worker 가 복사한 원본 대표 이미지가 저장소에 있다. */
+    public IngestionJob saveReadyInstagramJob(Long ownerId) {
+        seedUser(ownerId);
+        String thumbnailKey = uploadService.storeSourceThumbnail(ownerId, new byte[]{1}, "image/jpeg");
+        IngestionJob job = IngestionJob.queueInstagram(ownerId,
+                InstagramUrl.parse("https://www.instagram.com/p/DKI9fBzy5FB/").orElseThrow());
+        job.completeWithResult(
+                new RecipeDraft("김치찌개", RecipeCategory.KOREAN, null, null, List.of(), List.of()),
+                Instant.now().plus(1, ChronoUnit.HOURS), thumbnailKey);
+        return ingestionJobRepository.save(job);
+    }
+
+    /** Instagram 분석 결과로 저장한 Recipe. 원본 대표 이미지 Key 를 Job 에서 넘겨받았고 Job 은 소비됐다. */
+    public Recipe saveInstagramRecipe(Long ownerId) {
+        IngestionJob job = saveReadyInstagramJob(ownerId);
+        String thumbnailKey = job.getSourceThumbnailKey();
+        job.consume(Instant.now());
+        ingestionJobRepository.save(job);
+        return recipeRepository.save(Recipe.createFromIngestion(ownerId, "김치찌개", RecipeCategory.KOREAN,
+                null, null, null, job.getId(), job.getInputUrl(), null, thumbnailKey));
     }
 
     /** 결과가 준비된 사진 분석 Job. 입력 사진 2장은 업로드와 연결까지 마쳤다. */
@@ -157,7 +180,7 @@ public class TestFixtures {
         IngestionJob job = IngestionJob.queueImage(ownerId, keys);
         job.completeWithResult(
                 new RecipeDraft("김치찌개", RecipeCategory.KOREAN, null, null, List.of(), List.of()),
-                Instant.now().plus(1, ChronoUnit.HOURS));
+                Instant.now().plus(1, ChronoUnit.HOURS), null);
         return ingestionJobRepository.save(job);
     }
 
@@ -167,7 +190,7 @@ public class TestFixtures {
         job.consume(Instant.now());
         ingestionJobRepository.save(job);
         return recipeRepository.save(Recipe.createFromIngestion(ownerId, "김치찌개", RecipeCategory.KOREAN,
-                null, null, null, job.getId(), null, job.getInputImageKeys()));
+                null, null, null, job.getId(), null, job.getInputImageKeys(), null));
     }
 
     /** URL 분석 결과로 저장한 Recipe. */
@@ -177,7 +200,7 @@ public class TestFixtures {
         Long jobId = saveReadyUrlJob(ownerId, canonicalUrl);
         jdbcTemplate.update("update ingestion_job set consumed_at = now(), result = null where id = ?", jobId);
         return recipeRepository.save(Recipe.createFromIngestion(ownerId, "김치찌개", RecipeCategory.KOREAN,
-                null, null, null, jobId, canonicalUrl, null));
+                null, null, null, jobId, canonicalUrl, null, null));
     }
 
     /** Key 가 어딘가에 연결됐는지. 연결 성공과 롤백을 확인할 때 쓴다. */

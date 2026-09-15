@@ -51,7 +51,7 @@ class JsonFormatMapperTest {
                 "감자전", RecipeCategory.KOREAN, null, 2,
                 List.of(new RecipeDraft.Ingredient(31L, "감자", "2개")),
                 List.of(new RecipeDraft.Step("감자를 간다.")));
-        job.completeWithResult(expected, java.time.Instant.now().plusSeconds(3600));
+        job.completeWithResult(expected, java.time.Instant.now().plusSeconds(3600), null);
         Long id = repository.saveAndFlush(job).getId();
 
         // 이 테스트는 트랜잭션 밖이라 findById 가 새 트랜잭션에서 DB 를 다시 읽는다.

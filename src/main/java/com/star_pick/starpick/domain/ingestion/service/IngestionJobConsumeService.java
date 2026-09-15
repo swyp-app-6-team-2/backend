@@ -34,7 +34,7 @@ public class IngestionJobConsumeService {
     @Transactional(propagation = Propagation.MANDATORY)
     public IngestionJobOrigin lockOwnedJob(Long userId, Long ingestionJobId) {
         IngestionJob job = lock(userId, ingestionJobId);
-        return new IngestionJobOrigin(job.getInputUrl(), job.getInputImageKeys());
+        return new IngestionJobOrigin(job.getInputUrl(), job.getInputImageKeys(), job.getSourceThumbnailKey());
     }
 
     /** {@link #lockOwnedJob} 뒤 같은 트랜잭션에서 부른다. 검사 순서가 공개 계약의 판정 순서다. */
