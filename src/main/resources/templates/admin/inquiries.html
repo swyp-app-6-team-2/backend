@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments :: head('문의 목록', ~{::style})}">
+<style>
+    .heading {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        margin: 16px 0 20px;
+    }
+
+    .heading h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 700; }
+
+    .filters { display: grid; gap: 12px; margin-bottom: 24px; }
+
+    .chip-row {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+        scrollbar-width: none;
+    }
+
+    .inquiry-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+
+    .inquiry-card {
+        display: grid;
+        gap: 12px;
+        background: var(--field);
+        border-radius: 12px;
+        padding: 20px 16px;
+    }
+
+    .inquiry-card:hover { background: #242938; }
+
+    .inquiry-card-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+    .inquiry-title { margin: 0; font-size: 16px; line-height: 21px; overflow-wrap: anywhere; }
+
+    .inquiry-card-bottom { display: flex; gap: 12px; flex-wrap: wrap; }
+
+    .empty { padding: 48px 16px; text-align: center; }
+
+    .pager { display: flex; justify-content: center; gap: 12px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<header th:replace="~{admin/fragments :: topbar}"></header>
+
+<main class="page">
+    <div class="heading">
+        <h1>문의</h1>
+        <span class="meta">전체 <span th:text="${result.totalCount()}">0</span>건</span>
+    </div>
+
+    <nav class="filters" aria-label="문의 필터">
+        <div class="chip-row">
+            <a class="chip" th:classappend="${status == null} ? 'active'"
+               th:href="@{/admin/inquiries(type=${type})}">전체 상태</a>
+            <a th:each="entry : ${statusLabels}" class="chip"
+               th:classappend="${entry.key == status} ? 'active'"
+               th:href="@{/admin/inquiries(status=${entry.key}, type=${type})}"
+               th:text="${entry.value}">접수완료</a>
+        </div>
+        <div class="chip-row">
+            <a class="chip" th:classappend="${type == null} ? 'active'"
+               th:href="@{/admin/inquiries(status=${status})}">전체 유형</a>
+            <a th:each="entry : ${typeLabels}" class="chip"
+               th:classappend="${entry.key == type} ? 'active'"
+               th:href="@{/admin/inquiries(status=${status}, type=${entry.key})}"
+               th:text="${entry.value}">레시피</a>
+        </div>
+    </nav>
+
+    <ul class="inquiry-list" th:unless="${#lists.isEmpty(rows)}">
+        <li th:each="row : ${rows}">
+            <a class="inquiry-card" th:href="@{/admin/inquiries/{id}(id=${row.inquiryId()})}">
+                <div class="inquiry-card-top">
+                    <span class="badge" th:classappend="${row.answered()} ? 'answered'"
+                          th:text="${row.status()}">접수완료</span>
+                    <span class="meta" th:text="${row.createdAt()}">2026.09.15 12:00</span>
+                </div>
+                <p class="inquiry-title" th:text="${row.title()}">제목</p>
+                <div class="inquiry-card-bottom meta">
+                    <span th:text="${row.typeLabel()}">유형</span>
+                    <span th:text="${row.writer()}">작성자</span>
+                    <span th:text="'#' + ${row.inquiryId()}">#1</span>
+                </div>
+            </a>
+        </li>
+    </ul>
+    <div class="card empty muted" th:if="${#lists.isEmpty(rows)}">조건에 맞는 문의가 없어요.</div>
+
+    <nav class="pager" aria-label="페이지" th:if="${result.hasPrevious() or result.hasNext()}">
+        <a class="btn btn-neutral btn-small" th:if="${result.hasPrevious()}"
+           th:href="@{/admin/inquiries(status=${status}, type=${type}, page=${result.page() - 1})}">이전</a>
+        <a class="btn btn-neutral btn-small" th:if="${result.hasNext()}"
+           th:href="@{/admin/inquiries(status=${status}, type=${type}, page=${result.page() + 1})}">다음</a>
+    </nav>
+</main>
+</body>
+</html>
