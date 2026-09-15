@@ -1,3 +1,8 @@
+server:
+  # TLS 는 Caddy 가 끝낸다. X-Forwarded-Proto 를 받아들여야 https 로 인식해 세션 쿠키에 Secure 가 붙고
+  # 리다이렉트가 https 로 나가며, getRemoteAddr() 가 실제 접속 IP 가 된다.
+  forward-headers-strategy: native
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/starpick
@@ -91,3 +96,8 @@ notification:
   push:
     # 앱 딥링크 실제 주소를 FE 가 확인하면 여기에 직접 적는다.
     deep-link: ${NOTIFICATION_DEEP_LINK:}
+
+admin:
+  # 기본값을 두지 않는다. 누락을 fail-fast 로 잡는다. 비밀번호는 BCrypt 제한으로 72바이트 이하.
+  username: ${ADMIN_USERNAME}
+  password: ${ADMIN_PASSWORD}

@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>별따먹자 관리자</title>
+    <style>body { font-family: system-ui, sans-serif; max-width: 640px; margin: 80px auto; padding: 0 16px; }</style>
+</head>
+<body>
+<h1 th:text="${status}">500</h1>
+<p th:text="${message}">오류가 발생했습니다.</p>
+<p><a th:href="@{/admin/inquiries}">문의 목록으로</a></p>
+</body>
+</html>
