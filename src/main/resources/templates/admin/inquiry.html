@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments :: head('문의 상세', ~{::style})}">
+<style>
+    .back { display: inline-block; margin: 16px 0 20px; }
+
+    .detail { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 24px; align-items: start; }
+
+    .question { display: grid; gap: 16px; }
+
+    .question h1 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 700; overflow-wrap: anywhere; }
+
+    .question .body { margin: 0; line-height: 21px; }
+
+    .photos { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .photos img {
+        display: block;
+        width: 100px;
+        height: 100px;
+        object-fit: cover;
+        border-radius: 12px;
+        background: var(--field-dark);
+    }
+
+    .answer { display: grid; gap: 12px; margin-top: 8px; }
+
+    .answer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+    .answer textarea {
+        width: 100%;
+        min-height: 200px;
+        resize: vertical;
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 16px;
+        background: var(--field-dark);
+        color: var(--foreground);
+        font: inherit;
+        line-height: 21px;
+    }
+
+    .answer .btn { justify-self: end; min-width: 160px; }
+
+    .writer { display: grid; gap: 16px; }
+
+    .writer dl { display: grid; gap: 12px; margin: 0; }
+
+    .writer dt { font-size: 12px; line-height: 16px; color: var(--muted); }
+
+    .writer dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+
+    @media (max-width: 820px) {
+        .detail { grid-template-columns: minmax(0, 1fr); }
+
+        .answer .btn { justify-self: stretch; }
+    }
+</style>
+</head>
+<body>
+<header th:replace="~{admin/fragments :: topbar}"></header>
+
+<main class="page">
+    <a class="back meta" th:href="@{/admin/inquiries}">‹ 문의 목록</a>
+
+    <div class="detail">
+        <section class="question">
+            <p class="notice success" th:if="${saved}">답변을 저장했습니다.</p>
+            <div>
+                <span class="badge" th:classappend="${inquiry.answeredAt() != null} ? 'answered'"
+                      th:text="${inquiry.status()}">접수완료</span>
+            </div>
+            <h1 th:text="${inquiry.title()}">제목</h1>
+            <p class="body muted text" th:text="${inquiry.content()}">내용</p>
+            <span class="meta" th:text="${inquiry.createdAt()} + ' 접수'">2026.09.15 12:00 접수</span>
+
+            <div class="photos" th:unless="${#lists.isEmpty(inquiry.attachmentImageUrls())}">
+                <a th:each="url, iter : ${inquiry.attachmentImageUrls()}" th:href="${url}"
+                   target="_blank" rel="noopener noreferrer">
+                    <img th:src="${url}" th:alt="'첨부 사진 ' + ${iter.count}" alt="첨부 사진">
+                </a>
+            </div>
+
+            <form class="answer card" th:action="@{/admin/inquiries/{id}/answer(id=${inquiry.inquiryId()})}"
+                  th:object="${answerForm}" method="post">
+                <div class="answer-head">
+                    <span class="badge quiet">문의답변</span>
+                    <span class="meta" th:if="${inquiry.answeredAt()}"
+                          th:text="${inquiry.answeredAt()} + ' 답변'">2026.09.16 10:00 답변</span>
+                </div>
+                <label for="answer" class="meta">사용자 앱의 문의 상세에 그대로 보여요.</label>
+                <textarea id="answer" th:field="*{answer}" placeholder="답변을 입력해 주세요"></textarea>
+                <p class="notice error" th:if="${#fields.hasErrors('answer')}" th:errors="*{answer}">오류</p>
+                <button class="btn btn-primary" type="submit">답변 저장</button>
+            </form>
+        </section>
+
+        <aside class="writer card">
+            <span class="badge quiet">작성자</span>
+            <dl>
+                <div>
+                    <dt>닉네임</dt>
+                    <dd th:text="${inquiry.writer() ?: '프로필 없음'}">닉네임</dd>
+                </div>
+                <div>
+                    <dt>사용자 ID</dt>
+                    <dd th:text="${inquiry.userId()}">1</dd>
+                </div>
+                <div>
+                    <dt>마지막 로그인</dt>
+                    <dd th:text="${inquiry.loginProvider()}">카카오</dd>
+                </div>
+                <div>
+                    <dt>유형</dt>
+                    <dd th:text="${inquiry.typeLabel()}">레시피</dd>
+                </div>
+                <div>
+                    <dt>문의 번호</dt>
+                    <dd th:text="'#' + ${inquiry.inquiryId()}">#1</dd>
+                </div>
+            </dl>
+        </aside>
+    </div>
+</main>
+</body>
+</html>

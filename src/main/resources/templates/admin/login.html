@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments :: head('로그인', ~{::style})}">
+<style>
+    body.login {
+        display: grid;
+        place-items: center;
+        padding: 20px;
+    }
+
+    .login-panel { width: 100%; max-width: 380px; }
+
+    .login-panel .brand { margin-bottom: 8px; }
+
+    .login-panel h1 {
+        margin: 0 0 32px;
+        font-size: 14px;
+        line-height: 20px;
+        font-weight: 400;
+        color: var(--muted);
+    }
+
+    .login-form { display: grid; gap: 16px; }
+
+    .login-form label { display: grid; gap: 8px; }
+
+    .login-form .btn { width: 100%; margin-top: 8px; }
+</style>
+</head>
+<body class="login sky">
+<main class="login-panel">
+    <div class="brand"><span class="brand-star" aria-hidden="true">★</span>별따먹자</div>
+    <h1>관리자 로그인</h1>
+
+    <form class="login-form" th:action="@{/admin/login}" method="post">
+        <p class="notice error" th:if="${param.error}">아이디 또는 비밀번호가 올바르지 않습니다.</p>
+        <p class="notice error" th:if="${param.expired}">세션이 만료됐어요. 다시 로그인해 주세요.</p>
+        <label>
+            아이디
+            <input class="field" type="text" name="username" autocomplete="username" required autofocus>
+        </label>
+        <label>
+            비밀번호
+            <input class="field" type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <button class="btn btn-primary" type="submit">로그인</button>
+    </form>
+</main>
+</body>
+</html>

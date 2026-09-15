@@ -7,6 +7,9 @@ import com.star_pick.starpick.domain.ingestion.domain.InstagramUrl;
 import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
 import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
+import com.star_pick.starpick.domain.inquiry.domain.Inquiry;
+import com.star_pick.starpick.domain.inquiry.domain.InquiryType;
+import com.star_pick.starpick.domain.inquiry.repository.InquiryRepository;
 import com.star_pick.starpick.domain.recipe.domain.Recipe;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.recipe.domain.RecipeIngredient;
@@ -48,6 +51,8 @@ public class TestFixtures {
 
     private final CookHistoryRepository cookHistoryRepository;
 
+    private final InquiryRepository inquiryRepository;
+
     private final JdbcTemplate jdbcTemplate;
 
     /**
@@ -63,6 +68,7 @@ public class TestFixtures {
     public void reset() {
         jdbcTemplate.update("delete from user_ingredient");
         refreshTokenRepository.deleteAll();
+        inquiryRepository.deleteAll();
         // push_log → push_token → notification_setting 은 FK 순서다.
         jdbcTemplate.update("delete from push_log");
         jdbcTemplate.update("delete from push_token");
@@ -201,6 +207,13 @@ public class TestFixtures {
         jdbcTemplate.update("update ingestion_job set consumed_at = now(), result = null where id = ?", jobId);
         return recipeRepository.save(Recipe.createFromIngestion(ownerId, "김치찌개", RecipeCategory.KOREAN,
                 null, null, null, jobId, canonicalUrl, null, null));
+    }
+
+    /** 사진·답변 없는 문의. 사용자 조회와 관리자 화면 테스트가 함께 쓴다. */
+    public Long saveInquiry(Long ownerId, String title) {
+        seedUser(ownerId);
+        return inquiryRepository.save(
+                Inquiry.create(ownerId, InquiryType.BUG, title, title + " 내용", List.of())).getId();
     }
 
     /** Key 가 어딘가에 연결됐는지. 연결 성공과 롤백을 확인할 때 쓴다. */

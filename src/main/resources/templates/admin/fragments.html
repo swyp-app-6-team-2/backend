@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<!--
+  관리자 화면 공통 조각. 색·글자 크기는 앱(frontend src/constants/tokens.ts)의 토큰 값을 그대로 쓴다.
+  별도 CSS 파일로 빼지 않는 이유: /admin/** 가 인증 대상이라 로그인 화면에서 정적 파일이 막힌다.
+-->
+<head th:fragment="head(title, styles)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${title} + ' | 별따먹자 관리자'">별따먹자 관리자</title>
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+    <style>
+        :root {
+            --background: #060A19;
+            --field: #1E2230;
+            --field-dark: #131724;
+            --primary: #FFD457;
+            --ink: #111111;
+            --foreground: #FFFFFF;
+            --muted: #A4A4A4;
+            --body-muted: #82848C;
+            --disabled: #3F4250;
+            --popup-button: #34394B;
+            --popup-button-text: #A5A7AD;
+            --reco-panel: #181F42;
+            --slot: #36398A;
+            --success: #2FA96B;
+            --error: #FF6B5E;
+        }
+
+        * { box-sizing: border-box; }
+
+        html { -webkit-text-size-adjust: 100%; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--background);
+            color: var(--foreground);
+            font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+            font-size: 16px;
+            line-height: 24px;
+            font-weight: 500;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        a { color: inherit; text-decoration: none; }
+
+        :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+        /* 앱 홈의 밤하늘. 이 화면들에서 장식은 이것 하나다. */
+        .sky {
+            background:
+                radial-gradient(1px 1px at 12% 30%, rgba(255, 255, 255, .9), transparent),
+                radial-gradient(1px 1px at 38% 70%, rgba(255, 255, 255, .6), transparent),
+                radial-gradient(1.5px 1.5px at 63% 22%, rgba(255, 255, 255, .8), transparent),
+                radial-gradient(1px 1px at 86% 58%, rgba(255, 255, 255, .5), transparent),
+                linear-gradient(180deg, var(--slot) 0%, var(--reco-panel) 55%, var(--background) 100%);
+        }
+
+        .topbar { padding: 20px; }
+
+        .topbar-inner {
+            max-width: 960px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 22px;
+            line-height: 30px;
+            font-weight: 700;
+        }
+
+        .brand-star { color: var(--primary); }
+
+        .brand small {
+            font-size: 14px;
+            line-height: 20px;
+            font-weight: 400;
+            color: var(--muted);
+        }
+
+        .page {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 8px 20px 64px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 52px;
+            padding: 0 24px;
+            border: 0;
+            border-radius: 30px;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn:hover { opacity: .9; }
+
+        .btn-primary { background: var(--primary); color: var(--ink); }
+
+        .btn-neutral { background: var(--popup-button); color: var(--popup-button-text); }
+
+        .btn-small { height: 40px; padding: 0 16px; font-size: 14px; }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 10px 16px;
+            border-radius: 9999px;
+            background: var(--field);
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 20px;
+            font-weight: 400;
+            white-space: nowrap;
+        }
+
+        .chip.active { background: var(--foreground); color: var(--ink); }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 700;
+            color: var(--foreground);
+            background: var(--disabled);
+            justify-self: start;
+            width: fit-content;
+        }
+
+        .badge.answered { background: var(--success); }
+
+        .badge.quiet { background: var(--popup-button); color: var(--muted); }
+
+        .card { background: var(--field); border-radius: 12px; padding: 20px 16px; }
+
+        .muted { color: var(--muted); }
+
+        .meta { font-size: 14px; line-height: 18px; color: var(--muted); }
+
+        .field {
+            width: 100%;
+            border: 0;
+            border-radius: 9999px;
+            padding: 14px 20px;
+            background: var(--field);
+            color: var(--foreground);
+            font: inherit;
+        }
+
+        .field::placeholder { color: var(--muted); }
+
+        .notice { margin: 0; font-size: 14px; line-height: 20px; }
+
+        .notice.error { color: var(--error); }
+
+        .notice.success { color: var(--success); }
+
+        .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+    </style>
+    <th:block th:replace="${styles}"></th:block>
+</head>
+<body>
+<header th:fragment="topbar" class="topbar sky">
+    <div class="topbar-inner">
+        <a class="brand" th:href="@{/admin/inquiries}">
+            <span class="brand-star" aria-hidden="true">★</span>별따먹자 <small>관리자</small>
+        </a>
+        <form th:action="@{/admin/logout}" method="post">
+            <button class="btn btn-neutral btn-small" type="submit">로그아웃</button>
+        </form>
+    </div>
+</header>
+</body>
+</html>

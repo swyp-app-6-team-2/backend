@@ -6,6 +6,7 @@ import com.star_pick.starpick.domain.ingredient.domain.IngredientCategory;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionSourceType;
+import com.star_pick.starpick.domain.inquiry.domain.InquiryType;
 import com.star_pick.starpick.domain.notification.domain.PushPlatform;
 import com.star_pick.starpick.domain.notification.domain.PushStatus;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
@@ -42,6 +43,7 @@ class EnumCheckConstraintTest {
             new Constraint("ck_ingestion_job_source_type", IngestionSourceType.class),
             new Constraint("ck_ingestion_job_status", IngestionJobStatus.class),
             new Constraint("ck_ingestion_job_failure_code", IngestionFailureCode.class),
+            new Constraint("ck_inquiry_type", InquiryType.class),
             new Constraint("ck_notification_setting_weekdays", DayOfWeek.class),
             new Constraint("ck_push_token_platform", PushPlatform.class),
             new Constraint("ck_push_log_status", PushStatus.class),
@@ -83,12 +85,14 @@ class EnumCheckConstraintTest {
         // (IMAGE 면 input_url 이 없고 input_image_keys 가 1개 이상, 나머지는 그 반대)
         // ck_recipe_source 도 같은 이유로 제외한다. (등록 방식과 출처 컬럼 3개의 조합)
         // ck_recipe_source_thumbnail 도 같다. (원본 대표 이미지 Key 는 URL 방식에만)
+        // ck_inquiry_attachment_keys(개수 상한)·ck_inquiry_answer(답변 두 컬럼의 조합)도 enum 과 무관해 제외한다.
         List<String> inDatabase = jdbcTemplate.queryForList("""
                 select conname from pg_constraint
                 where contype = 'c'
                   and connamespace = 'public'::regnamespace
                   and conname like 'ck\\_%'
-                  and conname not in ('ck_ingestion_job_input', 'ck_recipe_source', 'ck_recipe_source_thumbnail')
+                  and conname not in ('ck_ingestion_job_input', 'ck_recipe_source', 'ck_recipe_source_thumbnail',
+                                      'ck_inquiry_attachment_keys', 'ck_inquiry_answer')
                 """, String.class);
 
         assertThat(inDatabase)

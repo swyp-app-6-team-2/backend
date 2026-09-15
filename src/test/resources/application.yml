@@ -88,6 +88,10 @@ notification:
   push:
     deep-link: starpick-test://recommend
 
+admin:
+  username: test-admin
+  password: test-admin-password
+
 logging:
   level:
     org.hibernate.SQL: warn
