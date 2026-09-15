@@ -1,9 +1,8 @@
 package com.star_pick.starpick.domain.auth.controller;
 
 import com.star_pick.starpick.domain.auth.dto.SocialLoginRequest;
+import com.star_pick.starpick.domain.auth.service.AuthService;
 import com.star_pick.starpick.domain.auth.dto.SocialLoginResponse;
-import com.star_pick.starpick.domain.auth.service.RefreshTokenService;
-import com.star_pick.starpick.domain.auth.service.SocialLoginService;
 import com.star_pick.starpick.global.ApiResponse;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
@@ -18,7 +17,6 @@ import com.star_pick.starpick.domain.auth.dto.SignupRequest;
 import com.star_pick.starpick.domain.auth.dto.SignupResponse;
 import com.star_pick.starpick.domain.auth.dto.TokenRefreshRequest;
 import com.star_pick.starpick.domain.auth.dto.TokenRefreshResponse;
-import com.star_pick.starpick.domain.auth.service.SignupService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -31,9 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "인증", description = "소셜 로그인 및 인증 관련 API")
 public class AuthController {
 
-    private final SocialLoginService socialLoginService;
-    private final SignupService signupService;
-    private final RefreshTokenService refreshTokenService;
+    private final AuthService authService;
 
     @Operation(summary = "토큰 재발급", description = """
             유효한 refreshToken으로 accessToken과 refreshToken을 새로 발급합니다.
@@ -47,7 +43,7 @@ public class AuthController {
     })
     @PostMapping("/token/refresh")
     public ApiResponse<TokenRefreshResponse> refresh(@Valid @RequestBody TokenRefreshRequest request) {
-        var tokens = refreshTokenService.refresh(request.refreshToken());
+        var tokens = authService.refresh(request.refreshToken());
         return ApiResponse.ok("토큰이 재발급되었습니다.", new TokenRefreshResponse(tokens.accessToken(), tokens.refreshToken()));
     }
 
@@ -65,7 +61,7 @@ public class AuthController {
     @PostMapping("/signup")
     @io.swagger.v3.oas.annotations.security.SecurityRequirements
     public ApiResponse<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
-        return ApiResponse.ok("회원가입이 완료되었습니다.", signupService.signup(request));
+        return ApiResponse.ok("회원가입이 완료되었습니다.", authService.signup(request));
     }
 
     @Operation(
@@ -94,7 +90,7 @@ public class AuthController {
 
     @PostMapping("/social-login")
     public ApiResponse<SocialLoginResponse> socialLogin(@Valid @RequestBody SocialLoginRequest request) {
-        SocialLoginResponse response = socialLoginService.login(request);
+        SocialLoginResponse response = authService.login(request);
         String message = response.requiresTermsAgreement()
                 ? "약관 동의가 필요합니다."
                 : "로그인에 성공했습니다.";
@@ -121,7 +117,7 @@ public class AuthController {
         if (principal == null) {
             throw new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED);
         }
-        refreshTokenService.revoke(principal.userId());
+        authService.revoke(principal.userId());
         return ApiResponse.ok("로그아웃되었습니다.", null);
     }
 }

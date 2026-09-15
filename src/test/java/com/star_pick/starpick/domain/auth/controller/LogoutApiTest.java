@@ -5,7 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.star_pick.starpick.domain.auth.repository.RefreshTokenRepository;
-import com.star_pick.starpick.domain.auth.service.RefreshTokenService;
+import com.star_pick.starpick.domain.auth.service.AuthService;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
@@ -25,7 +25,7 @@ class LogoutApiTest {
     private static final long OTHER = 990002L;
     @Autowired MockMvc mvc;
     @Autowired JwtProvider jwt;
-    @Autowired RefreshTokenService tokens;
+    @Autowired AuthService tokens;
     @Autowired RefreshTokenRepository repository;
     @Autowired TestFixtures fixtures;
     @Value("${jwt.secret}") String secret;
