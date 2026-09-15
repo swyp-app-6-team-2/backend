@@ -53,10 +53,6 @@ public class User {
 
     @Builder.Default
     @Column(nullable = false)
-    private int activeRecipeCount = 0;  // 현재 저장된(삭제 안 된) 레시피 개수
-
-    @Builder.Default
-    @Column(nullable = false)
     private int cumulativeRecipeCount = 0;  // 삭제 포함, 역대 전체 등록 횟수
 
     @Enumerated(EnumType.STRING)
@@ -96,18 +92,11 @@ public class User {
     }
 
     public int getRemainingRecipeSlots() {
-        return recipeSlotLimit - activeRecipeCount;
+        return recipeSlotLimit - cumulativeRecipeCount;
     }
 
-    public void increaseRecipeCounts() {
-        this.activeRecipeCount++;
+    public void recordRecipeCreated() {
         this.cumulativeRecipeCount++;
-    }
-
-    public void decreaseActiveRecipeCount() {
-        if (this.activeRecipeCount > 0) {
-            this.activeRecipeCount--;
-        }
     }
 
     public void increaseRecipeSlotLimit(int amount) {

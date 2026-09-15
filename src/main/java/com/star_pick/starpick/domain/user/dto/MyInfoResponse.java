@@ -8,6 +8,7 @@ public record MyInfoResponse(
         String nickname,
         String profileImageUrl,
         int remainingRecipeSlots,
+        int recipeSlotLimit,
         int cumulativeRecipeCount
 ) {
     public static MyInfoResponse from(User user, Profile profile) {
@@ -16,6 +17,7 @@ public record MyInfoResponse(
                 profile != null ? profile.getNickname() : null,
                 profile != null ? profile.getProfileImageUrl() : null,
                 user.getRemainingRecipeSlots(),
+                user.getRecipeSlotLimit(),
                 user.getCumulativeRecipeCount()
         );
     }
