@@ -8,10 +8,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
     properties:
       hibernate:
-        format_sql: true
         type:
           json_format_mapper: jackson3
     open-in-view: false
@@ -93,7 +91,3 @@ notification:
   push:
     # 앱 딥링크 실제 주소를 FE 가 확인하면 여기에 직접 적는다.
     deep-link: ${NOTIFICATION_DEEP_LINK:}
-
-logging:
-  level:
-    org.hibernate.SQL: debug
