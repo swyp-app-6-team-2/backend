@@ -6,6 +6,8 @@ AGENT.md
 FIX_DOCS.md
 SIGNUP_RESULT.md
 ONBOARDING.md
+ADD_INGREDIENTS.md
+RE_TOKEN.md
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
