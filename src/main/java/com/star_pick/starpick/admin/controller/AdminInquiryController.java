@@ -108,6 +108,13 @@ public class AdminInquiryController {
         return instant == null ? null : DISPLAY.format(instant);
     }
 
+    /**
+     * {@code users.last_login_provider} 는 nullable 이다. {@code Map.of} 로 만든 맵은 null 키 조회에서
+     * NullPointerException 을 던지므로 조회 전에 걸러낸다.
+     */
+    private static String providerLabel(String provider) {
+        return provider == null ? "알 수 없음" : PROVIDER_LABELS.getOrDefault(provider, "알 수 없음");
+    }
 
     /** 탈퇴한 작성자는 목록·상세 모두 닉네임 대신 표시한다. 프로필이 없으면 null(빈 칸)이다. */
     private static String writerLabel(boolean withdrawn, String nickname) {
@@ -132,7 +139,7 @@ public class AdminInquiryController {
             AdminInquiryDetailRow row = detail.row();
             InquiryStatus status = row.answer() == null ? InquiryStatus.RECEIVED : InquiryStatus.ANSWERED;
             return new DetailView(row.inquiryId(), row.userId(), writerLabel(row.withdrawn(), row.nickname()),
-                    PROVIDER_LABELS.getOrDefault(row.lastLoginProvider(), "알 수 없음"), TYPE_LABELS.get(row.type()),
+                    providerLabel(row.lastLoginProvider()), TYPE_LABELS.get(row.type()),
                     row.title(), row.content(), format(row.createdAt()),
                     detail.attachmentImageUrls(), STATUS_LABELS.get(status), format(row.answeredAt()));
         }

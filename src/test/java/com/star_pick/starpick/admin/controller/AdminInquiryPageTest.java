@@ -162,6 +162,17 @@ class AdminInquiryPageTest {
     }
 
     @Test
+    @DisplayName("마지막 로그인 수단이 없는 작성자도 상세가 열리고 알 수 없음으로 표시한다")
+    void detailWithoutLoginProvider() throws Exception {
+        Long inquiryId = fixtures.saveInquiry(WRITER_ID, "로그인 수단 없는 문의");
+        jdbcTemplate.update("update users set last_login_provider = null where user_id = ?", WRITER_ID);
+
+        mockMvc.perform(asAdmin(get("/admin/inquiries/{id}", inquiryId)))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("알 수 없음")));
+    }
+
+    @Test
     @DisplayName("탈퇴한 작성자는 목록·상세 모두 닉네임 대신 탈퇴한 사용자로 표시한다")
     void showsWithdrawnWriter() throws Exception {
         Long inquiryId = fixtures.saveInquiry(WRITER_ID, "탈퇴자 문의");
