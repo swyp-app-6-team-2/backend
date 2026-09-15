@@ -1,9 +1,6 @@
 package com.star_pick.starpick.domain.user.controller;
 
-import com.star_pick.starpick.domain.user.dto.AddIngredientsRequest;
-import com.star_pick.starpick.domain.user.dto.UserIngredientsResponse;
-import com.star_pick.starpick.domain.user.dto.OnboardingResponse;
-import com.star_pick.starpick.domain.user.dto.AddIngredientsResponse;
+import com.star_pick.starpick.domain.user.dto.*;
 import com.star_pick.starpick.domain.user.service.UserService;
 import com.star_pick.starpick.global.ApiResponse;
 import com.star_pick.starpick.global.security.AuthenticatedUser;
@@ -52,5 +49,11 @@ public class UserController {
     @Operation(summary = "내 온보딩 완료", description = "온보딩 마지막 단계에서 호출합니다. 요청 본문은 없으며 반복 호출해도 최초 완료 시각을 유지합니다.")
     public ApiResponse<OnboardingResponse> completeOnboarding(@AuthenticationPrincipal AuthenticatedUser user) {
         return ApiResponse.ok("온보딩이 완료되었습니다.", users.completeOnboarding(user.userId()));
+    }
+
+    @GetMapping
+    @Operation(summary = "내 정보 조회", description = "유효한 access token이 필요합니다. 닉네임, 프로필 이미지, 레시피 저장 슬롯 현황을 반환합니다.")
+    public ApiResponse<MyInfoResponse> getMe(@AuthenticationPrincipal AuthenticatedUser user) {
+        return ApiResponse.ok("내 정보 조회에 성공했습니다.", users.getMe(user.userId()));
     }
 }

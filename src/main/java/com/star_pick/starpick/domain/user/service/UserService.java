@@ -1,10 +1,8 @@
 package com.star_pick.starpick.domain.user.service;
 
 import com.star_pick.starpick.domain.ingredient.repository.IngredientRepository;
-import com.star_pick.starpick.domain.user.dto.AddIngredientsResponse;
-import com.star_pick.starpick.domain.user.dto.UserIngredientResponse;
-import com.star_pick.starpick.domain.user.dto.UserIngredientsResponse;
-import com.star_pick.starpick.domain.user.dto.OnboardingResponse;
+import com.star_pick.starpick.domain.user.dto.*;
+import com.star_pick.starpick.domain.user.entity.Profile;
 import com.star_pick.starpick.domain.user.entity.User;
 import com.star_pick.starpick.domain.ingredient.domain.Ingredient;
 import java.time.Instant;
@@ -12,6 +10,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.Locale;
 import com.star_pick.starpick.domain.user.exception.UserIngredientErrorCode;
+import com.star_pick.starpick.domain.user.repository.ProfileRepository;
 import com.star_pick.starpick.domain.user.repository.UserIngredientRepository;
 import com.star_pick.starpick.domain.user.repository.UserRepository;
 import com.star_pick.starpick.global.exception.BusinessException;
@@ -32,12 +31,14 @@ public class UserService {
     private final IngredientRepository ingredients;
     private final UserIngredientRepository owned;
     private final String iconBaseUrl;
+    private final ProfileRepository profiles;
 
     public UserService(UserRepository users, IngredientRepository ingredients,
-            UserIngredientRepository owned, @Value("${starpick.ingredient.icon-base-url}") String iconBaseUrl) {
+            UserIngredientRepository owned, ProfileRepository profiles, @Value("${starpick.ingredient.icon-base-url}") String iconBaseUrl) {
         this.users = users;
         this.ingredients = ingredients;
         this.owned = owned;
+        this.profiles = profiles;
         this.iconBaseUrl = iconBaseUrl.replaceAll("/+$", "");
     }
 
@@ -97,5 +98,12 @@ public class UserService {
 
     private BusinessException unauthorized() {
         return new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED);
+    }
+
+    @Transactional(readOnly = true)
+    public MyInfoResponse getMe(Long userId) {
+        User user = active(users.findById(userId).orElseThrow(this::unauthorized));
+        Profile profile = profiles.findByUser_UserId(userId).orElse(null);
+        return MyInfoResponse.from(user, profile);
     }
 }
