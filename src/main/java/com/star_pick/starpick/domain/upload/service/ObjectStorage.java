@@ -34,6 +34,12 @@ public interface ObjectStorage {
     byte[] read(String objectKey);
 
     /**
+     * 서버가 가진 바이트를 올린다. 클라이언트 업로드는 {@link #generateUploadUrl} 로 하고, 이것은 서버가
+     * 외부에서 받은 이미지(원본 대표 이미지)에만 쓴다. Key 에 UUID 가 들어가 덮어쓸 대상이 없다.
+     */
+    void write(String objectKey, byte[] content, String contentType);
+
+    /**
      * 지운다. 이미 없는 Key 는 무시한다. 여러 개를 넘겨도 <b>원격 호출은 한 번</b>이다.
      *
      * <p>단건 오버로드를 두지 않는다. 호출부가 지우는 개수는 열려 있고, 건별로 부르면 저장소가

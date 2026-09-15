@@ -35,6 +35,9 @@ public class FakeObjectStorage implements ObjectStorage {
     /** 실패를 감추는 코드가 실제로 동작하는지 검증할 때 켠다. */
     private volatile boolean failing = false;
 
+    /** {@link #write} 만 실패시킨다. {@link #startFailing} 은 조회 서명까지 실패시켜 쓰기만 따로 볼 수 없다. */
+    private volatile boolean failingWrites = false;
+
     public void putObject(String objectKey) {
         putObject(objectKey, new byte[]{0});
     }
@@ -72,14 +75,29 @@ public class FakeObjectStorage implements ObjectStorage {
         return stored == null ? null : stored.bytes().clone();
     }
 
+    @Override
+    public void write(String objectKey, byte[] content, String contentType) {
+        failIfConfigured();
+        operations.add("write");
+        if (failingWrites) {
+            throw new IllegalStateException("저장소 쓰기 장애를 흉내낸 예외");
+        }
+        putObject(objectKey, content, contentType);
+    }
+
     public void startFailing() {
         this.failing = true;
+    }
+
+    public void failWrites() {
+        this.failingWrites = true;
     }
 
     public void clear() {
         uploaded.clear();
         operations.clear();
         failing = false;
+        failingWrites = false;
     }
 
     private void failIfConfigured() {

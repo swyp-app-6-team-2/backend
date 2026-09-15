@@ -30,6 +30,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @RequiredArgsConstructor
 public class UploadService {
 
+    /** 서버가 저장한 원본 대표 이미지의 Key 첫 구간. 형식은 발급 Key 와 같아 {@link #getViewUrl} 의 소유자 확인이 그대로 동작한다. */
+    private static final String SOURCE_THUMBNAIL_PREFIX = "source-thumbnails";
+
     private final UploadObjectRepository uploadObjectRepository;
     private final ObjectStorage objectStorage;
 
@@ -119,10 +122,45 @@ public class UploadService {
         if (released.isEmpty()) {
             return;
         }
+        deleteAfterCommit(released);
+    }
+
+    /**
+     * 서버가 외부에서 받은 원본 대표 이미지를 저장하고 Key 를 돌려준다. 트랜잭션을 걸지 않는다(원격 호출만 있다).
+     *
+     * <p><b>UploadObject 를 만들지 않는다.</b> UploadObject 는 서버가 보지 못하는 클라이언트 업로드의 소유·용도·
+     * 연결 상태를 기억하려고 있다. 서버가 쓴 객체는 쓰는 순간 소유자와 참조 행이 정해져 연결 단계가 없다.
+     * UploadObject 가 없으니 이 Key 는 {@link #attach} 가 거절해 다른 리소스에 붙을 수도 없다.
+     *
+     * <p>형식 검사가 저장소 호출보다 먼저라, 지원하지 않는 형식이면 아무것도 올리지 않고 예외가 난다.
+     * 저장소 실패도 그대로 전파한다 — 대표 이미지를 건너뛸지는 호출부가 정한다.
+     */
+    public String storeSourceThumbnail(Long userId, byte[] content, String contentType) {
+        String objectKey = "%s/%d/%s.%s".formatted(
+                SOURCE_THUMBNAIL_PREFIX, userId, UUID.randomUUID(), extensionOf(contentType));
+        objectStorage.write(objectKey, content, contentType);
+        return objectKey;
+    }
+
+    /**
+     * 원본 대표 이미지 파일을 커밋 이후 한 번 지운다. <b>호출자의 트랜잭션에 참여한다.</b> null 이면 아무것도 하지 않는다.
+     *
+     * <p>UploadObject 가 없어 {@link #releaseAndDeleteFiles} 를 쓸 수 없다. 그 메서드는 행을 지운 Key 만 파일을 지운다.
+     */
+    @Transactional
+    public void deleteSourceThumbnail(String objectKey) {
+        if (objectKey == null) {
+            return;
+        }
+        deleteAfterCommit(List.of(objectKey));
+    }
+
+    /** 커밋 이후 저장소 파일 삭제를 한 번 예약한다. 트랜잭션 안에서만 부른다. */
+    private void deleteAfterCommit(List<String> objectKeys) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                deleteFromStorageBestEffort(released);
+                deleteFromStorageBestEffort(objectKeys);
             }
         });
     }
@@ -162,7 +200,7 @@ public class UploadService {
     }
 
     /**
-     * 커밋 이후에만 호출되도록 {@link #releaseAndDeleteFiles} 안에서만 예약한다 — 공개하면
+     * 커밋 이후에만 호출되도록 {@link #deleteAfterCommit} 안에서만 예약한다 — 공개하면
      * "커밋 후에 부르라"는 지킬 수 없는 규약이 호출부마다 생긴다.
      *
      * <p>실패해도 예외를 던지지 않는다. 이미 커밋된 DB 변경과 성공 응답을 되돌릴 수 없고,
