@@ -144,6 +144,15 @@ Upload는 **결과를 세 가지로만 구분해 돌려준다** — `연결 성�
 Ingestion이 분석에 쓴 입력 이미지가 최종 Recipe의 원본 이미지로 넘어갈 때는 **UploadObject를 지우지 않는다.
 ** 참조가 사라지는 것이 아니라 소유 도메인만 Ingestion에서 Recipe로 바뀌는 것이기 때문이다. 이때 UploadObject는 연결된 상태 그대로 유지된다.
 
+#### 예외: 서버가 직접 저장하는 이미지
+
+Instagram 분석이 성공하면 Worker가 게시물 첫 카드를 받아 **서버가 직접** 저장소에 올린다(원본 대표 이미지). 클라이언트 업로드가 아니므로 발급 URL과 UploadObject를 거치지 않는다.
+
+- `objectKey`는 `source-thumbnails/{userId}/{UUID}.{확장자}`다. 발급 Key와 형식이 같아 조회 URL의 소유자 확인이 그대로 동작한다.
+- **UploadObject를 만들지 않는다.** UploadObject는 서버가 보지 못하는 업로드의 소유·용도·연결 상태를 기억하려고 있는데, 서버가 쓴 객체는 쓰는 순간 소유자와 참조 행(IngestionJob → Recipe)이 정해진다. UploadObject가 없으니 이 Key는 다른 리소스에 연결할 수 없다.
+- 형식을 함께 저장하고, 존재 조건을 붙이지 않는다. 조건을 붙이면 저장소 SDK가 재시도할 때 첫 요청이 이미 성공한 경우를 실패로 받아 Key를 잃는다. UUID Key라 덮어쓸 대상도 없다.
+- 삭제는 참조하는 행(미소비 Job 정리, Recipe 삭제)의 트랜잭션에 참여해 커밋 후 한 번 시도한다. 실패 규칙은 위 `정리`와 같다.
+
 ### 3.2. 데이터 모델
 
 #### UploadObject

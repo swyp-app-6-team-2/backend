@@ -76,7 +76,7 @@ IngestionJob의 생명주기는 다음과 같다.
 
 ```text
 Recipe    ── Job 잠금·소비 ──▶ Ingestion
-Ingestion ── 입력 사진 연결·읽기·조회 URL·해제 ──▶ Upload
+Ingestion ── 입력 사진 연결·읽기·조회 URL·해제, 원본 대표 이미지 저장·삭제 ──▶ Upload
 Ingestion ── 활성 재료 조회 ──▶ Ingredient
 Ingestion ── 분석 ──▶ Gemini
 Ingestion ── 게시물 수집 ──▶ Instagram
@@ -106,7 +106,8 @@ Ingestion은 Recipe를 알지 못한다. 호출은 항상 Recipe에서 Ingestion
    - Instagram: embed를 읽어 분석할 카드를 고르고 미리보기 주소를 먼저 저장한 뒤, 이미지는 받아 요청에 넣고 Reel은 Files API로 올린다(`외부 연동`).
 4. Gemini로 분석한다.
 5. 결과를 정규화하고 재료를 매칭한다.
-6. 결과를 `RESULT_READY`로 저장하거나, 실패 이유와 함께 `FAILED`로 저장한다.
+6. Instagram이고 레시피로 쓸 수 있는 결과면, 게시물 첫 카드(Reel은 커버 이미지)를 받아 원본 대표 이미지로 GCS에 복사한다. 실패해도 분석은 성공으로 두고 대표 이미지만 비운다.
+7. 결과(와 대표 이미지 Key)를 `RESULT_READY`로 저장하거나, 실패 이유와 함께 `FAILED`로 저장한다.
 
 #### 결과 조회
 
@@ -135,6 +136,7 @@ IngestionJob 1 ── 0..1 Recipe
 | `result`          | X  | 소비되지 않은 `RESULT_READY`일 때만 값이 있다. RecipeDraft(JSON)                                 |
 | `failureCode`     | X  | `FAILED`일 때만. `SOURCE_UNAVAILABLE`, `CONTENT_NOT_RECOGNIZED`, `MULTIPLE_RECIPES`, `PROCESSING_FAILED`  |
 | `previewImageUrl` | X  | **Instagram만 저장한다.** Worker가 embed를 읽은 뒤 고른 카드의 CDN 주소(영상은 썸네일)를 결과보다 먼저 조건부로 저장하고, Recipe로 소비되면 지운다. 사진·YouTube는 조회 시점에 계산한다. 입력 종류별 규칙은 `분석 상태 조회`에 있다 |
+| `sourceThumbnailKey` | X | **Instagram만.** 분석이 성공했을 때 Worker가 복사한 원본 대표 이미지(게시물 첫 카드)의 GCS Key. 결과와 같은 UPDATE로 저장하고, Recipe로 소비되면 Recipe로 옮기고 비운다. UploadObject는 만들지 않는다 |
 | `attempt`         | O  | 선점 횟수. 늦게 끝난 처리의 결과를 버리는 기준이자 stale 복구를 1회로 제한하는 기준                                 |
 | `createdAt`       | O  | 일일 한도 계산 기준                                                                         |
 | `startedAt`       | X  | 마지막 선점 시각. 120초 deadline, stale 판정, 실패 Job 7일 정리의 기준                               |
@@ -167,11 +169,13 @@ IngestionJob 1 ── 0..1 Recipe
 | `ingestionJobId`  | X  | 원본 Job. UNIQUE·FK. `MANUAL`이면 없다   |
 | `sourceUrl`       | X  | URL 방식의 원본 URL 스냅샷                  |
 | `sourceImageKeys` | X  | 사진 방식의 원본 사진 Key 목록 스냅샷             |
+| `sourceThumbnailKey` | X | URL 방식에서 Job이 넘긴 원본 대표 이미지 Key(Instagram만) |
 
-- `registrationMethod`와 세 속성의 조합은 CHECK로 강제한다.
+- `registrationMethod`와 앞의 세 속성의 조합은 CHECK로 강제한다.
   - `MANUAL`: 셋 다 없음
   - `URL`: Job과 URL
   - `IMAGE`: Job과 Key 1개 이상
+- `sourceThumbnailKey`는 `URL` 방식에만 있을 수 있다(별도 CHECK).
 - 출처와 등록 방식은 생성 후 수정할 수 없다.
 
 ### 3.3. API 설계
@@ -285,9 +289,9 @@ IngestionJob 1 ── 0..1 Recipe
 
 - **출처와 등록 방식은 요청으로 받지 않고 Job에서 가져온다.**
   - 사진 Job: `IMAGE`, 사진 Key 목록 복사
-  - YouTube·Instagram Job: `URL`, 원본 URL 복사
+  - YouTube·Instagram Job: `URL`, 원본 URL 복사. Instagram Job에 원본 대표 이미지 Key가 있으면 함께 옮긴다
 - 레시피 내용은 사용자가 보낸 값 그대로 저장하고, 재료 `ingredientId`는 기존 재료 검증을 거친다.
-- 상세 조회의 `source`는 [Recipe Spec](./recipe.md) 계약대로 `{sourceType, originalUrl}`이고, 사진으로 만든 Recipe는 `originalUrl`이 `null`이다.
+- 상세 조회의 `source`는 [Recipe Spec](./recipe.md) 계약대로 `{sourceType, originalUrl, thumbnailUrl}`이고, 사진으로 만든 Recipe는 `originalUrl`이 `null`이고 `thumbnailUrl`은 첫 원본 사진의 조회 URL이다.
 
 ### 3.4. 트랜잭션과 동시성 제어
 
@@ -344,7 +348,7 @@ IngestionJob 1 ── 0..1 Recipe
 | 1분  | `startedAt`에서 3분이 지난 `PROCESSING`: `attempt`가 1이면 `QUEUED`로 되돌리고, 2 이상이면 `FAILED`(`PROCESSING_FAILED`) |
 | 1분  | `createdAt`에서 10분이 지난 `QUEUED`: `FAILED`(`PROCESSING_FAILED`). Worker가 꺼졌거나 멈췄을 때 앱이 끝없이 조회하지 않게 한다 |
 | 1시간 | `expiresAt`이 지난 미소비 `RESULT_READY`: `EXPIRED`로 바꾸고 `result` 삭제                        |
-| 1시간 | 미소비 Job 삭제 + 입력 사진 해제. `FAILED`는 `startedAt`(없으면 `createdAt`), `EXPIRED`는 `expiresAt`에서 7일 뒤 |
+| 1시간 | 미소비 Job 삭제 + 입력 사진 해제 + 원본 대표 이미지 파일 삭제. `FAILED`는 `startedAt`(없으면 `createdAt`), `EXPIRED`는 `expiresAt`에서 7일 뒤 |
 
 - **여러 대에서 동시에 돌아도 안전하다.** 상태 전이는 모두 조건부 UPDATE 한 문장이다. 7일 정리는 Job마다 트랜잭션을 따로 열어, 다른 인스턴스가 먼저 지운 Job은 삭제 실패를 로그로 남기고 넘어간다.
 - **만료와 Recipe 저장이 경쟁해도 안전하다.** Recipe 저장이 먼저 Job을 잠그면, 만료 UPDATE는 기다렸다가 `consumedAt` 조건을 다시 평가해 그 행을 건너뛴다.
@@ -361,8 +365,8 @@ IngestionJob 1 ── 0..1 Recipe
 
 1. Job을 비관적 쓰기 잠금(`SELECT ... FOR UPDATE`)하고 소유권을 확인한다.
 2. 이 Job으로 만든 Recipe가 있으면 기존 Recipe ID와 `200 OK`를 반환하고 끝낸다.
-3. 보이는 상태를 확인해 `409` 세 가지 중 하나로 거절하거나, `consumedAt`을 기록하고 `result`와 `previewImageUrl`을 비운다.
-4. 출처를 복사해 Recipe를 저장한다.
+3. 보이는 상태를 확인해 `409` 세 가지 중 하나로 거절하거나, `consumedAt`을 기록하고 `result`·`previewImageUrl`·`sourceThumbnailKey`를 비운다.
+4. 출처(원본 대표 이미지 Key 포함)를 복사해 Recipe를 저장한다. 외부 호출은 없다.
 
 - **2번이 3번보다 먼저인 이유**: 응답을 못 받고 다시 누른 정상 요청이 "이미 소비됨"으로 거절되지 않게 하기 위해서다.
 - **같은 요청이 동시에 와도 Recipe는 하나다.** Job 행 잠금이 순서를 세우고, `recipe.ingestion_job_id` UNIQUE가 마지막 방어선이다.
@@ -371,7 +375,7 @@ IngestionJob 1 ── 0..1 Recipe
 
 #### Recipe 삭제
 
-대표 이미지를 해제하는 자리에서 원본 사진 Key도 `INGESTION_INPUT` 용도로 함께 해제하고, 파일은 커밋 후 GCS에서 지운다.
+대표 이미지를 해제하는 자리에서 원본 사진 Key도 `INGESTION_INPUT` 용도로 함께 해제하고, 파일은 커밋 후 GCS에서 지운다. 원본 대표 이미지는 UploadObject가 없어 파일 삭제만 커밋 후로 예약한다. 커버와 원본 대표 이미지가 둘 다 있으면 GCS 삭제 호출이 두 번이다.
 
 Job 행과 `consumedAt`은 남긴다. 같은 Job으로 다시 저장하면 `409 + INGESTION_JOB_ALREADY_CONSUMED`다.
 
@@ -552,7 +556,7 @@ Key 목록은 Job에서도 Recipe에서도 통째로 쓰고 통째로 읽는다.
 | **서버가 공개 embed 파싱 (채택)** | 로그인·토큰이 없고 PoC로 게시물·carousel·Reel이 검증됨 | 비공식이라 예고 없이 깨질 수 있고, 약관의 자동 수집 금지에 걸릴 소지가 있다 |
 
 - **2026-09-14 결정.** 공식 경로로는 기능 자체를 만들 수 없어 리스크를 받아들였다. 막혔을 때의 대체 수집 경로는 두지 않는다.
-- **리스크를 줄인 방식**: 사용자 요청 1건당 embed 1회와 미디어만 받고 일일 한도가 막는다. 미디어는 분석 후 버리고 URL만 남긴다. 파싱은 Adapter 안에만 있어 깨지면 `SOURCE_UNAVAILABLE`로만 드러난다.
+- **리스크를 줄인 방식**: 사용자 요청 1건당 embed 1회와 미디어만 받고 일일 한도가 막는다. 미디어는 분석 후 버리고 URL만 남긴다. 예외는 원본 대표 이미지 한 장(게시물 첫 카드)이며, 보관의 약관 판단은 OQ13으로 남겼다. 파싱은 Adapter 안에만 있어 깨지면 `SOURCE_UNAVAILABLE`로만 드러난다.
 - **GCE IP 접근**은 2026-09-14 dev VM에서 embed 16회 전부 200, redirect 없음, CDN 이미지 0.3초·Reel 17MB 0.5초로 확인했다. 장시간·대량 요청의 rate limit은 측정하지 않았다.
 
 ### 4.11. carousel은 이미지 카드 전부를 한 번에
@@ -570,14 +574,29 @@ Key 목록은 Job에서도 Recipe에서도 통째로 쓰고 통째로 읽는다.
   - 이미지 19장 게시물 → `RECIPE`, 원본 9.6MB·입력 21k 토큰·5.5초. 앞 10장만 넣었을 때보다 조리시간·인분이 더 채워졌다
 - 개수 제한을 따로 두지 않는다. Instagram이 carousel을 20장으로 제한하고, 사진 합계 14MB 상한이 메모리를 지킨다. 사진 입력의 10장 제한은 사용자가 올리는 사진의 계약이라 별개다.
 
+### 4.12. Instagram 대표 이미지는 첫 카드를 분석 중에 복사
+
+URL로 저장한 레시피도 대표 이미지를 내려준다(2026-09-15 결정). YouTube는 영상 id로 공식 썸네일 주소가 정해져 저장하지 않지만, Instagram CDN 주소는 서명이 만료되므로 이미지를 복사해 둬야 한다.
+
+| 쟁점 | 대안 | 채택과 이유 |
+|---|---|---|
+| 어떤 이미지 | Gemini가 완성 사진을 고름 / 분석한 카드 / **게시물 첫 카드** | 첫 카드. 게시자가 고른 얼굴이고 프로필 격자에 뜨는 이미지다. 카드 지정 링크로 레시피 한 장만 분석하는 흐름을 방해하지 않고, 추가 분석 비용과 실행마다 달라지는 결과가 없다. 첫 카드가 모음집 표지일 수 있다는 한계는 받아들인다 |
+| 언제 복사 | 레시피 저장 시 / **분석 성공 직후 Worker** | Worker. 저장은 최대 24시간 뒤라 CDN 서명이 살아 있다는 보장이 없고, 저장 API에 외부 호출을 넣지 않는다. 실패 Job에는 복사하지 않는다 |
+| 응답 필드 | `coverImageUrl`에 대체값 / **`source.thumbnailUrl` 별도 필드** | 별도 필드. 사용자가 올린 대표 이미지의 뜻을 바꾸지 않는다. 대체 표시는 앱이 고른다 |
+| 추적 | UploadObject 용도 추가 / **UploadObject 없이 Key만** | Key만. UploadObject는 서버가 보지 못하는 클라이언트 업로드를 기억하려고 있고, 용도 enum은 업로드 발급 API의 공개 계약이라 클라이언트가 그 용도로 발급을 요청할 수 있게 된다 |
+
+- 복사는 best-effort다. 받기·저장이 실패하거나 deadline이 남지 않으면 분석은 성공으로 두고 대표 이미지만 비운다. 재시도하지 않는다.
+- 늦게 끝난 시도로 결과가 버려지거나 결과 저장이 실패하면 복사한 파일이 참조 없이 남는다. 드문 경로라 정리하지 않는다.
+
 ## 5. 미결정 사항
 
 | #   | 질문                                                     | 결정 주체  | 막는 것    |
 |-----|--------------------------------------------------------|--------|---------|
 | OQ3 | 앱의 업로드 전 사진 축소, 다시 시도할 때 사진 재업로드                        | FE     | 없음(FE 합의 필요) |
-| OQ4 | 같은 URL 결과 재사용, URL로 등록한 레시피의 대표 사진(지금은 비어 있다. 썸네일은 분석 중 미리보기에만 쓴다) | 제품     | 없음      |
+| OQ4 | 같은 URL 결과 재사용, 원본 대표 이미지(`source.thumbnailUrl`)를 앱이 보여 줄지·커버 대신 쓸지. 서버는 내려준다 | 제품·FE     | 없음      |
 | OQ5 | carousel 영상 카드 지원 — 지금은 선택한 카드가 영상이면 `CONTENT_NOT_RECOGNIZED`, 전부 분석할 때는 영상 카드를 뺀다 | 제품     | 없음      |
 | OQ8 | 폼의 조리시간 칸(상세에는 보이는데 입력·편집에 없음), 사진 등록 흐름의 분석 중 화면 문구("영상 속") | 디자인    | 없음      |
 | OQ9 | 작은 Reel을 Files API 없이 inline으로 보내기, 해상도 낮추기(속도 최적화)      | 실측     | 없음      |
 | OQ11 | 선불 잔액 자동 충전·알림 기준. 서비스 관측·알림 기준과 함께 정한다        | 팀·운영  | 없음      |
 | OQ12 | 원본 하나에 레시피가 여러 개일 때 하나 고르기·다중 등록·묶음 저장 — 지금은 `MULTIPLE_RECIPES` 실패로 안내한다 | 제품·디자인 | 없음      |
+| OQ13 | Instagram 게시물 첫 카드 이미지를 GCS에 보관하는 것의 저작권·약관 판단 | 팀·제품 | prod 적용 |
