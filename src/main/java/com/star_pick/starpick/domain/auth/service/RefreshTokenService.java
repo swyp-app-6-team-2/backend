@@ -16,9 +16,7 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDateTime;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.util.HexFormat;
 
 @Service
@@ -53,7 +51,7 @@ public class RefreshTokenService {
         RefreshToken stored = refreshTokenRepository.findByUserId(identity.userId())
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.REFRESH_TOKEN_INVALID));
         // 잠금 대기 중 만료되었을 수도 있어 JWT와 DB 만료를 여기서 다시 확인한다.
-        if (!identity.expiresAt().isAfter(Instant.now()) || !stored.getExpiresAt().isAfter(LocalDateTime.now())
+        if (!identity.expiresAt().isAfter(Instant.now()) || !stored.getExpiresAt().isAfter(Instant.now())
                 || !MessageDigest.isEqual(stored.getTokenHash().getBytes(StandardCharsets.UTF_8),
                         hash(refreshToken).getBytes(StandardCharsets.UTF_8))) {
             throw new BusinessException(AuthErrorCode.REFRESH_TOKEN_INVALID);
@@ -64,8 +62,7 @@ public class RefreshTokenService {
     private JwtProvider.TokenPair issueForLockedUser(Long userId, RefreshToken existing) {
         JwtProvider.TokenPair tokens = jwtProvider.generateTokens(userId);
         // 별도로 now + TTL을 계산하지 않고 실제 JWT의 초 단위 exp와 맞춘다.
-        LocalDateTime expiresAt = LocalDateTime.ofInstant(
-                jwtProvider.parseRefreshToken(tokens.refreshToken()).expiresAt(), ZoneId.systemDefault());
+        Instant expiresAt = jwtProvider.parseRefreshToken(tokens.refreshToken()).expiresAt();
         String tokenHash = hash(tokens.refreshToken());
         if (existing == null) {
             refreshTokenRepository.save(RefreshToken.issue(userId, tokenHash, expiresAt));

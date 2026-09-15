@@ -12,7 +12,7 @@ import com.star_pick.starpick.domain.user.repository.SocialCredentialRepository;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -42,7 +42,7 @@ public class SocialLoginService {
 
     private SocialLoginResponse loginExistingUser(SocialCredential credential, Provider provider) {
         User user = credential.getUser();
-        user.updateLastLogin(provider, LocalDateTime.now());
+        user.updateLastLogin(provider, Instant.now());
 
         JwtProvider.TokenPair tokens = refreshTokenService.issueAndStore(user.getUserId());
 

@@ -11,7 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -99,11 +99,11 @@ public class Recipe {
 
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @UpdateTimestamp
     @Column(nullable = false)
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     private Recipe(Long userId, String title, RecipeCategory categoryCode,
                    Integer cookTimeMinutes, Integer servings, String memo,
@@ -254,6 +254,6 @@ public class Recipe {
      * Recipe 행이 바뀌지 않아 갱신되지 않으므로 여기서 직접 dirty 를 만든다.
      */
     private void markUpdated() {
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = Instant.now();
     }
 }

@@ -7,7 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Entity
 @Getter
@@ -42,6 +42,6 @@ public class SocialCredential {
 
     @CreationTimestamp
     @Column(nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
 }

@@ -15,8 +15,8 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,8 +63,7 @@ class TokenRefreshApiTest {
         assertThat(jwt.parseAccessToken(access)).isEqualTo(OWNER);
         var stored = repository.findByUserId(OWNER).orElseThrow();
         assertThat(stored.getTokenHash()).isEqualTo(hash(refresh)).isNotEqualTo(refresh);
-        assertThat(stored.getExpiresAt()).isEqualTo(LocalDateTime.ofInstant(
-                jwt.parseRefreshToken(refresh).expiresAt(), ZoneId.systemDefault()));
+        assertThat(stored.getExpiresAt()).isEqualTo(jwt.parseRefreshToken(refresh).expiresAt());
         rejected(old.refreshToken());
         request(refresh).andExpect(status().isOk());
     }
@@ -114,14 +113,15 @@ class TokenRefreshApiTest {
 
     @Test void databaseExpiryIsAlsoEnforced() throws Exception {
         var old = tokens.issueAndStore(OWNER);
-        jdbc.update("update refresh_tokens set expires_at = ? where user_id = ?", LocalDateTime.now().minusDays(1), OWNER);
+        jdbc.update("update refresh_tokens set expires_at = ? where user_id = ?",
+                OffsetDateTime.now(ZoneOffset.UTC).minusDays(1), OWNER);
         rejected(old.refreshToken());
     }
 
     @Test void missingAndDeletedUsersCannotRefresh() throws Exception {
         rejected(jwt.generateTokens(991099L).refreshToken());
         var old = tokens.issueAndStore(OWNER);
-        jdbc.update("update users set deleted_at = ? where user_id = ?", LocalDateTime.now(), OWNER);
+        jdbc.update("update users set deleted_at = ? where user_id = ?", OffsetDateTime.now(ZoneOffset.UTC), OWNER);
         rejected(old.refreshToken());
     }
 

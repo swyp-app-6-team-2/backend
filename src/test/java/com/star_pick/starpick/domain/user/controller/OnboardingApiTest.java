@@ -9,6 +9,7 @@ import com.star_pick.starpick.domain.user.service.OnboardingService;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +49,7 @@ class OnboardingApiTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.onboardingRequired").value(true));
         mvc.perform(post(PATH + "/complete").header("Authorization", bearer(OWNER)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.onboardingRequired").value(false))
-                .andExpect(jsonPath("$.data.onboardingCompletedAt").isNotEmpty());
+                .andExpect(jsonPath("$.data.onboardingCompletedAt").value(org.hamcrest.Matchers.endsWith("Z")));
         var first = onboarding.status(OWNER).onboardingCompletedAt();
         mvc.perform(post(PATH + "/complete").header("Authorization", bearer(OWNER))).andExpect(status().isOk());
         assertThat(onboarding.status(OWNER).onboardingCompletedAt()).isEqualTo(first);
@@ -97,7 +98,7 @@ class OnboardingApiTest {
             }
             // PostgreSQL stores microsecond precision.
             assertThat(onboarding.status(OWNER).onboardingCompletedAt())
-                    .isEqualTo(first.onboardingCompletedAt().withNano((first.onboardingCompletedAt().getNano() / 1000) * 1000));
+                    .isEqualTo(first.onboardingCompletedAt().truncatedTo(ChronoUnit.MICROS));
         }
     }
 }
