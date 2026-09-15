@@ -20,12 +20,15 @@ public record RecipeListResponse(
     /**
      * {@code coverImageUrl} 은 대표 이미지가 없거나 서명에 실패하면 null 이다. 값이 없어도 키는
      * null 로 존재해야 한다는 것이 응답 계약이라(02-0) {@code @JsonInclude(NON_NULL)} 을 붙이지 않는다.
+     *
+     * <p>{@code thumbnailUrl} 은 분석으로 만든 레시피의 원본 대표 이미지다. 규칙은 상세의 {@code source.thumbnailUrl} 과 같다.
      */
     public record RecipeSummary(
             Long recipeId,
             String title,
             RecipeCategory categoryCode,
             String coverImageUrl,
+            String thumbnailUrl,
             List<String> ingredientNames
     ) {
     }

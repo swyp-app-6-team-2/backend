@@ -69,6 +69,9 @@ public class IngestionJob {
     @Column(length = PREVIEW_IMAGE_URL_MAX_LENGTH)
     private String previewImageUrl;
 
+    /** Instagram 만 쓴다. Worker 가 복사한 원본 대표 이미지의 저장소 Key. Recipe 로 소비되면 Recipe 로 옮기고 비운다. */
+    private String sourceThumbnailKey;
+
     private IngestionJob(Long userId, IngestionSourceType sourceType, String inputUrl, List<String> inputImageKeys) {
         this.userId = userId;
         this.sourceType = sourceType;
@@ -103,11 +106,12 @@ public class IngestionJob {
         startedAt = now;
     }
 
-    public void completeWithResult(RecipeDraft draft, Instant expiresAt) {
+    public void completeWithResult(RecipeDraft draft, Instant expiresAt, String sourceThumbnailKey) {
         status = IngestionJobStatus.RESULT_READY;
         result = draft;
         failureCode = null;
         this.expiresAt = expiresAt;
+        this.sourceThumbnailKey = sourceThumbnailKey;
     }
 
     public void fail(IngestionFailureCode failureCode) {
@@ -119,11 +123,13 @@ public class IngestionJob {
     /**
      * Recipe 로 저장됐다. 상태는 RESULT_READY 로 둔다 — 저장 완료를 Job 상태로 만들지 않는다.
      * 결과와 미리보기는 더 쓸 일이 없어 비운다. 소비된 Job 은 영구 보존되므로 서명된 CDN 주소를 남기지 않는다.
+     * 대표 이미지 Key 는 Recipe 가 넘겨받아 삭제까지 책임지므로, Job 이 지워질 객체를 가리키지 않게 비운다.
      */
     public void consume(Instant now) {
         consumedAt = now;
         result = null;
         previewImageUrl = null;
+        sourceThumbnailKey = null;
     }
 
     public boolean isCurrentAttempt(int attempt) {

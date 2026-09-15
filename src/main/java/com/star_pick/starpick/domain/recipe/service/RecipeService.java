@@ -1,6 +1,7 @@
 package com.star_pick.starpick.domain.recipe.service;
 
 import com.star_pick.starpick.domain.cooking.service.CookHistoryCleanupService;
+import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.service.IngestionJobConsumeService;
 import com.star_pick.starpick.domain.ingestion.service.IngestionJobOrigin;
 import com.star_pick.starpick.domain.ingredient.service.IngredientService;
@@ -77,7 +78,7 @@ public class RecipeService {
         ingestionJobConsumeService.consume(userId, ingestionJobId);
         Recipe recipe = Recipe.createFromIngestion(userId, request.title(), request.categoryCode(),
                 request.cookTimeMinutes(), request.servings(), request.memo(),
-                ingestionJobId, origin.sourceUrl(), origin.sourceImageKeys());
+                ingestionJobId, origin.sourceUrl(), origin.sourceImageKeys(), origin.sourceThumbnailKey());
         return new RecipeCreateResult(saveNew(recipe, userId, request), true);
     }
 
@@ -125,6 +126,7 @@ public class RecipeService {
                         recipe.getTitle(),
                         recipe.getCategoryCode(),
                         uploadService.getViewUrl(userId, recipe.getCoverImageKey()),
+                        sourceThumbnailUrl(userId, recipe),
                         ingredientNames.getOrDefault(recipe.getId(), List.of())))
                 .toList();
 
@@ -162,7 +164,28 @@ public class RecipeService {
         Recipe recipe = recipeRepository.findByIdAndUserId(recipeId, userId)
                 .orElseThrow(() -> new BusinessException(RecipeErrorCode.RECIPE_NOT_FOUND));
 
-        return RecipeDetailResponse.from(recipe, uploadService.getViewUrl(userId, recipe.getCoverImageKey()));
+        return RecipeDetailResponse.from(recipe, uploadService.getViewUrl(userId, recipe.getCoverImageKey()),
+                sourceThumbnailUrl(userId, recipe));
+    }
+
+    /**
+     * 분석으로 만든 레시피의 원본 대표 이미지.
+     *
+     * <p>Instagram 은 Worker 가 복사해 둔 객체를, 사진 입력은 이미 보관 중인 첫 원본 사진을 서명한다. YouTube 는 영상 id 로
+     * 주소가 정해져 만료되지 않으므로 계산한다. 어느 것도 없으면(직접 입력, 복사에 실패한 Instagram, 이 기능 이전
+     * Instagram 레시피) null 이다. {@code YouTubeUrl} 은 의존성 없는 값 객체라 직접 쓴다.
+     */
+    private String sourceThumbnailUrl(Long userId, Recipe recipe) {
+        if (recipe.getSourceThumbnailKey() != null) {
+            return uploadService.getViewUrl(userId, recipe.getSourceThumbnailKey());
+        }
+        if (!recipe.getSourceImageKeys().isEmpty()) {
+            return uploadService.getViewUrl(userId, recipe.getSourceImageKeys().getFirst());
+        }
+        if (recipe.getSourceUrl() == null) {
+            return null;
+        }
+        return YouTubeUrl.parse(recipe.getSourceUrl()).map(YouTubeUrl::thumbnailUrl).orElse(null);
     }
 
     /**
@@ -224,6 +247,8 @@ public class RecipeService {
         uploadService.releaseAndDeleteFile(userId, recipe.getCoverImageKey(), UploadPurpose.RECIPE_COVER);
         // 원본 사진의 용도는 Recipe 로 넘어온 뒤에도 INGESTION_INPUT 이다. 소비된 Job 행은 남긴다.
         uploadService.releaseAndDeleteFiles(userId, recipe.getSourceImageKeys(), UploadPurpose.INGESTION_INPUT);
+        // UploadObject 가 없는 서버 저장 이미지라 해제가 아니라 파일 삭제만 예약한다. 커버와 따로 한 번 더 저장소를 부른다.
+        uploadService.deleteSourceThumbnail(recipe.getSourceThumbnailKey());
         cookHistoryCleanupService.deleteByRecipe(userId, recipeId);
         recipeRepository.delete(recipe);
     }

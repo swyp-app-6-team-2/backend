@@ -310,6 +310,60 @@ class UploadServiceTest {
     }
 
     @Test
+    @DisplayName("원본 대표 이미지를 저장하면 형식과 함께 올라가고 UploadObject 는 만들지 않는다")
+    void storesSourceThumbnailWithoutUploadObject() {
+        byte[] content = {1, 2, 3};
+
+        String objectKey = uploadService.storeSourceThumbnail(OWNER_ID, content, "image/jpeg");
+
+        assertThat(objectKey).matches("source-thumbnails/1/[0-9a-f-]{36}\\.jpg");
+        assertThat(objectStorage.read(objectKey)).containsExactly(1, 2, 3);
+        assertThat(objectStorage.metadata(objectKey).contentType()).isEqualTo("image/jpeg");
+        assertThat(uploadObjectRepository.findById(objectKey)).isEmpty();
+        // 발급 Key 와 같은 형식이라 소유자 확인을 통과해 조회 URL 이 나온다.
+        assertThat(uploadService.getViewUrl(OWNER_ID, objectKey)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 형식이면 저장소에 올리지 않고 예외가 난다")
+    void rejectsUnsupportedSourceThumbnailType() {
+        assertThatThrownBy(() -> uploadService.storeSourceThumbnail(OWNER_ID, new byte[]{1}, "image/gif"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(objectStorage.operations()).doesNotContain("write");
+    }
+
+    @Test
+    @DisplayName("원본 대표 이미지 삭제는 커밋 후에만 일어나고 롤백되면 파일이 남는다")
+    void deletesSourceThumbnailOnlyAfterCommit() {
+        String committed = uploadService.storeSourceThumbnail(OWNER_ID, new byte[]{1}, "image/jpeg");
+        String rolledBack = uploadService.storeSourceThumbnail(OWNER_ID, new byte[]{1}, "image/jpeg");
+
+        transactionTemplate.executeWithoutResult(status -> uploadService.deleteSourceThumbnail(committed));
+        transactionTemplate.executeWithoutResult(status -> {
+            uploadService.deleteSourceThumbnail(rolledBack);
+            status.setRollbackOnly();
+        });
+
+        assertThat(objectStorage.contains(committed)).isFalse();
+        assertThat(objectStorage.contains(rolledBack)).isTrue();
+    }
+
+    @Test
+    @DisplayName("원본 대표 이미지 삭제는 null 이나 저장소 장애에도 예외를 던지지 않는다")
+    void sourceThumbnailDeleteIsSafe() {
+        String objectKey = uploadService.storeSourceThumbnail(OWNER_ID, new byte[]{1}, "image/jpeg");
+        objectStorage.startFailing();
+
+        transactionTemplate.executeWithoutResult(status -> {
+            uploadService.deleteSourceThumbnail(null);
+            uploadService.deleteSourceThumbnail(objectKey);
+        });
+
+        assertThat(objectStorage.contains(objectKey)).isTrue();
+    }
+
+    @Test
     @DisplayName("트랜잭션이 롤백되면 저장소 파일도 UploadObject 도 그대로 남는다")
     void rollbackKeepsStorageObject() {
         // 저장소 삭제는 커밋 이후에만 실행돼야 한다. 롤백 경로에서 파일이 사라지면

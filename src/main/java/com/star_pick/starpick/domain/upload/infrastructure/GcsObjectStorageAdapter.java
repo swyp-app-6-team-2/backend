@@ -118,6 +118,18 @@ class GcsObjectStorageAdapter implements ObjectStorage {
         }
     }
 
+    /**
+     * 존재 조건({@code doesNotExist})을 붙이지 않는다. 조건을 붙이면 SDK 가 요청을 재시도 가능으로 보고,
+     * 첫 요청이 성공했는데 응답만 잃었을 때 재시도가 412 로 실패해 올린 객체의 Key 를 호출부가 잃는다.
+     * UUID Key 라 덮어쓸 대상도 없다.
+     *
+     * <p>형식을 함께 저장해야 조회 서명 URL 이 이미지로 내려간다. 빠지면 {@code application/octet-stream} 이다.
+     */
+    @Override
+    public void write(String objectKey, byte[] content, String contentType) {
+        storage.create(BlobInfo.newBuilder(BlobId.of(bucket, objectKey)).setContentType(contentType).build(), content);
+    }
+
     /** SDK 가 batch 요청 하나로 보낸다. 건별 성공 여부는 쓰지 않는다 — 이미 없는 것도 성공이다. */
     @Override
     public void delete(Collection<String> objectKeys) {

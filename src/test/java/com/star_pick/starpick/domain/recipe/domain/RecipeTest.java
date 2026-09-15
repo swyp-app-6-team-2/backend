@@ -146,7 +146,7 @@ class RecipeTest {
     @DisplayName("사진 분석 결과로 만들면 등록 방식은 IMAGE 이고 사진 Key 순서를 보존한다")
     void createFromImageIngestion() {
         Recipe recipe = Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN, null, null, null,
-                10L, null, List.of("ingestion-inputs/1/b.jpg", "ingestion-inputs/1/a.jpg"));
+                10L, null, List.of("ingestion-inputs/1/b.jpg", "ingestion-inputs/1/a.jpg"), null);
 
         assertThat(recipe.getRegistrationMethod()).isEqualTo(RegistrationMethod.IMAGE);
         assertThat(recipe.getIngestionJobId()).isEqualTo(10L);
@@ -159,7 +159,7 @@ class RecipeTest {
     @DisplayName("URL 분석 결과로 만들면 등록 방식은 URL 이다")
     void createFromUrlIngestion() {
         Recipe recipe = Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN, null, null, null,
-                10L, "https://www.youtube.com/watch?v=abc", null);
+                10L, "https://www.youtube.com/watch?v=abc", null, null);
 
         assertThat(recipe.getRegistrationMethod()).isEqualTo(RegistrationMethod.URL);
         assertThat(recipe.getSourceUrl()).isEqualTo("https://www.youtube.com/watch?v=abc");
@@ -180,13 +180,13 @@ class RecipeTest {
     @DisplayName("출처는 URL 과 사진 Key 중 정확히 하나여야 한다 — 호출부 버그 가드")
     void ingestionSourceMustBeExactlyOne() {
         assertThatThrownBy(() -> Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN,
-                null, null, null, 10L, "https://x", List.of("ingestion-inputs/1/a.jpg")))
+                null, null, null, 10L, "https://x", List.of("ingestion-inputs/1/a.jpg"), null))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN,
-                null, null, null, 10L, null, List.of()))
+                null, null, null, 10L, null, List.of(), null))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> Recipe.createFromIngestion(USER_ID, "김치찌개", RecipeCategory.KOREAN,
-                null, null, null, null, "https://x", null))
+                null, null, null, null, "https://x", null, null))
                 .isInstanceOf(NullPointerException.class);
     }
 }

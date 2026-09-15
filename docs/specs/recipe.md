@@ -125,8 +125,9 @@ Recipe 1 ── 0..N RecipeStep
 | `ingestionJobId`  | X  | 원본 IngestionJob. UNIQUE·FK. `MANUAL`이면 없음                          |
 | `sourceUrl`       | X  | `URL` 방식에서만. 원본 URL을 스냅샷으로 보존                                     |
 | `sourceImageKeys` | X  | `IMAGE` 방식에서만. `text[]` 배열이며 분석 원본을 복사하지 않고 기존 GCS 객체 Key를 순서대로 보존 |
+| `sourceThumbnailKey` | X | `URL` 방식에서만(CHECK). Instagram 분석 때 서버가 복사한 원본 대표 이미지의 GCS Key. YouTube는 URL에서 계산하므로 저장하지 않는다 |
 
-플랫폼 값(`sourcePlatform`)은 저장하지 않는다. IngestionJob의 `sourceType`이 이미 갖고 있고, Recipe가 밖에 보여 주는 것은 `URL`·`IMAGE` 구분과 원본 URL뿐이다.
+플랫폼 값(`sourcePlatform`)은 저장하지 않는다. IngestionJob의 `sourceType`이 이미 갖고 있고, Recipe가 밖에 보여 주는 것은 `URL`·`IMAGE` 구분, 원본 URL과 원본 대표 이미지뿐이다. YouTube 대표 이미지는 원본 URL만으로 계산된다.
 
 ### 3.3. API 설계
 
@@ -172,10 +173,11 @@ Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출
 
 응답은 `totalCount`와 `recipes` 배열로 구성한다. `totalCount`는 반환한 건수가 아니라 조건에 해당하는 전체 결과 수다. 저장한 Recipe가 없거나 페이지가 범위를 벗어나면 `recipes`는 빈 배열이고 `totalCount`는 실제 전체 수를 유지한다.
 
-배열의 각 항목은 목록 화면이 사용하는 다음 5개 필드만 포함한다.
+배열의 각 항목은 목록 화면이 사용하는 다음 6개 필드만 포함한다.
 
 - `recipeId`, `title`, `categoryCode`
 - `coverImageUrl`: 대표 이미지의 조회 가능한 URL. 대표 이미지가 없거나 서명에 실패하면 `null`
+- `thumbnailUrl`: 분석으로 만든 레시피의 원본 대표 이미지. 규칙은 상세 조회의 `source.thumbnailUrl`과 같고, 직접 입력 레시피는 `null`
 - `ingredientNames`: 재료명 배열. 표시 순서를 따르며 재료가 없으면 `[]`
 
 `memo`, `steps`, `source`, `cookTimeMinutes`, `servings`는 상세 조회 전용이며 목록에 포함하지 않는다. 조리 이력과 최근 조리 시각도 포함하지 않는다.
@@ -184,7 +186,15 @@ Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출
 
 #### 상세 조회
 
-응답에는 Recipe 기본 정보, Ingredient, Step과 출처를 포함한다. `source`는 `MANUAL`이면 `null`이고, 그 밖에는 `{sourceType, originalUrl}`이다. `sourceType`은 `URL` 또는 `IMAGE`이며 `IMAGE`의 `originalUrl`은 `null`이다. 대표 이미지는 조회 가능한 URL로 반환한다.
+응답에는 Recipe 기본 정보, Ingredient, Step과 출처를 포함한다. `source`는 `MANUAL`이면 `null`이고, 그 밖에는 `{sourceType, originalUrl, thumbnailUrl}`이다. `sourceType`은 `URL` 또는 `IMAGE`이며 `IMAGE`의 `originalUrl`은 `null`이다. 대표 이미지는 조회 가능한 URL로 반환한다.
+
+`source.thumbnailUrl`은 원본의 대표 이미지다. 사용자가 올린 대표 이미지(`coverImageUrl`)와 뜻이 달라 섞지 않는다. 앱이 대체 표시가 필요하면 `coverImageUrl`이 없을 때 이 값을 쓴다.
+
+| 출처 | `source.thumbnailUrl` |
+|---|---|
+| `IMAGE` | 첫 원본 사진(`sourceImageKeys`의 첫 Key)의 조회 URL. 복사하지 않고 조회할 때 서명하며, 서명에 실패하면 `null` |
+| `URL` + YouTube | `https://i.ytimg.com/vi/{id}/hqdefault.jpg`. 저장하지 않고 원본 URL에서 계산한다 |
+| `URL` + Instagram | 분석 때 복사해 둔 게시물 **첫 카드**(Reel은 커버 이미지)의 조회 URL. 복사에 실패했거나 이 기능 이전에 저장한 레시피, 서명에 실패하면 `null` |
 
 IMAGE 원본 목록, RecipeIngredient·RecipeStep의 PK와 표시 순서, CookHistory는 포함하지 않는다.
 
@@ -209,7 +219,7 @@ Cover Key 오류는 생성과 같은 `RECIPE_COVER_INVALID`, `RECIPE_COVER_ALREA
 
 #### 삭제
 
-논리 삭제 없이 영구 삭제(Hard Delete)한다. Recipe를 삭제하면 Ingredient, Step, 대표 이미지, 분석 원본 사진(`sourceImageKeys`)과 CookHistory도 함께 삭제한다. 원본 IngestionJob과 소비 기록은 남기므로 같은 Job으로 다시 저장할 수 없다.
+논리 삭제 없이 영구 삭제(Hard Delete)한다. Recipe를 삭제하면 Ingredient, Step, 대표 이미지, 분석 원본 사진(`sourceImageKeys`), 원본 대표 이미지(`sourceThumbnailKey`)와 CookHistory도 함께 삭제한다. 원본 IngestionJob과 소비 기록은 남기므로 같은 Job으로 다시 저장할 수 없다.
 
 GCS 삭제 시도까지 끝난 뒤 `200 OK`를 반환하며, GCS 삭제가 실패해도 Recipe 삭제 결과는 유지한다.
 
@@ -224,7 +234,7 @@ Ingestion 기반 생성은 MANUAL 생성 범위에 다음 작업을 더해 같�
 1. IngestionJob을 비관적 쓰기 잠금(`SELECT ... FOR UPDATE`)하고 소유권을 확인한다.
 2. 같은 `ingestionJobId`로 만든 Recipe가 이미 있으면 기존 Recipe ID와 `200 OK`를 반환하고 종료한다.
 3. Job의 `consumedAt`, 만료 여부, 상태를 이 순서로 확인하고, 통과하면 `consumedAt`을 설정하고 임시 `result`와 `previewImageUrl`을 제거한다.
-4. 출처를 복사해 Recipe, RecipeIngredient, RecipeStep을 저장하고 선택한 `coverImageKey`를 연결한다. IMAGE 방식이면 GCS 객체를 복사하지 않고 IngestionJob의 `inputImageKeys`를 `sourceImageKeys`로 순서 그대로 복사한다. 원본 Job의 Key는 지우지 않는다.
+4. 출처를 복사해 Recipe, RecipeIngredient, RecipeStep을 저장하고 선택한 `coverImageKey`를 연결한다. IMAGE 방식이면 GCS 객체를 복사하지 않고 IngestionJob의 `inputImageKeys`를 `sourceImageKeys`로 순서 그대로 복사한다. 원본 Job의 Key는 지우지 않는다. Job에 원본 대표 이미지 Key가 있으면 `sourceThumbnailKey`로 옮기고 Job에서는 비운다.
 
 Recipe는 Ingestion의 Repository를 보지 않고, Ingestion이 공개한 잠금·소비 경계만 부른다. 이 경계는 호출자의 트랜잭션 안에서만 부를 수 있다 — 트랜잭션 밖에서 부르면 잠금이 즉시 풀려 직렬화가 깨지기 때문이다. 대표 이미지 존재 확인(원격 호출)은 Job 행 잠금을 쥔 채 일어나며, 같은 Job의 연타 요청만 그만큼 기다린다.
 
@@ -269,6 +279,7 @@ DB에는 `recipe.ingestion_job_id` UNIQUE 제약을 두어 같은 Job으로 Reci
 
 1. 대표 이미지와 원본 이미지 Key를 확보하고 해당 UploadObject를 제거한다.
    원본 이미지는 Recipe로 넘어온 뒤에도 `INGESTION_INPUT` 용도로 해제한다.
+   원본 대표 이미지는 UploadObject가 없으므로 파일 삭제만 커밋 이후로 예약한다.
 2. Cooking에 관련 CookHistory 정리를 요청한다.
 3. Recipe가 소유한 하위 데이터와 Recipe를 제거한다.
 4. 모든 DB 변경을 커밋한다.

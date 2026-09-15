@@ -147,6 +147,19 @@ class IngestionMaintenanceTest {
         assertThat(objectStorage.contains(recent.key())).isTrue();
     }
 
+    @Test
+    @DisplayName("보존 기간이 지난 미소비 Instagram 작업을 지우면 원본 대표 이미지 파일도 지운다")
+    void purgesSourceThumbnailWithJob() {
+        IngestionJob job = fixtures.saveReadyInstagramJob(USER_ID);
+        String thumbnailKey = job.getSourceThumbnailKey();
+        markExpired(job.getId(), Instant.now().minus(8, ChronoUnit.DAYS));
+
+        maintenance.purgeOldJobs();
+
+        assertThat(jobRepository.existsById(job.getId())).isFalse();
+        assertThat(objectStorage.contains(thumbnailKey)).isFalse();
+    }
+
     private Long saveJob(String suffix) {
         return jobRepository.save(IngestionJob.queueImage(
                 USER_ID, List.of("ingestion-inputs/1/" + suffix))).getId();

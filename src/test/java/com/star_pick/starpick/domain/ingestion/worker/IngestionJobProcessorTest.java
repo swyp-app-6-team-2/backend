@@ -25,6 +25,7 @@ import com.star_pick.starpick.domain.ingestion.service.TokenUsage;
 import com.star_pick.starpick.domain.ingestion.service.Verdict;
 import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
 import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
+import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.support.FakeInstagramClient;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.FakeRecipeAnalyzer;
@@ -69,6 +70,8 @@ class IngestionJobProcessorTest {
 
     @Autowired
     private FakeInstagramClient instagram;
+    @Autowired
+    private UploadService uploadService;
 
     private static final String YOUTUBE_URL = "https://www.youtube.com/watch?v=kjG6h_LTklo";
     private static final String CDN = "https://scontent-ssn1-1.cdninstagram.com/";
@@ -312,8 +315,10 @@ class IngestionJobProcessorTest {
         assertThat(input.images()).extracting(image -> image.content()[0]).containsExactly((byte) 1, (byte) 3);
         assertThat(input.caption()).isEqualTo("콩나물밥 만드는 법");
         assertThat(instagram.lastFetch()).isEqualTo("DKI9fBzy5FB post");
+        // 분석 카드 둘은 합계 상한을 나눠 쓰고, 마지막은 성공 뒤 대표 이미지로 받는 첫 카드라 상한이 따로다.
         assertThat(instagram.imageLimits()).containsExactly(
-                properties.image().maxTotalBytes(), properties.image().maxTotalBytes() - 1);
+                properties.image().maxTotalBytes(), properties.image().maxTotalBytes() - 1,
+                properties.image().maxTotalBytes());
         IngestionJob saved = repository.findById(job.id()).orElseThrow();
         assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
         assertThat(saved.getPreviewImageUrl()).isEqualTo(CDN + "1.jpg");
@@ -440,6 +445,154 @@ class IngestionJobProcessorTest {
     }
 
     @Test
+    @DisplayName("Instagram 분석이 성공하면 게시물 첫 카드를 원본 대표 이미지로 저장소에 복사하고 Key 를 결과와 함께 저장한다")
+    void storesFirstCardAsSourceThumbnail() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "1.jpg"), image(CDN + "2.jpg"))));
+        instagram.putMedia(CDN + "1.jpg", new byte[]{1});
+        instagram.putMedia(CDN + "2.jpg", new byte[]{2});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL);
+
+        processor.process(job);
+
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
+        assertThat(saved.getSourceThumbnailKey()).startsWith("source-thumbnails/1/");
+        assertThat(storage.read(saved.getSourceThumbnailKey())).containsExactly(1);
+    }
+
+    @Test
+    @DisplayName("카드 지정 링크도 대표 이미지는 분석한 카드가 아니라 첫 카드다")
+    void storesFirstCardEvenForIndexedLink() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "1.jpg"), image(CDN + "2.jpg"))));
+        instagram.putMedia(CDN + "1.jpg", new byte[]{1});
+        instagram.putMedia(CDN + "2.jpg", new byte[]{2});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL + "?img_index=2");
+
+        processor.process(job);
+
+        assertThat(analyzer.lastInput().images()).extracting(image -> image.content()[0]).containsExactly((byte) 2);
+        assertThat(instagram.imageDownloads()).containsExactly(CDN + "2.jpg", CDN + "1.jpg");
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(storage.read(saved.getSourceThumbnailKey())).containsExactly(1);
+    }
+
+    @Test
+    @DisplayName("Reel 의 대표 이미지는 영상 썸네일이다")
+    void storesReelThumbnailAsSourceThumbnail() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", CDN + "reel.mp4"))));
+        instagram.putMedia(CDN + "reel.mp4", new byte[]{9});
+        instagram.putMedia(CDN + "thumb.jpg", new byte[]{7});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(storage.read(saved.getSourceThumbnailKey())).containsExactly(7);
+    }
+
+    @Test
+    @DisplayName("대표 이미지를 받거나 저장하지 못해도 분석은 성공하고 Key 만 비어 있다")
+    void keepsResultWhenSourceThumbnailFails() {
+        InstagramPost carousel = new InstagramPost(null, List.of(image(CDN + "1.jpg"), image(CDN + "2.jpg")));
+        instagram.putMedia(CDN + "2.jpg", new byte[]{2});
+
+        instagram.failMedia(CDN + "1.jpg", new InstagramFetchException(InstagramFetchException.Kind.RETRYABLE, "down"));
+        instagram.enqueuePost(carousel);
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob downloadFails = queuedInstagramAndPreempted(POST_URL + "?img_index=2");
+        processor.process(downloadFails);
+
+        instagram.putMedia(CDN + "1.jpg", new byte[]{1});
+        storage.failWrites();
+        instagram.enqueuePost(carousel);
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob writeFails = queuedInstagramAndPreempted(POST_URL + "?img_index=2");
+        processor.process(writeFails);
+
+        for (PreemptedJob job : List.of(downloadFails, writeFails)) {
+            IngestionJob saved = repository.findById(job.id()).orElseThrow();
+            assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
+            assertThat(saved.getSourceThumbnailKey()).isNull();
+        }
+        // 대표 이미지 다운로드는 재시도하지 않는다. 분석 카드 1회 + 첫 카드 1회.
+        assertThat(instagram.imageDownloads()).containsExactly(
+                CDN + "2.jpg", CDN + "1.jpg", CDN + "2.jpg", CDN + "1.jpg");
+    }
+
+    @Test
+    @DisplayName("레시피로 쓸 수 없는 판정이면 대표 이미지를 저장하지 않는다")
+    void doesNotStoreSourceThumbnailWhenNotRecipe() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "1.jpg"))));
+        instagram.putMedia(CDN + "1.jpg", new byte[]{1});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.MULTIPLE_RECIPES, null, new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL);
+
+        processor.process(job);
+
+        assertFailure(job.id(), IngestionFailureCode.MULTIPLE_RECIPES);
+        assertThat(storage.operations()).doesNotContain("write");
+    }
+
+    @Test
+    @DisplayName("사진·YouTube 분석은 대표 이미지를 저장하지 않는다")
+    void doesNotStoreSourceThumbnailForImageOrYouTube() {
+        PreemptedJob imageJob = queuedAndPreempted();
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        processor.process(imageJob);
+
+        PreemptedJob youTubeJob = queuedYouTubeAndPreempted();
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        processor.process(youTubeJob);
+
+        for (PreemptedJob job : List.of(imageJob, youTubeJob)) {
+            IngestionJob saved = repository.findById(job.id()).orElseThrow();
+            assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
+            assertThat(saved.getSourceThumbnailKey()).isNull();
+        }
+        assertThat(storage.operations()).doesNotContain("write");
+    }
+
+    @Test
+    @DisplayName("분석 뒤 deadline 이 남지 않으면 대표 이미지만 건너뛰고 분석은 성공한다")
+    void skipsSourceThumbnailWhenDeadlineIsShort() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "1.jpg"))));
+        instagram.putMedia(CDN + "1.jpg", new byte[]{1});
+        // 테스트 deadline 10초 중 4초가 지난 것으로 둔다. 분석 호출은 남은 6초로 5초 규칙을 통과하고,
+        // 분석이 2초 걸린 뒤의 대표 이미지 단계에서는 남은 시간이 5초 미만이다.
+        analyzer.enqueueAction(() -> sleep(Duration.ofSeconds(2)),
+                new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL);
+        setStartedAt(job.id(), Instant.now().minusSeconds(4));
+
+        processor.process(job);
+
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
+        assertThat(saved.getSourceThumbnailKey()).isNull();
+        assertThat(instagram.imageDownloads()).containsExactly(CDN + "1.jpg");
+        assertThat(storage.operations()).doesNotContain("write");
+    }
+
+    @Test
+    @DisplayName("첫 카드 주소가 없으면 받지 않고 Key 가 비어 있다")
+    void skipsSourceThumbnailWithoutFirstCardUrl() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(image(null), image(CDN + "2.jpg"))));
+        instagram.putMedia(CDN + "2.jpg", new byte[]{2});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL + "?img_index=2");
+
+        processor.process(job);
+
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.RESULT_READY);
+        assertThat(saved.getSourceThumbnailKey()).isNull();
+        assertThat(instagram.imageDownloads()).containsExactly(CDN + "2.jpg");
+    }
+
+    @Test
     @DisplayName("파일 처리가 FAILED 거나 deadline 까지 ACTIVE 가 되지 않으면 분석 없이 PROCESSING_FAILED 이고, 올린 파일은 지운다")
     void failsWhenUploadedVideoIsNotUsable() {
         instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", CDN + "reel.mp4"))));
@@ -511,6 +664,15 @@ class IngestionJobProcessorTest {
                 List.of(new RecipeDraft.Step(" 굽는다. ")));
     }
 
+    private static void sleep(Duration duration) {
+        try {
+            Thread.sleep(duration);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
+
     private void setStartedAt(Long id, Instant startedAt) {
         jdbcTemplate.update("update ingestion_job set started_at = ? where id = ?",
                 OffsetDateTime.ofInstant(startedAt, ZoneOffset.UTC), id);
@@ -525,7 +687,8 @@ class IngestionJobProcessorTest {
                         properties.gemini().baseUrl(), analyzeTimeout, properties.gemini().videoFps()),
                 properties.instagram());
         return new IngestionJobProcessor(
-                executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom);
+                executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom,
+                uploadService);
     }
 
     private void assertFailure(Long id, IngestionFailureCode code) {

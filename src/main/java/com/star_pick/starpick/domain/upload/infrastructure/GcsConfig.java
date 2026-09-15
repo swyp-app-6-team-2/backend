@@ -45,7 +45,8 @@ public class GcsConfig {
      * Service Account를 쓴다.
      *
      * <p><b>여기 설정한 타임아웃·재시도가 적용되는 범위는 메타데이터 수준 Storage API
-     * 호출({@code exists}, {@code size}, {@code delete})뿐이다.</b> 바이너리 본문을 받는
+     * 호출({@code exists}, {@code size}, {@code delete})과 수백 KB 짜리 원본 대표 이미지 {@code write} 뿐이다.</b>
+     * {@code write} 가 5초를 넘기면 호출부가 대표 이미지를 건너뛴다(best-effort). 바이너리 본문을 받는
      * {@code read} 는 {@link #downloadStorage} 를 쓴다 — 14MB 를 5초 안에 받을 수 없기 때문이다.
      * URL 서명도 이 transport 를 타지 않는다. {@code signUrl} 은 credentials 를
      * {@code ServiceAccountSigner} 로 캐스팅해 서명을 위임하고, 키 파일이 없는 우리 구성에서는
