@@ -60,6 +60,7 @@ public class TestFixtures {
      * {@link #restoreIngredientActivity()} 로 되돌린다.
      */
     public void reset() {
+        jdbcTemplate.update("delete from user_ingredient");
         refreshTokenRepository.deleteAll();
         // push_log → push_token → notification_setting 은 FK 순서다.
         jdbcTemplate.update("delete from push_log");
