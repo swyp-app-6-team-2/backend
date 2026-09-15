@@ -47,6 +47,18 @@ public class User {
 
     private Instant marketingAgreedAt;
 
+    @Builder.Default
+    @Column(nullable = false)
+    private int recipeSlotLimit = 10;   // 최대 저장 슬롯 (무료 10 + 광고당 +2)
+
+    @Builder.Default
+    @Column(nullable = false)
+    private int activeRecipeCount = 0;  // 현재 저장된(삭제 안 된) 레시피 개수
+
+    @Builder.Default
+    @Column(nullable = false)
+    private int cumulativeRecipeCount = 0;  // 삭제 포함, 역대 전체 등록 횟수
+
     @Enumerated(EnumType.STRING)
     private Provider lastLoginProvider;
 
@@ -81,5 +93,24 @@ public class User {
 
     public void updateLastActivity(Instant activityAt) {
         this.lastActivityAt = activityAt;
+    }
+
+    public int getRemainingRecipeSlots() {
+        return recipeSlotLimit - activeRecipeCount;
+    }
+
+    public void increaseRecipeCounts() {
+        this.activeRecipeCount++;
+        this.cumulativeRecipeCount++;
+    }
+
+    public void decreaseActiveRecipeCount() {
+        if (this.activeRecipeCount > 0) {
+            this.activeRecipeCount--;
+        }
+    }
+
+    public void increaseRecipeSlotLimit(int amount) {
+        this.recipeSlotLimit += amount;
     }
 }

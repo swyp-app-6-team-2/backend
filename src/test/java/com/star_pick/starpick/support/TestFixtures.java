@@ -66,6 +66,11 @@ public class TestFixtures {
         jdbcTemplate.update("delete from push_log");
         jdbcTemplate.update("delete from push_token");
         jdbcTemplate.update("delete from notification_setting");
+        jdbcTemplate.update("delete from profiles");
+        jdbcTemplate.update("""
+            update users
+            set recipe_slot_limit = 10, active_recipe_count = 0, cumulative_recipe_count = 0
+            """);
         // recipe.ingestion_job_id FK 때문에 recipe 를 먼저 지운다.
         cookHistoryRepository.deleteAll();
         recipeRepository.deleteAll();
