@@ -14,7 +14,7 @@ Upload는 이미지 파일 자체를 다루지 않는다. 사용자가 클라우
 | 사용자는 무엇을 할 수 있는가?    | 업로드용 임시 URL을 발급받아 클라우드 저장소에 직접 업로드                                             |
 | 어떤 API를 제공하는가?       | 업로드 URL 발급 1개                                                                  |
 | 핵심 데이터는 무엇인가?        | UploadObject                                                                   |
-| 어떤 도메인과 협력하는가?       | [Recipe](./recipe.md)·[Cooking](./cooking.md)·Ingestion에 연결·조회·정리 수단을 제공하고, Ingestion에는 사진 읽기도 제공 |
+| 어떤 도메인과 협력하는가?       | [Recipe](./recipe.md)·[Cooking](./cooking.md)·Ingestion·[Inquiry](./inquiry.md)에 연결·조회·정리 수단을 제공하고, Ingestion에는 사진 읽기도 제공 |
 | 핵심 기술 결정은 무엇인가?      | 조건부 UPDATE 한 번으로 `objectKey`를 평생 한 리소스에만 연결하고, 서명은 서비스 계정 키 파일 없이 클라우드 IAM에 위임 |
 | MVP에서 제외하거나 감수하는 것은? | 버려진 객체의 자동 정리를 두지 않고, URL에 서명할 때마다 원격 호출 1회를 감수함                               |
 
@@ -52,7 +52,7 @@ Upload는 이미지 파일 자체를 다루지 않는다. 사용자가 클라우
 | V4             | GCS Signed URL의 서명 방식 버전. 현재 권장 방식이며 서명에 포함할 헤더를 지정할 수 있다                                |
 | IAM            | 클라우드의 권한 관리 체계. 이 문서에서는 "서명을 대신 수행해주는 클라우드 기능"이라는 뜻으로 쓴다                                 |
 | 서비스 계정         | 사람이 아니라 애플리케이션에 부여하는 클라우드 계정                                                             |
-| **소비 도메인**     | 발급된 `objectKey`를 실제로 자기 데이터에 붙여 쓰는 도메인. Recipe(대표 이미지), Cooking(완성 사진), Ingestion(분석 입력) |
+| **소비 도메인**     | 발급된 `objectKey`를 실제로 자기 데이터에 붙여 쓰는 도메인. Recipe(대표 이미지), Cooking(완성 사진), Ingestion(분석 입력), Inquiry(문의 첨부 사진) |
 | Ingestion      | URL이나 이미지를 분석해 레시피 초안을 만드는 도메인. 분석 입력 이미지를 이 계약으로 올린다                                    |
 | 공통 응답 Envelope | 모든 API가 `status` / `message` / `data` 세 필드로 감싸 응답하는 이 서비스의 공통 형식                         |
 | 버려진 객체         | 업로드는 됐지만 어떤 리소스에도 연결되지 않은 채 남은 저장소 파일                                                    |
@@ -81,7 +81,7 @@ Upload는 이미지 파일 자체를 다루지 않는다. 사용자가 클라우
 ### 2.3. 도메인 협력
 
 ```text
-Recipe / Cooking / Ingestion ── 연결·해제·조회 URL 요청 ──▶ Upload
+Recipe / Cooking / Ingestion / Inquiry ── 연결·해제·조회 URL 요청 ──▶ Upload
 Upload ── URL 서명, 파일 존재 확인, 파일 삭제 ──▶ GCS
 ```
 
@@ -161,7 +161,7 @@ Instagram 분석이 성공하면 Worker가 게시물 첫 카드를 받아 **서�
 |--------------|----|---------------------------------------------------------|
 | `objectKey`  | O  | 식별자. 서버가 생성하며 삭제한 값을 다시 발급하지 않는다                        |
 | `userId`     | O  | 발급받은 사용자. 다른 도메인 Entity를 참조하지 않는 스칼라 값                  |
-| `purpose`    | O  | `RECIPE_COVER`, `COOK_HISTORY_PHOTO`, `INGESTION_INPUT` |
+| `purpose`    | O  | `RECIPE_COVER`, `COOK_HISTORY_PHOTO`, `INGESTION_INPUT`, `INQUIRY_ATTACHMENT` |
 | `attachedAt` | X  | 연결 시각. 값이 없으면 미연결이며, 연결 이후 다시 비우지 않는다                   |
 
 `objectKey`는 `{용도별 prefix}/{userId}/{임의 식별자}.{확장자}` 형태다. 예: `recipe-covers/1/a3f2e8b1-....jpg`
@@ -171,6 +171,7 @@ Instagram 분석이 성공하면 Worker가 게시물 첫 카드를 받아 **서�
 | `RECIPE_COVER`       | `recipe-covers`    |
 | `COOK_HISTORY_PHOTO` | `cook-history`     |
 | `INGESTION_INPUT`    | `ingestion-inputs` |
+| `INQUIRY_ATTACHMENT` | `inquiry-attachments` |
 
 확장자는 형식에서 정한다. `image/jpeg` → `jpg`, `image/png` → `png`, `image/webp` → `webp`.
 
@@ -186,7 +187,7 @@ Instagram 분석이 성공하면 Worker가 게시물 첫 카드를 받아 **서�
 
 | 속성            | 필수 | 규칙                                                      |
 |---------------|----|---------------------------------------------------------|
-| `purpose`     | O  | `RECIPE_COVER`, `COOK_HISTORY_PHOTO`, `INGESTION_INPUT` |
+| `purpose`     | O  | `RECIPE_COVER`, `COOK_HISTORY_PHOTO`, `INGESTION_INPUT`, `INQUIRY_ATTACHMENT` |
 | `contentType` | O  | `image/jpeg`, `image/png`, `image/webp`                 |
 
 #### 응답
@@ -237,7 +238,7 @@ Upload의 작업은 DB 변경과 클라우드 원격 호출이 섞여 있다. **
 | 경로 | 트랜잭션이 쥐는 것                         | 원격 호출 위치                 |
 |----|------------------------------------|--------------------------|
 | 발급 | 없음. 저장 한 번이라 별도 경계를 두지 않는다          | **트랜잭션 밖**               |
-| 조회 | Upload는 트랜잭션을 열지 않는다. Recipe 상세 조회는 소비 도메인의 읽기 트랜잭션 안에서 부르고, Recipe 목록 조회·Cooking 이력 조회·Ingestion 상태 조회는 트랜잭션 밖에서 부른다([Recipe Spec](./recipe.md)·[Cooking Spec](./cooking.md)의 `트랜잭션과 동시성 제어`). 쓰기 잠금은 없다 | Recipe 상세: 소비 도메인 트랜잭션 안 / Recipe 목록·Cooking·Ingestion: 트랜잭션 밖 |
+| 조회 | Upload는 트랜잭션을 열지 않는다. Recipe 상세 조회는 소비 도메인의 읽기 트랜잭션 안에서 부르고, Recipe 목록 조회·Cooking 이력 조회·Ingestion 상태 조회·Inquiry 상세 조회는 트랜잭션 밖에서 부른다([Recipe Spec](./recipe.md)·[Cooking Spec](./cooking.md)·[Inquiry Spec](./inquiry.md)의 `트랜잭션과 동시성`). 쓰기 잠금은 없다 | Recipe 상세: 소비 도메인 트랜잭션 안 / Recipe 목록·Cooking·Ingestion·Inquiry: 트랜잭션 밖 |
 | 연결 | 소비 도메인의 트랜잭션에 참여. 수정 시 대상 레시피 행의 잠금 | 트랜잭션 안, **타임아웃으로 상한을 검** |
 | 사진 읽기 | 없음. Ingestion Worker가 트랜잭션 밖에서 부른다 | **트랜잭션 밖**, 전송 전용 클라이언트 |
 

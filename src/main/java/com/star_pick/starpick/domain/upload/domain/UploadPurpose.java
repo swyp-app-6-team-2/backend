@@ -12,7 +12,8 @@ public enum UploadPurpose {
 
     RECIPE_COVER("recipe-covers"),
     COOK_HISTORY_PHOTO("cook-history"),
-    INGESTION_INPUT("ingestion-inputs");
+    INGESTION_INPUT("ingestion-inputs"),
+    INQUIRY_ATTACHMENT("inquiry-attachments");
 
     private final String prefix;
 
