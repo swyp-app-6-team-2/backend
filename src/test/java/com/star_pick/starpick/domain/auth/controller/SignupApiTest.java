@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.star_pick.starpick.domain.auth.client.*;
 import com.star_pick.starpick.domain.auth.dto.SignupRequest;
-import com.star_pick.starpick.domain.auth.service.SignupService;
+import com.star_pick.starpick.domain.auth.service.AuthService;
 import com.star_pick.starpick.domain.auth.exception.SignupException;
 import com.star_pick.starpick.domain.user.entity.Provider;
 import com.star_pick.starpick.domain.user.repository.*;
@@ -40,7 +40,7 @@ class SignupApiTest {
     @Autowired TestFixtures fixtures;
     @Autowired UserRepository users;
     @Autowired SocialCredentialRepository credentials;
-    @Autowired SignupService signupService;
+    @Autowired AuthService signupService;
     @Autowired JsonMapper json;
     @MockitoSpyBean JwtProvider jwt;
     @MockitoBean SocialUserInfoClientResolver resolver;

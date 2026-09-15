@@ -4,8 +4,8 @@ import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.star_pick.starpick.domain.auth.service.RefreshTokenService;
-import com.star_pick.starpick.domain.user.service.OnboardingService;
+import com.star_pick.starpick.domain.auth.service.AuthService;
+import com.star_pick.starpick.domain.user.service.UserService;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
@@ -28,8 +28,8 @@ class OnboardingApiTest {
     @Autowired JwtProvider jwt;
     @Autowired TestFixtures fixtures;
     @Autowired JdbcTemplate jdbc;
-    @Autowired OnboardingService onboarding;
-    @Autowired RefreshTokenService tokens;
+    @Autowired UserService onboarding;
+    @Autowired AuthService tokens;
 
     @BeforeEach void setUp() {
         fixtures.reset();
@@ -50,10 +50,10 @@ class OnboardingApiTest {
         mvc.perform(post(PATH + "/complete").header("Authorization", bearer(OWNER)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.onboardingRequired").value(false))
                 .andExpect(jsonPath("$.data.onboardingCompletedAt").value(org.hamcrest.Matchers.endsWith("Z")));
-        var first = onboarding.status(OWNER).onboardingCompletedAt();
+        var first = onboarding.getOnboarding(OWNER).onboardingCompletedAt();
         mvc.perform(post(PATH + "/complete").header("Authorization", bearer(OWNER))).andExpect(status().isOk());
-        assertThat(onboarding.status(OWNER).onboardingCompletedAt()).isEqualTo(first);
-        assertThat(onboarding.status(OTHER).onboardingRequired()).isTrue();
+        assertThat(onboarding.getOnboarding(OWNER).onboardingCompletedAt()).isEqualTo(first);
+        assertThat(onboarding.getOnboarding(OTHER).onboardingRequired()).isTrue();
     }
 
     @Test void unauthenticatedAndWrongTokenTypesCannotReadOrComplete() throws Exception {
@@ -63,7 +63,7 @@ class OnboardingApiTest {
         String refresh = jwt.generateTokens(OWNER).refreshToken();
         mvc.perform(get(PATH).header("Authorization", "Bearer " + refresh)).andExpect(status().isUnauthorized());
         mvc.perform(post(PATH + "/complete").header("Authorization", "Bearer " + refresh)).andExpect(status().isUnauthorized());
-        assertThat(onboarding.status(OWNER).onboardingRequired()).isTrue();
+        assertThat(onboarding.getOnboarding(OWNER).onboardingRequired()).isTrue();
     }
 
     @Test void deletedAndMissingUsersAreRejected() throws Exception {
@@ -76,11 +76,11 @@ class OnboardingApiTest {
 
     @Test void completionSurvivesRefreshLogoutAndRelogin() {
         var pair = tokens.issueAndStore(OWNER);
-        var completed = onboarding.complete(OWNER);
+        var completed = onboarding.completeOnboarding(OWNER);
         tokens.refresh(pair.refreshToken());
         tokens.revoke(OWNER);
         tokens.issueAndStore(OWNER);
-        assertThat(onboarding.status(OWNER)).isEqualTo(completed);
+        assertThat(onboarding.getOnboarding(OWNER)).isEqualTo(completed);
     }
 
     @Test void concurrentCompletionsPreserveOneTimestamp() throws Exception {
@@ -89,7 +89,7 @@ class OnboardingApiTest {
             var futures = new ArrayList<Future<com.star_pick.starpick.domain.user.dto.OnboardingResponse>>();
             for (int i = 0; i < 6; i++) futures.add(executor.submit(() -> {
                 if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("timeout");
-                return onboarding.complete(OWNER);
+                return onboarding.completeOnboarding(OWNER);
             }));
             start.countDown();
             var first = futures.getFirst().get(20, TimeUnit.SECONDS);
@@ -97,7 +97,7 @@ class OnboardingApiTest {
                 assertThat(future.get(20, TimeUnit.SECONDS)).isEqualTo(first);
             }
             // PostgreSQL stores microsecond precision.
-            assertThat(onboarding.status(OWNER).onboardingCompletedAt())
+            assertThat(onboarding.getOnboarding(OWNER).onboardingCompletedAt())
                     .isEqualTo(first.onboardingCompletedAt().truncatedTo(ChronoUnit.MICROS));
         }
     }

@@ -6,7 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.star_pick.starpick.domain.auth.repository.RefreshTokenRepository;
-import com.star_pick.starpick.domain.auth.service.RefreshTokenService;
+import com.star_pick.starpick.domain.auth.service.AuthService;
 import com.star_pick.starpick.domain.user.entity.Provider;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
@@ -35,7 +35,7 @@ import tools.jackson.databind.json.JsonMapper;
 class TokenRefreshApiTest {
     private static final long OWNER = 991001L;
     @Autowired MockMvc mvc;
-    @Autowired RefreshTokenService tokens;
+    @Autowired AuthService tokens;
     @Autowired RefreshTokenRepository repository;
     @Autowired TestFixtures fixtures;
     @Autowired JdbcTemplate jdbc;

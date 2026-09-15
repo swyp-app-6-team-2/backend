@@ -5,7 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.star_pick.starpick.domain.user.repository.UserIngredientRepository;
-import com.star_pick.starpick.domain.user.service.UserIngredientService;
+import com.star_pick.starpick.domain.user.service.UserService;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
@@ -30,7 +30,7 @@ class AddIngredientsApiTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired JsonMapper json;
     @Autowired UserIngredientRepository repository;
-    @Autowired UserIngredientService service;
+    @Autowired UserService service;
     List<Long> ids;
 
     @BeforeEach void setUp() {
@@ -51,7 +51,7 @@ class AddIngredientsApiTest {
     }
 
     @Test void addsOnlyNewIngredientsAndReturnsMasterFields() throws Exception {
-        service.add(OWNER, List.of(ids.get(0)));
+        service.addIngredients(OWNER, List.of(ids.get(0)));
         var response = request(OWNER, List.of(ids.get(0), ids.get(1), ids.get(1), ids.get(2)))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.message").value("재료가 등록되었습니다."))
                 .andExpect(jsonPath("$.data.ingredients.length()").value(2))
@@ -89,7 +89,7 @@ class AddIngredientsApiTest {
     }
 
     @Test void nonexistentIngredientRejectsWholeBatchAndPreservesExistingRows() throws Exception {
-        service.add(OWNER, List.of(ids.get(0)));
+        service.addIngredients(OWNER, List.of(ids.get(0)));
         request(OWNER, List.of(ids.get(0), ids.get(1), Long.MAX_VALUE)).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.data.code").value("USER_INGREDIENT_INVALID"));
         assertThat(repository.findIngredientIds(OWNER)).containsExactly(ids.get(0));
@@ -100,7 +100,7 @@ class AddIngredientsApiTest {
         request(OWNER, ids).andExpect(status().isBadRequest());
         assertThat(repository.findIngredientIds(OWNER)).isEmpty();
         jdbc.update("update ingredient set active = true where id = ?", ids.get(1));
-        service.add(OWNER, List.of(ids.get(1)));
+        service.addIngredients(OWNER, List.of(ids.get(1)));
         jdbc.update("update ingredient set active = false where id = ?", ids.get(1));
         request(OWNER, ids).andExpect(status().isOk()).andExpect(jsonPath("$.data.ingredients.length()").value(2));
     }
@@ -126,7 +126,7 @@ class AddIngredientsApiTest {
             for (int i = 0; i < 6; i++) futures.add(executor.submit(() -> {
                 ready.countDown();
                 if (!start.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("timeout");
-                return service.add(OWNER, ids).ingredients().stream().map(item -> item.ingredientId()).toList();
+                return service.addIngredients(OWNER, ids).ingredients().stream().map(item -> item.ingredientId()).toList();
             }));
             try { assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue(); }
             finally { start.countDown(); }
