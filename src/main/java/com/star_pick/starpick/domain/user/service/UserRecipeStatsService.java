@@ -22,13 +22,6 @@ public class UserRecipeStatsService {
     public void onRecipeCreated(Long userId) {
         User user = users.findById(userId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED));
-        user.increaseRecipeCounts();
-    }
-
-    @Transactional
-    public void onRecipeDeleted(Long userId) {
-        User user = users.findById(userId)
-                .orElseThrow(() -> new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED));
-        user.decreaseActiveRecipeCount();
+        user.recordRecipeCreated();
     }
 }
