@@ -67,9 +67,8 @@ class RecipeCoverImageApiTest {
 
     @BeforeEach
     void setUp() {
-        recipeRepository.deleteAll();
-        uploadObjectRepository.deleteAll();
-        objectStorage.clear();
+        // 생성할 때마다 사용자 슬롯이 줄어들므로 테스트마다 초기화한다.
+        fixtures.reset();
         fixtures.seedUser(OWNER_ID);
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }

@@ -46,7 +46,8 @@ class RecipeCreateApiTest {
 
     @BeforeEach
     void setUp() {
-        recipeRepository.deleteAll();
+        // 생성할 때마다 사용자 슬롯이 줄어들므로 테스트마다 초기화한다.
+        fixtures.reset();
         fixtures.seedUser(OWNER_ID);
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }
@@ -81,6 +82,37 @@ class RecipeCreateApiTest {
         assertThat(saved.get("category_code")).isEqualTo("KOREAN");
         assertThat(saved.get("user_id")).isEqualTo(OWNER_ID);
         assertThat(saved.get("cover_image_key")).isNull();
+    }
+
+    private int usedSlots() {
+        return jdbcTemplate.queryForObject(
+                "select cumulative_recipe_count from users where user_id = ?", Integer.class, OWNER_ID);
+    }
+
+    @Test
+    @DisplayName("생성에 성공하면 저장 슬롯을 하나 쓴다")
+    void createUsesOneSlot() throws Exception {
+        create("""
+                {"title":"김치찌개","categoryCode":"KOREAN"}
+                """).andExpect(status().isCreated());
+
+        assertThat(usedSlots()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("남은 저장 슬롯이 없으면 409 RECIPE_SLOT_EXCEEDED 이고 레시피를 만들지 않는다")
+    void rejectsWhenNoSlotLeft() throws Exception {
+        jdbcTemplate.update(
+                "update users set cumulative_recipe_count = recipe_slot_limit where user_id = ?", OWNER_ID);
+
+        create("""
+                {"title":"김치찌개","categoryCode":"KOREAN"}
+                """)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.data.code").value("RECIPE_SLOT_EXCEEDED"));
+
+        assertThat(recipeRepository.count()).isZero();
+        assertThat(usedSlots()).isEqualTo(10);
     }
 
     @Test

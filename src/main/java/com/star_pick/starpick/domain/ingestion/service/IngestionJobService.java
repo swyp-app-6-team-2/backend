@@ -19,6 +19,7 @@ import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.AttachOutcome;
 import com.star_pick.starpick.domain.upload.service.UploadService;
+import com.star_pick.starpick.domain.user.service.UserRecipeStatsService;
 import com.star_pick.starpick.global.exception.BusinessException;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -37,10 +38,13 @@ public class IngestionJobService {
     private final IngestionJobRepository repository;
     private final UploadService uploadService;
     private final IngestionProperties properties;
+    private final UserRecipeStatsService userRecipeStatsService;
 
     @Transactional
     public IngestionJobCreateResponse create(Long userId, IngestionJobCreateRequest request) {
         IngestionJob urlJob = request.inputType() == IngestionInputType.URL ? urlJob(userId, request.url()) : null;
+        // 저장할 수 없는 결과를 만드느라 분석 비용과 대기 시간을 쓰지 않는다. 슬롯은 저장할 때 쓴다.
+        userRecipeStatsService.requireRemainingSlot(userId);
         Instant today = ZonedDateTime.now(SEOUL).toLocalDate().atStartOfDay(SEOUL).toInstant();
         if (repository.countByUserIdAndCreatedAtGreaterThanEqual(userId, today) >= properties.dailyLimit()) {
             throw new BusinessException(INGESTION_DAILY_LIMIT_EXCEEDED);
