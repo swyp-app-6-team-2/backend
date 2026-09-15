@@ -69,7 +69,7 @@ public class TestFixtures {
         jdbcTemplate.update("delete from profiles");
         jdbcTemplate.update("""
             update users
-            set recipe_slot_limit = 10, active_recipe_count = 0, cumulative_recipe_count = 0
+            set recipe_slot_limit = 10, cumulative_recipe_count = 0
             """);
         // recipe.ingestion_job_id FK 때문에 recipe 를 먼저 지운다.
         cookHistoryRepository.deleteAll();
