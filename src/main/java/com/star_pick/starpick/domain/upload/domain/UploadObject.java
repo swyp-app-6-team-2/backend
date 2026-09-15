@@ -9,7 +9,7 @@ import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -45,7 +45,7 @@ public class UploadObject implements Persistable<String> {
     private UploadPurpose purpose;
 
     /** null 이면 미연결이다. 연결 이후 다시 null 로 되돌리지 않는다. */
-    private LocalDateTime attachedAt;
+    private Instant attachedAt;
 
     private UploadObject(String objectKey, Long userId, UploadPurpose purpose) {
         this.objectKey = Objects.requireNonNull(objectKey, "objectKey");

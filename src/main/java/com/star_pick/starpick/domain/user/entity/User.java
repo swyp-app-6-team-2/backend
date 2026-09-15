@@ -7,7 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 @Entity
 @Getter
@@ -26,7 +26,7 @@ public class User {
     private Boolean ageOver14Agreed;
 
     @Column(name = "age_over_14_agreed_at")
-    private LocalDateTime ageOver14AgreedAt;
+    private Instant ageOver14AgreedAt;
 
     @Column(nullable = false)
     private boolean serviceTermsAgreed;
@@ -40,46 +40,46 @@ public class User {
     @Column(nullable = false)
     private boolean serviceAgreed;
 
-    private LocalDateTime serviceAgreedAt;
+    private Instant serviceAgreedAt;
 
     @Column(nullable = false)
-    private LocalDateTime signupCompletedAt;
+    private Instant signupCompletedAt;
 
-    private LocalDateTime marketingAgreedAt;
+    private Instant marketingAgreedAt;
 
     @Enumerated(EnumType.STRING)
     private Provider lastLoginProvider;
 
-    private LocalDateTime lastLoginAt;
+    private Instant lastLoginAt;
 
     @Column(name = "last_activity_at")
-    private LocalDateTime lastActivityAt;
+    private Instant lastActivityAt;
 
     @CreationTimestamp
     @Column(nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
-    private LocalDateTime deletedAt;
+    private Instant deletedAt;
 
     @Column(name = "onboarding_completed_at")
-    private LocalDateTime onboardingCompletedAt;
+    private Instant onboardingCompletedAt;
 
     public boolean isOnboardingRequired() {
         return onboardingCompletedAt == null;
     }
 
-    public void completeOnboarding(LocalDateTime completedAt) {
+    public void completeOnboarding(Instant completedAt) {
         if (onboardingCompletedAt == null) {
             onboardingCompletedAt = completedAt;
         }
     }
 
-    public void updateLastLogin(Provider provider, LocalDateTime loginAt) {
+    public void updateLastLogin(Provider provider, Instant loginAt) {
         this.lastLoginProvider = provider;
         this.lastLoginAt = loginAt;
     }
 
-    public void updateLastActivity(LocalDateTime activityAt) {
+    public void updateLastActivity(Instant activityAt) {
         this.lastActivityAt = activityAt;
     }
 }

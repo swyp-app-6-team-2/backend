@@ -10,7 +10,7 @@ import com.star_pick.starpick.domain.user.repository.UserRepository;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.global.security.jwt.JwtProvider.SignupIdentity;
 import io.jsonwebtoken.JwtException;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -53,7 +53,7 @@ public class SignupService {
         if (credentials.findByProviderAndSocialUid(identity.provider(), identity.socialUid()).isPresent()) {
             throw SignupException.alreadyRegistered();
         }
-        LocalDateTime now = LocalDateTime.now();
+        Instant now = Instant.now();
         User user = users.save(User.builder()
                 .ageOver14Agreed(true)
                 .ageOver14AgreedAt(now)
