@@ -155,6 +155,8 @@ Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출
 
 최초 생성은 Recipe ID와 `201 Created`를 반환한다. 동일한 IngestionJob으로 재요청하고 기존 Recipe가 있으면 새로 생성하지 않고 기존 Recipe ID와 `200 OK`를 반환한다. 이때 요청 내용(대표 이미지·재료 등)은 반영하지 않는다. 요청 형식 검증은 이 판단보다 먼저 돌므로, 본문이 잘못된 재요청은 `400`이다.
 
+최초 생성은 사용자의 레시피 저장 슬롯을 하나 쓴다. 남은 슬롯이 없으면 `409 + RECIPE_SLOT_EXCEEDED`이고, 기존 Recipe를 돌려주는 재요청(`200`)은 슬롯을 쓰지 않는다. Recipe를 삭제해도 쓴 슬롯은 돌아오지 않는다.
+
 유효하지 않은 Cover Key는 `400 + RECIPE_COVER_INVALID`, 이미 연결된 Cover Key는 `409 + RECIPE_COVER_ALREADY_USED`로 처리한다.
 
 `ingredients[].ingredientId`에 존재하지 않는 재료를 보내면 `400 + RECIPE_INGREDIENT_INVALID`로 요청 전체를 실패시킨다. 비활성 재료와 중복 사용은 허용한다 — 규칙과 근거는 [Ingredient Spec](./ingredient.md)의 `검증`과 `검증은 존재만, active는 보지 않음`이 소유한다.

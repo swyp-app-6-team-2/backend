@@ -235,6 +235,7 @@ IngestionJob 1 ── 0..1 Recipe
 | 지원하지 않는 URL                   | `400 + INGESTION_URL_UNSUPPORTED`          |
 | Key가 없음, 남의 것, 다른 용도, 업로드 안 됨 | `400 + INGESTION_INPUT_IMAGE_INVALID`      |
 | Key가 이미 다른 곳에 연결됨             | `409 + INGESTION_INPUT_IMAGE_ALREADY_USED` |
+| 남은 레시피 저장 슬롯이 없음(확인만, 차감은 저장 때) | `409 + RECIPE_SLOT_EXCEEDED`               |
 | 일일 한도 초과                      | `429 + INGESTION_DAILY_LIMIT_EXCEEDED`     |
 
 #### 분석 상태 조회

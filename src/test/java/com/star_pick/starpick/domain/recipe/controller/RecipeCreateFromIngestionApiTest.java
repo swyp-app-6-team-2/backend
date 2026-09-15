@@ -110,6 +110,11 @@ class RecipeCreateFromIngestionApiTest {
         return jobRepository.findById(jobId).orElseThrow();
     }
 
+    private int usedSlots() {
+        return jdbcTemplate.queryForObject(
+                "select cumulative_recipe_count from users where user_id = ?", Integer.class, OWNER_ID);
+    }
+
     @Test
     @DisplayName("사진 Job 으로 저장하면 201, 등록 방식 IMAGE, 사진 Key 복사, Job 소비")
     void imageJobCreatesImageRecipe() throws Exception {
@@ -177,6 +182,22 @@ class RecipeCreateFromIngestionApiTest {
                         """.formatted(recipeId), JsonCompareMode.STRICT));
 
         assertThat(recipeRepository.count()).isEqualTo(1);
+        assertThat(usedSlots()).as("재요청은 슬롯을 다시 쓰지 않는다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("남은 저장 슬롯이 없으면 409 RECIPE_SLOT_EXCEEDED 이고 Job 소비도 롤백된다")
+    void noSlotLeftRollsBackConsumption() throws Exception {
+        Long jobId = fixtures.saveReadyImageJob(OWNER_ID).getId();
+        jdbcTemplate.update(
+                "update users set cumulative_recipe_count = recipe_slot_limit where user_id = ?", OWNER_ID);
+
+        create(jobId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.data.code").value("RECIPE_SLOT_EXCEEDED"));
+
+        assertThat(reload(jobId).getConsumedAt()).isNull();
+        assertThat(recipeRepository.count()).isZero();
     }
 
     @Test

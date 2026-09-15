@@ -21,6 +21,7 @@ import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.AttachOutcome;
 import com.star_pick.starpick.domain.upload.service.UploadService;
+import com.star_pick.starpick.domain.user.service.UserRecipeStatsService;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import java.util.List;
@@ -49,6 +50,8 @@ public class RecipeService {
     private final CookHistoryCleanupService cookHistoryCleanupService;
 
     private final IngestionJobConsumeService ingestionJobConsumeService;
+
+    private final UserRecipeStatsService userRecipeStatsService;
 
     /**
      * Recipe 를 저장한다. 순서는 {@code docs/specs/ingestion.md} §3.4 가 정한 계약이다.
@@ -82,8 +85,12 @@ public class RecipeService {
         return new RecipeCreateResult(saveNew(recipe, userId, request), true);
     }
 
-    /** 재료·조리 순서·대표 이미지를 붙여 저장한다. 연결이 실패하면 예외가 나가 Recipe 도 저장되지 않는다. */
+    /**
+     * 저장 슬롯을 하나 쓰고 재료·조리 순서·대표 이미지를 붙여 저장한다. 연결이 실패하면 예외가 나가
+     * Recipe 도 저장되지 않고 슬롯 차감도 롤백된다. 재요청으로 기존 Recipe 를 돌려줄 때는 여기를 거치지 않는다.
+     */
     private Long saveNew(Recipe recipe, Long userId, RecipeCreateRequest request) {
+        userRecipeStatsService.onRecipeCreated(userId);
         recipe.replaceIngredients(toIngredients(request.ingredients()));
         recipe.replaceSteps(toSteps(request.steps()));
         changeCover(recipe, userId, request.coverImageKey());

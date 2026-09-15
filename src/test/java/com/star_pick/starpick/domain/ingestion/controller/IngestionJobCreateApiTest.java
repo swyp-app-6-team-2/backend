@@ -251,6 +251,24 @@ class IngestionJobCreateApiTest {
         assertThat(repository.count()).isEqualTo(20);
     }
 
+    @Test
+    @DisplayName("남은 저장 슬롯이 없으면 409 RECIPE_SLOT_EXCEEDED 이고 Job 을 만들지 않는다")
+    void rejectsWhenNoSlotLeft() throws Exception {
+        jdbcTemplate.update(
+                "update users set cumulative_recipe_count = recipe_slot_limit where user_id = ?", OWNER_ID);
+        String key = fixtures.uploadedKey(OWNER_ID, UploadPurpose.INGESTION_INPUT);
+
+        create("{\"inputType\":\"IMAGE\",\"inputImageKeys\":[\"%s\"]}".formatted(key))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.data.code").value("RECIPE_SLOT_EXCEEDED"));
+        create("{\"inputType\":\"URL\",\"url\":\"https://youtu.be/JeTQ0q46pBM\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.data.code").value("RECIPE_SLOT_EXCEEDED"));
+
+        assertThat(repository.count()).isZero();
+        assertThat(fixtures.isAttached(key)).isFalse();
+    }
+
     private void saveJobs(int count) {
         repository.saveAll(java.util.stream.IntStream.range(0, count)
                 .mapToObj(index -> IngestionJob.queueImage(
