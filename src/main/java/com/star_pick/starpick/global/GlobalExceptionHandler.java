@@ -7,6 +7,8 @@ import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import com.star_pick.starpick.global.exception.ErrorCode;
 import com.star_pick.starpick.global.exception.ErrorData;
+import com.star_pick.starpick.global.security.AuthenticatedUser;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -16,7 +18,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -77,12 +81,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         throw e;
     }
 
+    /**
+     * query string·본문·헤더는 토큰이나 사용자 입력이 섞일 수 있어 남기지 않는다. method·path 로 API 를 구분한다.
+     */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiResponse<ErrorData>> handleUnexpected(Exception e) {
-        log.error("처리되지 않은 예외", e);
+    public ResponseEntity<ApiResponse<ErrorData>> handleUnexpected(Exception e, HttpServletRequest request) {
+        log.error("처리되지 않은 예외. method={}, path={}, userId={}",
+                request.getMethod(), request.getRequestURI(), currentUserId(), e);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error(CommonErrorCode.INTERNAL_SERVER_ERROR));
+    }
+
+    private Long currentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null && authentication.getPrincipal() instanceof AuthenticatedUser user
+                ? user.userId() : null;
     }
 
     @Override

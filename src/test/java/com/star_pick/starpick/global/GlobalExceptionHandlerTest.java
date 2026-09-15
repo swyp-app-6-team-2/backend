@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.ErrorCode;
+import com.star_pick.starpick.global.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -16,8 +17,13 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,6 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Spring Context 를 띄우지 않는다. 검증 대상인 advice 와 최소한의 컨트롤러만
  * standalone MockMvc 에 올린다. 테스트 전용 컨트롤러를 운영 소스 트리에 두지 않기 위한 선택이다.
  */
+@ExtendWith(OutputCaptureExtension.class)
 class GlobalExceptionHandlerTest {
 
     private final MockMvc mockMvc = MockMvcBuilders
@@ -129,6 +136,21 @@ class GlobalExceptionHandlerTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).startsWith("{\"status\":200,\"message\":");
+    }
+
+    @Test
+    @DisplayName("G9 예상하지 못한 예외 로그에 요청 method·path 와 사용자 id 를 남긴다")
+    void unexpectedExceptionLogsRequest(CapturedOutput output) throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(new AuthenticatedUser(7L), null, List.of()));
+        try {
+            mockMvc.perform(get("/test/boom"))
+                    .andExpect(status().isInternalServerError());
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+
+        assertThat(output).contains("method=GET, path=/test/boom, userId=7");
     }
 
     @Getter
