@@ -6,8 +6,7 @@ import java.util.List;
 /**
  * Recipe 목록 조회 응답.
  *
- * <p>{@code totalCount} 는 페이지 크기가 아니라 현재 조건의 전체 결과 수다. 지금은 조건이 없어
- * 사용자의 총 Recipe 수와 같고, 검색·필터가 붙으면 자연히 "조건에 맞는 개수"가 된다.
+ * <p>{@code totalCount} 는 페이지 크기가 아니라 검색·필터를 적용한 사용자 레시피의 전체 결과 수다.
  *
  * <p>카드가 쓰는 필드만 담는다. {@code memo}, {@code steps}, {@code source},
  * {@code cookTimeMinutes}, {@code servings} 는 상세 조회 전용이다.
