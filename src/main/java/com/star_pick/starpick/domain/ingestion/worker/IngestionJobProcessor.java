@@ -6,6 +6,7 @@ import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJob;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionSourceType;
 import com.star_pick.starpick.domain.ingestion.domain.InstagramUrl;
+import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.exception.IngestionInputException;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisInput;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisOutcome;
@@ -25,6 +26,7 @@ import com.star_pick.starpick.domain.ingestion.service.RecipeDraftNormalizer;
 import com.star_pick.starpick.domain.ingestion.service.UploadedVideo;
 import com.star_pick.starpick.domain.ingestion.service.Verdict;
 import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
+import com.star_pick.starpick.domain.ingestion.service.YouTubeMetadataClient;
 import com.star_pick.starpick.domain.upload.service.UploadService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -38,6 +40,8 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.UnknownContentTypeException;
 
 @Slf4j
 @Component
@@ -57,6 +61,7 @@ public class IngestionJobProcessor {
     private final IngredientService ingredientService;
     private final IngestionProperties properties;
     private final UploadService uploadService;
+    private final YouTubeMetadataClient youTubeMetadataClient;
 
     public IngestionJobProcessor(IngestionJobExecutionService executionService,
                                  IngestionImageLoader imageLoader,
@@ -65,7 +70,8 @@ public class IngestionJobProcessor {
                                  RecipeDraftNormalizer normalizer,
                                  IngredientService ingredientService,
                                  IngestionProperties properties,
-                                 UploadService uploadService) {
+                                 UploadService uploadService,
+                                 YouTubeMetadataClient youTubeMetadataClient) {
         this.executionService = executionService;
         this.imageLoader = imageLoader;
         this.instagramClient = instagramClient;
@@ -74,6 +80,7 @@ public class IngestionJobProcessor {
         this.ingredientService = ingredientService;
         this.properties = properties;
         this.uploadService = uploadService;
+        this.youTubeMetadataClient = youTubeMetadataClient;
     }
 
     /** 분석 결과와, 성공하면 원본 대표 이미지로 복사할 주소. 대표 이미지는 Instagram 게시물의 첫 카드만 있다. */
@@ -95,8 +102,9 @@ public class IngestionJobProcessor {
             Analysis analysis = switch (snapshot.sourceType()) {
                 case IMAGE -> new Analysis(analyzeWithRetry(snapshot,
                         AnalysisInput.ofImages(imageLoader.load(snapshot.inputImageKeys(), deadline)), deadline), null);
-                case YOUTUBE -> new Analysis(
-                        analyzeWithRetry(snapshot, AnalysisInput.ofVideo(snapshot.inputUrl()), deadline), null);
+                case YOUTUBE -> new Analysis(analyzeWithRetry(snapshot,
+                        AnalysisInput.ofVideo(snapshot.inputUrl(), youTubeDescription(snapshot, deadline)),
+                        deadline), null);
                 case INSTAGRAM -> analyzeInstagram(snapshot, deadline);
             };
             AnalysisOutcome outcome = analysis.outcome();
@@ -187,6 +195,61 @@ public class IngestionJobProcessor {
         return new Analysis(analyzeWithRetry(snapshot,
                 AnalysisInput.ofInstagramPost(downloadImages(snapshot, selection.imageUrls(), deadline), post.caption()),
                 deadline), thumbnailImageUrl);
+    }
+
+    /**
+     * 영상 설명란. 분석 결과와 무관한 best-effort 라 실패하면 null 이고 분석은 그대로 진행한다.
+     *
+     * <p>{@link #callWithRetry} 를 쓰지 않는다. 그 메서드는 실패를 분석 실패로 올리는데, 설명란 때문에
+     * 이미 가능한 분석이 실패로 바뀌면 안 된다. 재시도도 하지 않는다.
+     *
+     * <p><b>남은 시간이 {@code fetchTimeout + MIN_REMAINING_TO_CALL} 이하면 아예 부르지 않는다.</b>
+     * 이 호출은 분석보다 <i>앞</i>에 있어, 잔여만 보고 시작하면 설명란이 분석 예산을 먹을 수 있다.
+     * 뒤에서 도는 {@link #storeSourceThumbnail} 과 다른 점이다.
+     *
+     * <p>로그에 응답 본문이나 설명란 내용을 남기지 않는다. 상태코드는 남긴다 — 키 무효와 쿼터 소진을
+     * 구분해야 한다.
+     */
+    private String youTubeDescription(IngestionJobSnapshot snapshot, Instant deadline) {
+        YouTubeUrl url = YouTubeUrl.parse(snapshot.inputUrl()).orElse(null);
+        if (url == null) {
+            // 저장된 URL 은 생성 때 정규화한 값이라 여기서 실패하면 데이터 드리프트 신호다.
+            // best-effort 라 분석을 막지는 않지만 흔적은 남긴다.
+            log.warn("저장된 YouTube 링크를 해석할 수 없어 설명란을 건너뜁니다. ingestionJobId={}", snapshot.id());
+            return null;
+        }
+        Duration fetchTimeout = properties.youtube().fetchTimeout();
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        if (remaining.compareTo(fetchTimeout.plus(MIN_REMAINING_TO_CALL)) <= 0) {
+            log.warn("deadline 이 모자라 영상 설명란을 건너뜁니다. ingestionJobId={}", snapshot.id());
+            return null;
+        }
+        try {
+            return youTubeMetadataClient.description(url.videoId(), fetchTimeout);
+        } catch (RuntimeException e) {
+            log.warn("영상 설명란을 받지 못했습니다. ingestionJobId={}, cause={}", snapshot.id(), cause(e));
+            return null;
+        }
+    }
+
+    /**
+     * 실패 원인을 로그에 남길 짧은 문자열. <b>상태코드가 있으면 그것을 쓴다</b> — 키 무효(400)와
+     * 쿼터 소진(403)을 구분해야 하고, 그 구분이 "기동은 됐는데 설명란만 빠지는" 상태를 관찰하는 유일한 수단이다.
+     *
+     * <p>{@code UnknownContentTypeException} 을 따로 보는 이유는 그것이
+     * {@code RestClientResponseException} 이 <b>아니라</b> {@code RestClientException} 을 직접 상속하기 때문이다.
+     * 프록시나 오류 페이지가 {@code 200 + text/html} 로 답하면 이 경로로 오는데, 묶어서 처리하면 상태코드를 잃는다.
+     *
+     * <p>본문과 URL 은 남기지 않는다. 예외 메시지에 응답 본문이 들어 있을 수 있다.
+     */
+    private static String cause(RuntimeException e) {
+        if (e instanceof RestClientResponseException response) {
+            return "status=" + response.getStatusCode().value();
+        }
+        if (e instanceof UnknownContentTypeException unknown) {
+            return "status=" + unknown.getStatusCode().value();
+        }
+        return e.getClass().getSimpleName();
     }
 
     /**

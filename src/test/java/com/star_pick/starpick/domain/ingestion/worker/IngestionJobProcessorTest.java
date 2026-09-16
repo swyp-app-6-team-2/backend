@@ -29,6 +29,7 @@ import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.support.FakeInstagramClient;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.FakeRecipeAnalyzer;
+import com.star_pick.starpick.support.FakeYouTubeMetadataClient;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
 import java.time.Duration;
@@ -41,6 +42,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.UnknownContentTypeException;
 
 @IntegrationTest
 class IngestionJobProcessorTest {
@@ -72,6 +79,8 @@ class IngestionJobProcessorTest {
     private FakeInstagramClient instagram;
     @Autowired
     private UploadService uploadService;
+    @Autowired
+    private FakeYouTubeMetadataClient youTube;
 
     private static final String YOUTUBE_URL = "https://www.youtube.com/watch?v=kjG6h_LTklo";
     private static final String CDN = "https://scontent-ssn1-1.cdninstagram.com/";
@@ -83,6 +92,7 @@ class IngestionJobProcessorTest {
         fixtures.reset();
         analyzer.clear();
         instagram.clear();
+        youTube.clear();
         fixtures.seedUser(1L);
     }
 
@@ -281,6 +291,111 @@ class IngestionJobProcessorTest {
     }
 
     @Test
+    @DisplayName("YouTube 분석에 영상 설명란을 함께 넘긴다")
+    void passesYouTubeDescription() {
+        PreemptedJob job = queuedYouTubeAndPreempted();
+        youTube.put("kjG6h_LTklo", "재료\n간장 3T");
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+
+        processor.process(job);
+
+        AnalysisInput input = analyzer.lastInput();
+        assertThat(input.source()).isEqualTo(AnalysisInput.Source.YOUTUBE);
+        assertThat(input.sourceText()).isEqualTo("재료\n간장 3T");
+        assertThat(youTube.calls()).isOne();
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("설명란이 없어도 분석을 계속한다")
+    void continuesWithoutDescription() {
+        PreemptedJob job = queuedYouTubeAndPreempted();
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+
+        processor.process(job);
+
+        assertThat(analyzer.lastInput().sourceText()).isNull();
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("설명란 조회가 상태코드 있는 오류로 실패해도 분석을 계속한다")
+    void continuesWhenDescriptionLookupFailsWithStatus() {
+        PreemptedJob job = queuedYouTubeAndPreempted();
+        // 쿼터 소진(403)처럼 상태코드를 남기는 경로. 이 분기가 실제로 실행되는지 확인한다.
+        youTube.fail("kjG6h_LTklo", HttpClientErrorException.create(
+                HttpStatus.FORBIDDEN, "Forbidden", HttpHeaders.EMPTY, new byte[0], null));
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+
+        processor.process(job);
+
+        assertThat(analyzer.lastInput().sourceText()).isNull();
+        assertThat(analyzer.calls()).isOne();
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("JSON 이 아닌 응답으로 실패해도 분석을 계속한다")
+    void continuesWhenDescriptionLookupGetsNonJsonBody() {
+        PreemptedJob job = queuedYouTubeAndPreempted();
+        // 프록시·오류 페이지가 200 + text/html 로 답하는 경로. RestClientResponseException 이 아니다.
+        youTube.fail("kjG6h_LTklo", new UnknownContentTypeException(String.class, MediaType.TEXT_HTML,
+                HttpStatus.OK, "OK", HttpHeaders.EMPTY, new byte[0]));
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+
+        processor.process(job);
+
+        assertThat(analyzer.lastInput().sourceText()).isNull();
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("상태코드 없는 오류로 실패해도 분석을 계속한다")
+    void continuesWhenDescriptionLookupFailsWithoutStatus() {
+        PreemptedJob job = queuedYouTubeAndPreempted();
+        youTube.fail("kjG6h_LTklo", new RestClientException("boom"));
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+
+        processor.process(job);
+
+        assertThat(analyzer.lastInput().sourceText()).isNull();
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("설명란을 받을 시간이 모자라면 조회하지 않고 분석만 한다")
+    void skipsDescriptionWhenDeadlineIsTight() {
+        PreemptedJob job = queuedYouTubeAndPreempted();
+        youTube.put("kjG6h_LTklo", "재료\n간장 3T");
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        // 시각을 조작해 경계에 맞추지 않는다. 설명란 상한을 deadline(10초)보다 크게 줘서
+        // 가드(`상한 + 5초`)에는 항상 걸리고 분석 바닥(5초)에는 닿지 않게 한다.
+        IngestionJobProcessor tightProcessor = processorWithYouTubeFetchTimeout(Duration.ofSeconds(30));
+
+        tightProcessor.process(job);
+
+        assertThat(youTube.calls()).isZero();
+        assertThat(analyzer.calls()).isOne();
+        assertThat(analyzer.lastInput().sourceText()).isNull();
+    }
+
+    @Test
+    @DisplayName("사진 Job 은 설명란을 조회하지 않는다")
+    void skipsDescriptionForImageJobs() {
+        PreemptedJob job = queuedAndPreempted();
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+
+        processor.process(job);
+
+        assertThat(youTube.calls()).isZero();
+    }
+
+    @Test
     @DisplayName("입력 거절은 재시도하지 않고 YouTube 는 SOURCE_UNAVAILABLE, 사진은 PROCESSING_FAILED 다")
     void mapsRejectedInputBySourceType() {
         PreemptedJob youtube = queuedYouTubeAndPreempted();
@@ -313,7 +428,7 @@ class IngestionJobProcessorTest {
         AnalysisInput input = analyzer.lastInput();
         assertThat(input.source()).isEqualTo(AnalysisInput.Source.INSTAGRAM_POST);
         assertThat(input.images()).extracting(image -> image.content()[0]).containsExactly((byte) 1, (byte) 3);
-        assertThat(input.caption()).isEqualTo("콩나물밥 만드는 법");
+        assertThat(input.sourceText()).isEqualTo("콩나물밥 만드는 법");
         assertThat(instagram.lastFetch()).isEqualTo("DKI9fBzy5FB post");
         // 분석 카드 둘은 합계 상한을 나눠 쓰고, 마지막은 성공 뒤 대표 이미지로 받는 첫 카드라 상한이 따로다.
         assertThat(instagram.imageLimits()).containsExactly(
@@ -434,7 +549,7 @@ class IngestionJobProcessorTest {
         AnalysisInput input = analyzer.lastInput();
         assertThat(input.source()).isEqualTo(AnalysisInput.Source.INSTAGRAM_REEL);
         assertThat(input.videoUrl()).isEqualTo(FakeRecipeAnalyzer.UPLOADED.uri());
-        assertThat(input.caption()).isEqualTo("막김치");
+        assertThat(input.sourceText()).isEqualTo("막김치");
         assertThat(instagram.lastFetch()).isEqualTo("DcdllvBmOgm reel");
         assertThat(analyzer.lastUploadedBytes()).containsExactly(9, 9, 9);
         assertThat(analyzer.deletedVideos()).isOne();
@@ -678,6 +793,17 @@ class IngestionJobProcessorTest {
                 OffsetDateTime.ofInstant(startedAt, ZoneOffset.UTC), id);
     }
 
+    /** 설명란 조회 상한만 바꾼 Processor. deadline 가드 경계를 시각 조작 없이 넘기려고 쓴다. */
+    private IngestionJobProcessor processorWithYouTubeFetchTimeout(Duration fetchTimeout) {
+        IngestionProperties custom = new IngestionProperties(
+                properties.dailyLimit(), properties.worker(), properties.job(), properties.retry(),
+                properties.image(), properties.external(), properties.gemini(), properties.instagram(),
+                new IngestionProperties.YouTube(properties.youtube().apiKey(), fetchTimeout));
+        return new IngestionJobProcessor(
+                executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom,
+                uploadService, youTube);
+    }
+
     private IngestionJobProcessor processorWithAnalyzeTimeout(Duration analyzeTimeout) {
         IngestionProperties custom = new IngestionProperties(
                 properties.dailyLimit(), properties.worker(), properties.job(), properties.retry(),
@@ -688,7 +814,7 @@ class IngestionJobProcessorTest {
                 properties.instagram(), properties.youtube());
         return new IngestionJobProcessor(
                 executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom,
-                uploadService);
+                uploadService, youTube);
     }
 
     private void assertFailure(Long id, IngestionFailureCode code) {
