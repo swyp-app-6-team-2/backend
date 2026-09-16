@@ -54,8 +54,8 @@ public class AdminSecurityConfig {
                 .formLogin(form -> form
                         .loginPage("/admin/login")
                         .loginProcessingUrl("/admin/login")
-                        // 원래 가려던 주소로 돌아가지 않는다. /admin 같은 진입 주소로 돌아가도 결국 목록이다.
-                        .defaultSuccessUrl("/admin/inquiries", true)
+                        // Discord 알림 링크로 들어오면 로그인 뒤 그 문의로 돌아간다. 저장된 요청이 없을 때만 목록이다.
+                        .defaultSuccessUrl("/admin/inquiries")
                         .failureHandler(new AdminLoginFailureHandler()))
                 .logout(logout -> logout
                         .logoutUrl("/admin/logout")

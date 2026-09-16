@@ -1,4 +1,8 @@
 server:
+  servlet:
+    session:
+      # 관리자 페이지 전용 세션이다. 기본 30분이면 알림 링크를 누를 때마다 다시 로그인하게 된다.
+      timeout: 8h
   # TLS 는 Caddy 가 끝낸다. X-Forwarded-Proto 를 받아들여야 https 로 인식해 세션 쿠키에 Secure 가 붙고
   # 리다이렉트가 https 로 나가며, getRemoteAddr() 가 실제 접속 IP 가 된다.
   forward-headers-strategy: native
