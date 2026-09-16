@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.ad.controller;
 
+import com.star_pick.starpick.domain.ad.dto.request.AdRewardSessionCancelRequest;
 import com.star_pick.starpick.domain.ad.dto.request.AdRewardSessionCreateRequest;
 import com.star_pick.starpick.domain.ad.dto.response.AdRewardSessionResponse;
 import com.star_pick.starpick.domain.ad.dto.response.AdRewardSessionResultResponse;
@@ -70,5 +71,24 @@ public class AdRewardController {
     public ApiResponse<AdRewardSessionResultResponse> getSessionResult(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable UUID sessionId) {
         return ApiResponse.ok("광고 시청 세션 결과를 조회했습니다.", sessions.getSessionResult(user.userId(), sessionId));
+    }
+
+    @PostMapping("/sessions/{sessionId}/cancel")
+    @Operation(summary = "시청 세션 포기", description = "유효한 access token이 필요합니다. 본인 세션만 포기할 수 있습니다. "
+            + "포기는 시청 사실의 증명이 아니라 해당 세션의 보상 청구를 포기하는 요청이며, 이후 이 세션에는 자동으로 지급되지 않습니다. "
+            + "이미 지급되었거나 취소·만료·거절된 세션은 다시 포기 처리하지 않고 현재 결과를 그대로 반환합니다.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
+                    description = "포기 처리 또는 이미 확정된 세션의 현재 결과 반환"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "요청값 오류"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "인증 실패 또는 사용할 수 없는 사용자"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "없거나 본인 소유가 아닌 세션(AD_REWARD_SESSION_NOT_FOUND, 두 경우를 구분하지 않음)")
+    })
+    public ApiResponse<AdRewardSessionResultResponse> cancelSession(@AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable UUID sessionId, @Valid @RequestBody AdRewardSessionCancelRequest request) {
+        return ApiResponse.ok("광고 시청 세션을 포기했습니다.",
+                sessions.cancelSession(user.userId(), sessionId, request.reason()));
     }
 }
