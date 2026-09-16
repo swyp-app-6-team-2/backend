@@ -114,3 +114,20 @@ admin:
 inquiry:
   # 비어 있으면 접수 알림을 보내지 않는다. notification.fcm.project-id 와 같은 방식이다.
   discord-webhook-url: ${INQUIRY_DISCORD_WEBHOOK_URL:}
+
+ad-reward:
+  # REWARDED_AD_SSV.md §2, §2.1 의 정책값. 한도를 바꾸면 ck_ad_reward_daily_quota_limit 도 함께 바꾼다.
+  daily-limit: 3
+  reward-amount: 2
+  reward-type: recipe_slot
+  session-validity: 30m
+  verification-deadline: 24h
+  clock-skew-tolerance: 5m
+  android:
+    ad-unit-id: ${ADMOB_AD_UNIT_ANDROID}
+    # 콜백 ad_unit 표기가 실제로 같은지 AdMob SSV 테스트 도구로 확인 전이라 우선 같은 값을 쓴다(§5.6).
+    expected-callback-ad-unit: ${ADMOB_AD_UNIT_ANDROID}
+  ios:
+    # 아직 iOS 광고 단위가 없다. 비어 있으면 iOS 플랫폼의 세션 발급은 후속 이슈에서 막는다.
+    ad-unit-id: ${ADMOB_AD_UNIT_IOS:}
+    expected-callback-ad-unit: ${ADMOB_AD_UNIT_IOS:}

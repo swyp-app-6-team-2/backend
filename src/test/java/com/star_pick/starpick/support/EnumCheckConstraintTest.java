@@ -2,6 +2,9 @@ package com.star_pick.starpick.support;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.star_pick.starpick.domain.ad.domain.AdRewardPlatform;
+import com.star_pick.starpick.domain.ad.domain.AdRewardSessionStatus;
+import com.star_pick.starpick.domain.ad.domain.AdRewardTransactionStatus;
 import com.star_pick.starpick.domain.ingredient.domain.IngredientCategory;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus;
@@ -39,6 +42,9 @@ class EnumCheckConstraintTest {
     private record Constraint(String name, Class<? extends Enum<?>> enumType) { }
 
     private static final List<Constraint> CONSTRAINTS = List.of(
+            new Constraint("ck_ad_reward_session_platform", AdRewardPlatform.class),
+            new Constraint("ck_ad_reward_session_status", AdRewardSessionStatus.class),
+            new Constraint("ck_ad_reward_transaction_status", AdRewardTransactionStatus.class),
             new Constraint("ck_ingredient_category_code", IngredientCategory.class),
             new Constraint("ck_ingestion_job_source_type", IngestionSourceType.class),
             new Constraint("ck_ingestion_job_status", IngestionJobStatus.class),
@@ -86,13 +92,18 @@ class EnumCheckConstraintTest {
         // ck_recipe_source 도 같은 이유로 제외한다. (등록 방식과 출처 컬럼 3개의 조합)
         // ck_recipe_source_thumbnail 도 같다. (원본 대표 이미지 Key 는 URL 방식에만)
         // ck_inquiry_attachment_keys(개수 상한)·ck_inquiry_answer(답변 두 컬럼의 조합)도 enum 과 무관해 제외한다.
+        // ck_ad_reward_daily_quota_non_negative·ck_ad_reward_daily_quota_limit(카운터 범위),
+        // ck_ad_reward_session_reward_amount(양수 확인), ck_ad_reward_transaction_granted_amount
+        // (상태·지급 금액·시각 조합)도 enum 값 집합이 아니라 제외한다.
         List<String> inDatabase = jdbcTemplate.queryForList("""
                 select conname from pg_constraint
                 where contype = 'c'
                   and connamespace = 'public'::regnamespace
                   and conname like 'ck\\_%'
                   and conname not in ('ck_ingestion_job_input', 'ck_recipe_source', 'ck_recipe_source_thumbnail',
-                                      'ck_inquiry_attachment_keys', 'ck_inquiry_answer')
+                                      'ck_inquiry_attachment_keys', 'ck_inquiry_answer',
+                                      'ck_ad_reward_daily_quota_non_negative', 'ck_ad_reward_daily_quota_limit',
+                                      'ck_ad_reward_session_reward_amount', 'ck_ad_reward_transaction_granted_amount')
                 """, String.class);
 
         assertThat(inDatabase)
