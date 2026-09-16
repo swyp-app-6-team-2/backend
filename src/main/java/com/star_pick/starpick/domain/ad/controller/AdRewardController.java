@@ -2,6 +2,7 @@ package com.star_pick.starpick.domain.ad.controller;
 
 import com.star_pick.starpick.domain.ad.dto.request.AdRewardSessionCreateRequest;
 import com.star_pick.starpick.domain.ad.dto.response.AdRewardSessionResponse;
+import com.star_pick.starpick.domain.ad.dto.response.AdRewardSessionResultResponse;
 import com.star_pick.starpick.domain.ad.dto.response.AdRewardStatusResponse;
 import com.star_pick.starpick.domain.ad.service.AdRewardSessionService;
 import com.star_pick.starpick.domain.ad.service.AdRewardStatusService;
@@ -11,9 +12,11 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -52,5 +55,20 @@ public class AdRewardController {
     public ApiResponse<AdRewardSessionResponse> createSession(@AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody AdRewardSessionCreateRequest request) {
         return ApiResponse.ok("광고 시청 세션을 발급했습니다.", sessions.createSession(user.userId(), request));
+    }
+
+    @GetMapping("/sessions/{sessionId}")
+    @Operation(summary = "시청 세션 결과 조회", description = "유효한 access token이 필요합니다. 본인 세션만 조회할 수 있습니다. "
+            + "세션 지급 날짜가 지나도 결과는 계속 조회할 수 있습니다.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "인증 실패 또는 사용할 수 없는 사용자"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "없거나 본인 소유가 아닌 세션(AD_REWARD_SESSION_NOT_FOUND, 두 경우를 구분하지 않음)")
+    })
+    public ApiResponse<AdRewardSessionResultResponse> getSessionResult(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable UUID sessionId) {
+        return ApiResponse.ok("광고 시청 세션 결과를 조회했습니다.", sessions.getSessionResult(user.userId(), sessionId));
     }
 }

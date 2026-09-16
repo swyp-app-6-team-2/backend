@@ -7,6 +7,7 @@ import com.star_pick.starpick.domain.ad.entity.AdRewardSession;
 import com.star_pick.starpick.domain.ad.entity.AdRewardSessionStatus;
 import com.star_pick.starpick.domain.ad.dto.request.AdRewardSessionCreateRequest;
 import com.star_pick.starpick.domain.ad.dto.response.AdRewardSessionResponse;
+import com.star_pick.starpick.domain.ad.dto.response.AdRewardSessionResultResponse;
 import com.star_pick.starpick.domain.ad.exception.AdRewardErrorCode;
 import com.star_pick.starpick.domain.ad.repository.AdRewardDailyQuotaRepository;
 import com.star_pick.starpick.domain.ad.repository.AdRewardSessionRepository;
@@ -19,15 +20,17 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 광고 시청 세션 발급. REWARDED_AD_SSV.md §4.2, §7.
+ * 광고 시청 세션 발급과 결과 조회. REWARDED_AD_SSV.md §4.2, §4.3, §7.
  *
- * <p>잠금 순서는 {@code users → daily_quota → session} 고정이다. 이 순서를 지키지 않으면 다른
- * 지급·취소·만료 경로와 교착(deadlock)할 수 있다(§7).
+ * <p>발급의 잠금 순서는 {@code users → daily_quota → session} 고정이다. 이 순서를 지키지 않으면
+ * 다른 지급·취소·만료 경로와 교착(deadlock)할 수 있다(§7). 결과 조회는 지급을 수행하지 않으므로
+ * 잠그지 않는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -80,6 +83,24 @@ public class AdRewardSessionService {
         sessions.save(session);
 
         return toResponse(session);
+    }
+
+    /**
+     * 세션 처리 결과 조회. REWARDED_AD_SSV.md §4.3.
+     *
+     * <p>잠그지 않는다 — GET 은 지급을 수행하지 않고, 반복 조회로 상태가 바뀌면 안 된다. 없거나
+     * 다른 사용자의 세션이면 동일한 404 다(소유 여부를 노출하지 않는다).
+     */
+    @Transactional(readOnly = true)
+    public AdRewardSessionResultResponse getSessionResult(Long userId, UUID sessionId) {
+        User user = users.findById(userId)
+                .orElseThrow(() -> new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED));
+        if (user.getDeletedAt() != null) {
+            throw new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED);
+        }
+        AdRewardSession session = sessions.findByIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new BusinessException(AdRewardErrorCode.AD_REWARD_SESSION_NOT_FOUND));
+        return AdRewardSessionResultResponse.from(session, user);
     }
 
     private void lockActiveUser(Long userId) {
