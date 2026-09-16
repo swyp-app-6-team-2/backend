@@ -57,4 +57,13 @@ public class TestcontainersConfiguration {
     FakePushGateway pushGateway() {
         return new FakePushGateway();
     }
+
+    /**
+     * {@code ad-reward.external.enabled=false} 가 실제 Tink 검증기 Bean 을 꺼두므로
+     * 이 Bean 이 {@code AdRewardCallbackVerifier} 자리를 채운다.
+     */
+    @Bean
+    FakeAdRewardCallbackVerifier adRewardCallbackVerifier() {
+        return new FakeAdRewardCallbackVerifier();
+    }
 }

@@ -19,7 +19,9 @@ public record AdRewardProperties(
         Duration verificationDeadline,
         Duration clockSkewTolerance,
         Platform android,
-        Platform ios) {
+        Platform ios,
+        External external,
+        Callback callback) {
 
     /**
      * 플랫폼별 광고 설정.
@@ -30,5 +32,13 @@ public record AdRewardProperties(
      *                               확인 전까지는 {@code adUnitId} 와 같은 값을 쓴다.
      */
     public record Platform(String adUnitId, String expectedCallbackAdUnit) {
+    }
+
+    /** false 면 실제 SSV 검증기 Bean 을 만들지 않는다. {@code GeminiConfig} 의 {@code external.enabled} 와 같은 테스트 스위치다. */
+    public record External(boolean enabled) {
+    }
+
+    /** true 면 AdMob SSV 테스트 도구가 서명한 콜백을 검증한다(§5, verifier-keys-test.json 실측). */
+    public record Callback(boolean useTestVerifyingKeys) {
     }
 }

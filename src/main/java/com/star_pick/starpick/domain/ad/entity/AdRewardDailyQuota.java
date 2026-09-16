@@ -68,4 +68,15 @@ public class AdRewardDailyQuota {
     public void reserve() {
         this.reservedCount++;
     }
+
+    /** SSV 검증을 통과해 예약을 성공 지급으로 확정한다. 지급 트랜잭션의 잠금 안에서만 부른다(§7). */
+    public void grant() {
+        this.reservedCount--;
+        this.grantedCount++;
+    }
+
+    /** 세션이 더는 지급될 수 없게 되어(예: 검증 마감 경과) 예약만 반환한다. 지급 없이 횟수만 되돌린다. */
+    public void release() {
+        this.reservedCount--;
+    }
 }

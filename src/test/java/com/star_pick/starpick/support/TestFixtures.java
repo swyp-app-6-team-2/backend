@@ -53,6 +53,8 @@ public class TestFixtures {
 
     private final InquiryRepository inquiryRepository;
 
+    private final FakeAdRewardCallbackVerifier adRewardCallbackVerifier;
+
     private final JdbcTemplate jdbcTemplate;
 
     /**
@@ -88,6 +90,7 @@ public class TestFixtures {
         ingestionJobRepository.deleteAll();
         uploadObjectRepository.deleteAll();
         objectStorage.clear();
+        adRewardCallbackVerifier.clear();
     }
 
     /**

@@ -7,6 +7,7 @@ import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -49,6 +50,9 @@ public class SecurityConfig {
                                 "/api/v1/auth/signup",
                                 "/api/v1/auth/token/refresh"
                         ).permitAll()
+                        // Google 서명으로 검증하는 SSV 콜백. 이 정확한 GET 경로만 예외다 — 나머지 광고
+                        // API 는 JWT 가 필요하다(REWARDED_AD_SSV.md §4.5).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/ads/rewards/callback").permitAll()
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
