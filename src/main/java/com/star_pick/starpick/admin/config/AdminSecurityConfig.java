@@ -1,5 +1,8 @@
 package com.star_pick.starpick.admin.config;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,6 +14,7 @@ import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.util.Assert;
 
 /**
@@ -54,20 +58,41 @@ public class AdminSecurityConfig {
                 .formLogin(form -> form
                         .loginPage("/admin/login")
                         .loginProcessingUrl("/admin/login")
-                        // 원래 가려던 주소로 돌아가지 않는다. /admin 같은 진입 주소로 돌아가도 결국 목록이다.
-                        .defaultSuccessUrl("/admin/inquiries", true)
+                        // Discord 알림 링크로 들어오면 로그인 뒤 그 문의로 돌아간다. 저장된 요청이 없을 때만 목록이다.
+                        .defaultSuccessUrl("/admin/inquiries")
                         .failureHandler(new AdminLoginFailureHandler()))
                 .logout(logout -> logout
                         .logoutUrl("/admin/logout")
                         .logoutSuccessUrl("/admin/login")
                         // 남은 세션 쿠키가 다음 요청을 "만료된 세션"으로 보이게 하지 않도록 지운다.
                         .deleteCookies("JSESSIONID"))
-                .sessionManagement(session -> session.invalidSessionUrl("/admin/login?expired"))
-                // 세션 만료로 토큰이 없으면 invalidSessionUrl 이 처리하지만, 다른 탭에서 다시 로그인해 토큰이 바뀐 뒤
+                .sessionManagement(session -> session
+                        .invalidSessionStrategy(AdminSecurityConfig::saveTargetAndRedirectToExpiredLogin))
+                // 세션 만료로 토큰이 없으면 위 전략이 처리하지만, 다른 탭에서 다시 로그인해 토큰이 바뀐 뒤
                 // 저장하면 InvalidCsrfTokenException 이 403 으로 /error 에 가서 앱 API 체인의 기본 오류 화면이 뜬다.
                 // 관리자 체인에는 역할 검사가 없어 403 은 CSRF 뿐이므로 모두 로그인 화면으로 보낸다.
                 .exceptionHandling(exceptions -> exceptions.accessDeniedHandler((request, response, denied) ->
                         response.sendRedirect(request.getContextPath() + "/admin/login?expired")));
         return http.build();
+    }
+
+    /**
+     * 낡은 세션 쿠키로 들어온 요청을 만료 안내와 함께 로그인 화면으로 보내되 <b>원래 주소를 먼저 저장한다.</b>
+     *
+     * <p>{@code invalidSessionUrl} 을 쓰면 이 단계가 인증 엔트리포인트보다 먼저 응답해 원래 요청이 저장되지 않는다.
+     * 그러면 Discord 알림 링크를 눌렀을 때 로그인 뒤 그 문의가 아니라 목록으로 간다(2026-09-16 실측). 재배포로
+     * 세션이 사라진 뒤 첫 클릭이 정확히 이 경로다.
+     */
+    private static void saveTargetAndRedirectToExpiredLogin(HttpServletRequest request,
+                                                            HttpServletResponse response) throws IOException {
+        requestCache().saveRequest(request, response);
+        response.sendRedirect(request.getContextPath() + "/admin/login?expired");
+    }
+
+    /** 복귀 주소에 {@code ?continue} 를 붙이는 Security 기본 동작과 맞춘다. 어긋나면 저장한 요청이 되살아나지 않는다. */
+    private static HttpSessionRequestCache requestCache() {
+        HttpSessionRequestCache cache = new HttpSessionRequestCache();
+        cache.setMatchingRequestParameterName("continue");
+        return cache;
     }
 }
