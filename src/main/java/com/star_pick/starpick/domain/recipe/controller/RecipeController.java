@@ -1,6 +1,8 @@
 package com.star_pick.starpick.domain.recipe.controller;
 
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeCreateRequest;
+import com.star_pick.starpick.domain.recipe.controller.request.RecipeRecommendationRequest;
+import com.star_pick.starpick.domain.recipe.controller.response.RecipeRecommendationResponse;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeUpdateRequest;
 import com.star_pick.starpick.domain.recipe.controller.response.RecipeCreateResponse;
 import com.star_pick.starpick.domain.recipe.controller.response.RecipeDetailResponse;
@@ -40,6 +42,24 @@ public class RecipeController {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final RecipeService recipeService;
+
+    @Operation(summary = "레시피 랜덤·재료 기반 추천",
+            description = """
+                    본인이 저장한 레시피 중 한 건을 추천합니다.
+                    - RANDOM: 보유 레시피 전체 중 랜덤 한 건입니다.
+                    - INGREDIENT_BASED: 서버에 등록된 내 보유 재료와 ingredientId가 하나 이상 일치하는 후보 중 랜덤 한 건입니다.
+                      selectedIngredients는 받지 않으며, 마스터 ID가 없는 직접 입력 재료는 매칭하지 않습니다.
+                    - previousRecipeId는 두 방식 모두 후보에서 제외합니다. 유일한 후보여도 다시 반환하지 않습니다.
+                    - 후보가 없으면 200과 data: null을 반환하며, 전체 랜덤으로 자동 전환하지 않습니다.
+                    - category와 mainIngredients는 추천 카드 명세의 필드명이며, 재료명은 저장된 표시 순서입니다.
+                    """)
+    @PostMapping("/recommendations")
+    public ApiResponse<RecipeRecommendationResponse> recommendRecipe(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody RecipeRecommendationRequest request) {
+        RecipeRecommendationResponse result = recipeService.recommend(user.userId(), request);
+        return ApiResponse.ok(result == null ? "조건에 맞는 추천 레시피가 없습니다." : "레시피 추천에 성공했습니다.", result);
+    }
 
     @Operation(summary = "레시피 생성",
             description = """

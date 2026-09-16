@@ -6,6 +6,8 @@ import com.star_pick.starpick.domain.ingestion.service.IngestionJobConsumeServic
 import com.star_pick.starpick.domain.ingestion.service.IngestionJobOrigin;
 import com.star_pick.starpick.domain.ingredient.service.IngredientService;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeCreateRequest;
+import com.star_pick.starpick.domain.recipe.controller.request.RecipeRecommendationRequest;
+import com.star_pick.starpick.domain.recipe.controller.response.RecipeRecommendationResponse;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeUpdateRequest;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeIngredientRequest;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeStepRequest;
@@ -22,6 +24,7 @@ import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.AttachOutcome;
 import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.domain.user.service.UserRecipeStatsService;
+import com.star_pick.starpick.domain.user.service.UserService;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import java.util.List;
@@ -52,6 +55,38 @@ public class RecipeService {
     private final IngestionJobConsumeService ingestionJobConsumeService;
 
     private final UserRecipeStatsService userRecipeStatsService;
+
+    private final UserService userService;
+
+    /** 목록과 같이 URL 서명은 DB 트랜잭션 밖에서 수행한다. */
+    public RecipeRecommendationResponse recommend(Long userId, RecipeRecommendationRequest request) {
+        List<Recipe> candidates = switch (request.recommendationMode()) {
+            case RANDOM -> {
+                userService.requireActiveUser(userId);
+                yield recipeRepository.findRandomCandidates(
+                        userId, request.previousRecipeId(), PageRequest.of(0, 1));
+            }
+            case INGREDIENT_BASED -> {
+                List<Long> ingredientIds = userService.getOwnedIngredientIds(userId);
+                yield ingredientIds.isEmpty() ? List.of()
+                        : recipeRepository.findIngredientBasedCandidates(
+                                userId, request.previousRecipeId(), ingredientIds, PageRequest.of(0, 1));
+            }
+        };
+        if (candidates.isEmpty()) {
+            return null;
+        }
+
+        Recipe recipe = candidates.getFirst();
+        List<String> names = findIngredientNames(userId, List.of(recipe.getId()))
+                .getOrDefault(recipe.getId(), List.of());
+        String thumbnailUrl = uploadService.getViewUrl(userId, recipe.getCoverImageKey());
+        if (thumbnailUrl == null) {
+            thumbnailUrl = sourceThumbnailUrl(userId, recipe);
+        }
+        return new RecipeRecommendationResponse(
+                recipe.getId(), recipe.getTitle(), recipe.getCategoryCode(), thumbnailUrl, names);
+    }
 
     /**
      * Recipe 를 저장한다. 순서는 {@code docs/specs/ingestion.md} §3.4 가 정한 계약이다.
