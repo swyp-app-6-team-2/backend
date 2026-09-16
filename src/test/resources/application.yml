@@ -111,6 +111,10 @@ ad-reward:
   ios:
     ad-unit-id: ca-app-pub-3940256099942544/1712485313
     expected-callback-ad-unit: ca-app-pub-3940256099942544/1712485313
+  external:
+    enabled: false
+  callback:
+    use-test-verifying-keys: true
 
 logging:
   level:

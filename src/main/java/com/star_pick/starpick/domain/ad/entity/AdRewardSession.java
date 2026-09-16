@@ -103,6 +103,23 @@ public class AdRewardSession implements Persistable<UUID> {
                 quotaDate, createdAt, expiresAt, verificationDeadline);
     }
 
+    /** SSV 검증을 통과했다. 지급 트랜잭션의 잠금 안에서만 부른다(§7). */
+    public void markGranted(Instant grantedAt) {
+        this.status = AdRewardSessionStatus.GRANTED;
+        this.grantedAt = Objects.requireNonNull(grantedAt, "grantedAt");
+    }
+
+    /**
+     * 검증 수신 마감을 넘긴 콜백이 도착해 더는 지급될 수 없다.
+     *
+     * <p>전용 시각 컬럼을 두지 않는다 — {@code status}·{@code reasonCode} 만으로 감사에 충분하고,
+     * 별도 컬럼이 필요해지면 그건 취소·만료 이슈(06)가 스케줄 작업을 더하며 판단할 몫이다.
+     */
+    public void markExpired(String reasonCode) {
+        this.status = AdRewardSessionStatus.EXPIRED;
+        this.reasonCode = reasonCode;
+    }
+
     /**
      * PK 를 서버가 직접 만들기 때문에 신규 여부를 따로 알려준다.
      *
