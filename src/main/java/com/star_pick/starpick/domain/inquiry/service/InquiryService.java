@@ -5,6 +5,7 @@ import com.star_pick.starpick.domain.inquiry.controller.response.InquiryDetailRe
 import com.star_pick.starpick.domain.inquiry.controller.response.InquiryListResponse;
 import com.star_pick.starpick.domain.inquiry.domain.Inquiry;
 import com.star_pick.starpick.domain.inquiry.exception.InquiryErrorCode;
+import com.star_pick.starpick.domain.inquiry.infrastructure.discord.InquiryDiscordNotifier;
 import com.star_pick.starpick.domain.inquiry.repository.InquiryRepository;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.UploadService;
@@ -20,6 +21,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /** 사용자 문의 유스케이스. */
 @Service
@@ -31,6 +34,8 @@ public class InquiryService {
     private final InquiryRepository inquiryRepository;
 
     private final UploadService uploadService;
+
+    private final InquiryDiscordNotifier discordNotifier;
 
     /**
      * 문의를 접수한다.
@@ -48,8 +53,25 @@ public class InquiryService {
                 case ATTACHED -> { }
             }
         }
-        return inquiryRepository.save(
-                Inquiry.create(userId, request.type(), request.title(), request.content(), keys)).getId();
+        Inquiry saved = inquiryRepository.save(
+                Inquiry.create(userId, request.type(), request.title(), request.content(), keys));
+        notifyAfterCommit(saved);
+        return saved.getId();
+    }
+
+    /**
+     * 커밋 이후 운영 Discord 에 한 번 알린다. 트랜잭션 안에서만 부른다.
+     *
+     * <p>사진 Key 가 막혀 롤백되면 이 콜백은 돌지 않는다. 외부 호출을 트랜잭션 안에 두지 않는 이유는
+     * {@code UploadService} 의 저장소 파일 삭제와 같다.
+     */
+    private void notifyAfterCommit(Inquiry inquiry) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                discordNotifier.notifyCreated(inquiry.getId(), inquiry.getType(), inquiry.getCreatedAt());
+            }
+        });
     }
 
     /** 최근 1년 문의를 최신순으로 한 페이지 조회한다. */

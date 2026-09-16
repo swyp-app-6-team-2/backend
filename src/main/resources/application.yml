@@ -101,3 +101,7 @@ admin:
   # 기본값을 두지 않는다. 누락을 fail-fast 로 잡는다. 비밀번호는 BCrypt 제한으로 72바이트 이하.
   username: ${ADMIN_USERNAME}
   password: ${ADMIN_PASSWORD}
+
+inquiry:
+  # 비어 있으면 접수 알림을 보내지 않는다. notification.fcm.project-id 와 같은 방식이다.
+  discord-webhook-url: ${INQUIRY_DISCORD_WEBHOOK_URL:}
