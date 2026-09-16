@@ -2,9 +2,9 @@ package com.star_pick.starpick.support;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.star_pick.starpick.domain.ad.domain.AdRewardPlatform;
-import com.star_pick.starpick.domain.ad.domain.AdRewardSessionStatus;
-import com.star_pick.starpick.domain.ad.domain.AdRewardTransactionStatus;
+import com.star_pick.starpick.domain.ad.entity.AdRewardPlatform;
+import com.star_pick.starpick.domain.ad.entity.AdRewardSessionStatus;
+import com.star_pick.starpick.domain.ad.entity.AdRewardTransactionStatus;
 import com.star_pick.starpick.domain.ingredient.domain.IngredientCategory;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus;

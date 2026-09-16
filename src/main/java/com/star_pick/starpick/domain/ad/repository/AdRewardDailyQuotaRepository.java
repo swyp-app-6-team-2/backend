@@ -1,6 +1,6 @@
 package com.star_pick.starpick.domain.ad.repository;
 
-import com.star_pick.starpick.domain.ad.domain.AdRewardDailyQuota;
+import com.star_pick.starpick.domain.ad.entity.AdRewardDailyQuota;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
 import java.util.Optional;

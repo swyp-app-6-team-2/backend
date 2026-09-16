@@ -1,4 +1,4 @@
-package com.star_pick.starpick.domain.ad.domain;
+package com.star_pick.starpick.domain.ad.entity;
 
 /**
  * Google SSV 콜백 한 건의 처리 결과. REWARDED_AD_SSV.md §6.

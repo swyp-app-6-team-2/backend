@@ -1,4 +1,4 @@
-package com.star_pick.starpick.domain.ad.domain;
+package com.star_pick.starpick.domain.ad.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -56,5 +56,16 @@ public class AdRewardDailyQuota {
     /** 그 날짜의 첫 시청 시도에서 사용자 잠금 안에 만드는 초기 행. */
     public static AdRewardDailyQuota create(Long userId, LocalDate quotaDate, Instant createdAt) {
         return new AdRewardDailyQuota(userId, quotaDate, createdAt);
+    }
+
+    /**
+     * 시청 세션 발급 시 그 날짜의 이용 가능 횟수 1개를 예약한다.
+     *
+     * <p>한도 검사는 하지 않는다. 호출자(세션 발급 서비스)가 {@code AdRewardProperties.dailyLimit}
+     * 로 먼저 확인한 뒤 잠금 안에서 부른다 — 정책값이 바뀔 수 있어 Entity 가 상수를 들고 있지 않는다.
+     * {@code ck_ad_reward_daily_quota_limit} DB CHECK 가 최종 방어선이다.
+     */
+    public void reserve() {
+        this.reservedCount++;
     }
 }

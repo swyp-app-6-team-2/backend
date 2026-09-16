@@ -1,6 +1,6 @@
 package com.star_pick.starpick.domain.ad.repository;
 
-import com.star_pick.starpick.domain.ad.domain.AdRewardTransaction;
+import com.star_pick.starpick.domain.ad.entity.AdRewardTransaction;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 

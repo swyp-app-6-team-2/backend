@@ -1,4 +1,4 @@
-package com.star_pick.starpick.domain.ad.domain;
+package com.star_pick.starpick.domain.ad.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

@@ -1,4 +1,4 @@
-package com.star_pick.starpick.domain.ad.domain;
+package com.star_pick.starpick.domain.ad.entity;
 
 /**
  * 시청 세션을 발급한 클라이언트 플랫폼.
