@@ -121,6 +121,18 @@ public class AdRewardSession implements Persistable<UUID> {
     }
 
     /**
+     * 사용자가 보상 청구를 포기했다. 이후 SSV 가 와도 자동 지급하지 않는다(§4.4).
+     *
+     * <p>{@code PENDING} 인 세션에만 부른다 — 이미 확정된 세션을 포기 요청으로 덮어쓰지 않는 것은
+     * 호출자({@code AdRewardSessionService#cancelSession})의 책임이다.
+     */
+    public void markCancelled(String reasonCode, Instant cancelledAt) {
+        this.status = AdRewardSessionStatus.CANCELLED;
+        this.reasonCode = reasonCode;
+        this.cancelledAt = Objects.requireNonNull(cancelledAt, "cancelledAt");
+    }
+
+    /**
      * PK 를 서버가 직접 만들기 때문에 신규 여부를 따로 알려준다.
      *
      * <p>{@code UploadObject} 와 같은 이유다. 없으면 Spring Data 가 "id 가 이미 있으니 기존 행"으로

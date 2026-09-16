@@ -3,10 +3,12 @@ package com.star_pick.starpick.domain.ad.repository;
 import com.star_pick.starpick.domain.ad.entity.AdRewardSession;
 import com.star_pick.starpick.domain.ad.entity.AdRewardSessionStatus;
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -34,4 +36,17 @@ public interface AdRewardSessionRepository extends JpaRepository<AdRewardSession
      * 돌려줘야 해서 날짜로 좁히지 않는다.
      */
     List<AdRewardSession> findByUserIdAndStatus(Long userId, AdRewardSessionStatus status);
+
+    /**
+     * 검증 수신 마감을 넘긴 {@code PENDING} 세션 후보(§2.1, §6). id 만 돌려주고 건별로 잠근 뒤
+     * 처리한다 — 예약 반환이 daily_quota 도 함께 바꿔야 해서 단일 bulk UPDATE 로 끝낼 수 없다
+     * ({@code IngestionJobRepository#findPurgeTargetIds} 와 같은 이유).
+     */
+    @Query("""
+            select s.id from AdRewardSession s
+             where s.status = com.star_pick.starpick.domain.ad.entity.AdRewardSessionStatus.PENDING
+               and s.verificationDeadline < :now
+             order by s.verificationDeadline asc
+            """)
+    List<UUID> findExpiredCandidateIds(@Param("now") Instant now, Pageable pageable);
 }
