@@ -8,6 +8,7 @@ import com.star_pick.starpick.domain.recipe.controller.response.RecipeCreateResp
 import com.star_pick.starpick.domain.recipe.controller.response.RecipeDetailResponse;
 import com.star_pick.starpick.domain.recipe.controller.response.RecipeListResponse;
 import com.star_pick.starpick.domain.recipe.domain.RecipeListSort;
+import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.recipe.service.RecipeCreateResult;
 import com.star_pick.starpick.domain.recipe.service.RecipeService;
 import com.star_pick.starpick.global.ApiResponse;
@@ -18,6 +19,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -89,19 +91,28 @@ public class RecipeController {
                 .body(ApiResponse.created("레시피가 생성되었습니다.", body));
     }
 
-    @Operation(summary = "레시피 목록 조회",
+    @Operation(summary = "내 레시피 목록 조회·검색·필터",
             description = """
                     본인이 보유한 레시피를 페이지 단위로 조회합니다.
                     - `sort` 는 `LATEST`(최신순, 기본) 또는 `OLDEST`(오래된순)입니다.
-                    - `totalCount` 는 페이지 크기가 아니라 전체 결과 수입니다.
-                    - 검색·필터는 제공하지 않습니다. Discovery 책임입니다.
+                    - `searchQuery`는 레시피 제목 부분 검색입니다. 앞뒤 공백과 영문 대소문자를 무시합니다.
+                    - `category`는 복수 선택 가능하며 선택한 카테고리 중 하나에 해당하면 포함합니다.
+                    - `ingredientName`은 복수 선택 가능하며 선택한 재료명을 모두 포함해야 합니다.
+                      재료명은 앞뒤 공백·영문 대소문자를 제외하고 정확히 일치해야 합니다. 보유 재료 여부는 확인하지 않습니다.
+                    - 복수 값은 category=KOREAN&category=CHINESE&ingredientName=두부&ingredientName=대파처럼 반복 전달합니다.
+                    - 제목·카테고리·재료 조건은 모두 함께 적용합니다. 빈 검색어·재료명은 무시하며 중복 값은 한 번만 적용합니다.
+                    - 검색어·재료명은 각각 최대 255자, 카테고리·재료 필터는 각각 최대 100개입니다.
+                    - `totalCount`는 검색·필터 적용 후 전체 결과 수입니다. 응답의 기존 페이지 구조는 유지합니다.
                     """)
     @GetMapping
     public ApiResponse<RecipeListResponse> getRecipes(
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "LATEST") RecipeListSort sort) {
+            @RequestParam(defaultValue = "LATEST") RecipeListSort sort,
+            @RequestParam(required = false) String searchQuery,
+            @RequestParam(required = false, name = "category") List<RecipeCategory> categories,
+            @RequestParam(required = false, name = "ingredientName") List<String> ingredientNames) {
 
         // Bean Validation 을 쓰지 않는 것이 의도다. @ModelAttribute + @Valid 는 BindException 을
         // 던지는데 ResponseEntityExceptionHandler 가 처리하지 않아 500 이 되고, @Validated + @Min 은
@@ -111,7 +122,7 @@ public class RecipeController {
         }
 
         return ApiResponse.ok("레시피 목록을 조회했습니다.",
-                recipeService.getRecipes(user.userId(), page, size, sort));
+                recipeService.getRecipes(user.userId(), page, size, sort, searchQuery, categories, ingredientNames));
     }
 
     @Operation(summary = "레시피 상세 조회",

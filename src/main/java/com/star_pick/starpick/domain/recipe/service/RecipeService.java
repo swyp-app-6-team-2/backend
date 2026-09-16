@@ -12,6 +12,7 @@ import com.star_pick.starpick.domain.recipe.controller.request.RecipeUpdateReque
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeIngredientRequest;
 import com.star_pick.starpick.domain.recipe.controller.request.RecipeStepRequest;
 import com.star_pick.starpick.domain.recipe.domain.Recipe;
+import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.recipe.domain.RecipeIngredient;
 import com.star_pick.starpick.domain.recipe.domain.RecipeStep;
 import com.star_pick.starpick.domain.recipe.controller.response.RecipeDetailResponse;
@@ -20,6 +21,7 @@ import com.star_pick.starpick.domain.recipe.domain.RecipeListSort;
 import com.star_pick.starpick.domain.recipe.exception.RecipeErrorCode;
 import com.star_pick.starpick.domain.recipe.repository.RecipeIngredientNameRow;
 import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
+import com.star_pick.starpick.domain.recipe.repository.RecipeSearchSpecifications;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.AttachOutcome;
 import com.star_pick.starpick.domain.upload.service.UploadService;
@@ -28,6 +30,7 @@ import com.star_pick.starpick.domain.user.service.UserService;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -156,8 +159,21 @@ public class RecipeService {
      * <p>트랜잭션 밖이므로 {@code recipe.getIngredients()} 를 건드리면 안 된다. open-in-view 가
      * 꺼져 있어 지연 로딩 컬렉션에 접근할 수 없다. 재료명은 별도 조회 결과만 사용한다.
      */
-    public RecipeListResponse getRecipes(Long userId, int page, int size, RecipeListSort sort) {
-        Page<Recipe> found = recipeRepository.findByUserId(userId, PageRequest.of(page, size, toSort(sort)));
+    public RecipeListResponse getRecipes(Long userId, int page, int size, RecipeListSort sort,
+            String searchQuery, List<RecipeCategory> categories, List<String> ingredientFilters) {
+        if ((categories != null && categories.size() > 100)
+                || (ingredientFilters != null && ingredientFilters.size() > 100)) {
+            throw new BusinessException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        }
+        List<RecipeCategory> selectedCategories = categories == null ? List.of()
+                : categories.stream().filter(Objects::nonNull).distinct().toList();
+        List<String> selectedIngredients = ingredientFilters == null ? List.of()
+                : ingredientFilters.stream().map(this::normalizeSearchText)
+                        .filter(Objects::nonNull).distinct().toList();
+        Page<Recipe> found = recipeRepository.findAll(
+                RecipeSearchSpecifications.matching(userId, normalizeSearchText(searchQuery),
+                        selectedCategories, selectedIngredients),
+                PageRequest.of(page, size, toSort(sort)));
 
         List<Long> recipeIds = found.getContent().stream().map(Recipe::getId).toList();
         Map<Long, List<String>> ingredientNames = findIngredientNames(userId, recipeIds);
@@ -173,6 +189,17 @@ public class RecipeService {
                 .toList();
 
         return new RecipeListResponse(found.getTotalElements(), summaries);
+    }
+
+    private String normalizeSearchText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.strip();
+        if (normalized.length() > 255) {
+            throw new BusinessException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        }
+        return normalized.isEmpty() ? null : normalized.toLowerCase(Locale.ROOT);
     }
 
     /** 빈 목록에 {@code in ()} 쿼리를 보내지 않는다. */
