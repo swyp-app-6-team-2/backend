@@ -1,4 +1,4 @@
-package com.star_pick.starpick.domain.ad.domain;
+package com.star_pick.starpick.domain.ad.entity;
 
 /**
  * 시청 세션의 처리 상태. REWARDED_AD_SSV.md §4.3.

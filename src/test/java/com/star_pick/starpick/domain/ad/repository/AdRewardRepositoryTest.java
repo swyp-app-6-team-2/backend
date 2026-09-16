@@ -2,11 +2,11 @@ package com.star_pick.starpick.domain.ad.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.star_pick.starpick.domain.ad.domain.AdRewardDailyQuota;
-import com.star_pick.starpick.domain.ad.domain.AdRewardPlatform;
-import com.star_pick.starpick.domain.ad.domain.AdRewardSession;
-import com.star_pick.starpick.domain.ad.domain.AdRewardSessionStatus;
-import com.star_pick.starpick.domain.ad.domain.AdRewardTransaction;
+import com.star_pick.starpick.domain.ad.entity.AdRewardDailyQuota;
+import com.star_pick.starpick.domain.ad.entity.AdRewardPlatform;
+import com.star_pick.starpick.domain.ad.entity.AdRewardSession;
+import com.star_pick.starpick.domain.ad.entity.AdRewardSessionStatus;
+import com.star_pick.starpick.domain.ad.entity.AdRewardTransaction;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
 import java.time.Instant;

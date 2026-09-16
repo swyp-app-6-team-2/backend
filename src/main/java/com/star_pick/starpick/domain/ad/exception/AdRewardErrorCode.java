@@ -25,7 +25,10 @@ public enum AdRewardErrorCode implements ErrorCode {
     AD_REWARD_REQUEST_ID_CONFLICT(HttpStatus.CONFLICT, "동일한 요청 ID로 다른 요청을 처리할 수 없습니다."),
 
     /** 없거나 다른 사용자의 세션이다. 두 경우를 구분하지 않는다(§4.3, §4.4). */
-    AD_REWARD_SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "시청 세션을 찾을 수 없습니다.");
+    AD_REWARD_SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "시청 세션을 찾을 수 없습니다."),
+
+    /** 요청한 플랫폼에 광고 단위가 설정되지 않았다(운영 설정 미비, §9). */
+    AD_REWARD_PLATFORM_UNAVAILABLE(HttpStatus.BAD_REQUEST, "아직 지원하지 않는 플랫폼입니다.");
 
     private final HttpStatus status;
     private final String message;

@@ -1,7 +1,7 @@
 package com.star_pick.starpick.domain.ad.repository;
 
-import com.star_pick.starpick.domain.ad.domain.AdRewardSession;
-import com.star_pick.starpick.domain.ad.domain.AdRewardSessionStatus;
+import com.star_pick.starpick.domain.ad.entity.AdRewardSession;
+import com.star_pick.starpick.domain.ad.entity.AdRewardSessionStatus;
 import jakarta.persistence.LockModeType;
 import java.time.LocalDate;
 import java.util.List;

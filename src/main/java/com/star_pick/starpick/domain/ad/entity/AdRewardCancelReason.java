@@ -1,4 +1,4 @@
-package com.star_pick.starpick.domain.ad.domain;
+package com.star_pick.starpick.domain.ad.entity;
 
 /**
  * 사용자가 시청 세션을 포기하는 사유. REWARDED_AD_SSV.md §4.4.
