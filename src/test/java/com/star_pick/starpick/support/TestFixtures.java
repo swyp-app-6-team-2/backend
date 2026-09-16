@@ -74,6 +74,10 @@ public class TestFixtures {
         jdbcTemplate.update("delete from push_token");
         jdbcTemplate.update("delete from notification_setting");
         jdbcTemplate.update("delete from profiles");
+        // ad_reward_transaction → ad_reward_session 은 FK 순서다. daily_quota 는 세션과 독립적이다.
+        jdbcTemplate.update("delete from ad_reward_transaction");
+        jdbcTemplate.update("delete from ad_reward_session");
+        jdbcTemplate.update("delete from ad_reward_daily_quota");
         jdbcTemplate.update("""
             update users
             set recipe_slot_limit = 10, cumulative_recipe_count = 0

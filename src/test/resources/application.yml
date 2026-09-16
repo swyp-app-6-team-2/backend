@@ -97,6 +97,21 @@ admin:
   username: test-admin
   password: test-admin-password
 
+# Google 공식 문서가 공개한 테스트 전용 보상형 광고 단위. 실제 계정과 무관하며 비밀값이 아니다.
+ad-reward:
+  daily-limit: 3
+  reward-amount: 2
+  reward-type: recipe_slot
+  session-validity: 30m
+  verification-deadline: 24h
+  clock-skew-tolerance: 5m
+  android:
+    ad-unit-id: ca-app-pub-3940256099942544/5224354917
+    expected-callback-ad-unit: ca-app-pub-3940256099942544/5224354917
+  ios:
+    ad-unit-id: ca-app-pub-3940256099942544/1712485313
+    expected-callback-ad-unit: ca-app-pub-3940256099942544/1712485313
+
 logging:
   level:
     org.hibernate.SQL: warn
