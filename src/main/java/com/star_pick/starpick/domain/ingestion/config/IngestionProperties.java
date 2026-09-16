@@ -13,7 +13,8 @@ public record IngestionProperties(
         Image image,
         External external,
         Gemini gemini,
-        Instagram instagram) {
+        Instagram instagram,
+        YouTube youtube) {
 
     public record Worker(int concurrency, Duration pollInterval) {
     }
@@ -36,5 +37,9 @@ public record IngestionProperties(
 
     /** 단계별 상한. 실제 timeout 은 {@code min(상한, deadline 까지 남은 시간)}. ACTIVE 대기는 deadline 까지다. */
     public record Instagram(Duration fetchTimeout, Duration mediaTimeout, long maxVideoBytes, Duration uploadTimeout) {
+    }
+
+    /** 영상 설명란 조회. {@code apiKey} 는 Worker 를 맡는 프로세스에 필수다({@code IngestionWorkerConfig}). */
+    public record YouTube(String apiKey, Duration fetchTimeout) {
     }
 }

@@ -87,6 +87,11 @@ ingestion:
     # 50MB 는 업로드 약 15초라 upload-timeout 안에 든다. 더 큰 영상은 PROCESSING_FAILED.
     max-video-bytes: 52428800
     upload-timeout: 30s
+  youtube:
+    # 비어 있으면 Ingestion Worker 를 맡는 프로세스가 기동하지 않는다. 설명란 없이 분석 품질만
+    # 조용히 떨어지는 것을 막는다 — GEMINI_API_KEY 를 스위치로 쓰는 것과 같은 이유다.
+    api-key: ${YOUTUBE_API_KEY:}
+    fetch-timeout: 10s
 
 notification:
   external:

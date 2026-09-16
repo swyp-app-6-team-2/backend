@@ -69,7 +69,7 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
 
     private GeminiGenerateContentRequest buildRequest(AnalysisInput input) {
         List<GeminiPart> parts = new ArrayList<>();
-        boolean hasCaption = input.caption() != null && !input.caption().isBlank();
+        boolean hasText = input.sourceText() != null && !input.sourceText().isBlank();
         switch (input.source()) {
             case PHOTOS -> {
                 parts.add(GeminiPart.text(GeminiPrompt.imageInstruction(input.images().size())));
@@ -78,20 +78,21 @@ class GeminiRecipeAnalyzer implements RecipeAnalyzer {
             case YOUTUBE -> {
                 parts.add(new GeminiPart(null, null, new GeminiFileData(null, input.videoUrl()),
                         new GeminiVideoMetadata(config.videoFps())));
-                parts.add(GeminiPart.text(GeminiPrompt.VIDEO_INSTRUCTION));
+                parts.add(GeminiPart.text(GeminiPrompt.videoInstruction(hasText)));
             }
             case INSTAGRAM_POST -> {
-                parts.add(GeminiPart.text(GeminiPrompt.instagramPostInstruction(input.images().size(), hasCaption)));
+                parts.add(GeminiPart.text(GeminiPrompt.instagramPostInstruction(input.images().size(), hasText)));
                 addImages(parts, input.images());
             }
             case INSTAGRAM_REEL -> {
                 // fps 를 주지 않는다(기본 1fps). 72초 Reel 에서 fps 0.2 는 조리 단계가 5~6개에서 3개로 줄었다(2026-09-14 실측).
                 parts.add(new GeminiPart(null, null, new GeminiFileData(VIDEO_MP4, input.videoUrl()), null));
-                parts.add(GeminiPart.text(GeminiPrompt.instagramReelInstruction(hasCaption)));
+                parts.add(GeminiPart.text(GeminiPrompt.instagramReelInstruction(hasText)));
             }
         }
-        if (hasCaption) {
-            parts.add(GeminiPart.text(GeminiPrompt.captionData(input.caption())));
+        if (hasText) {
+            String label = input.source() == AnalysisInput.Source.YOUTUBE ? "영상 설명란" : "게시물 캡션";
+            parts.add(GeminiPart.text(GeminiPrompt.sourceText(label, input.sourceText())));
         }
         return new GeminiGenerateContentRequest(
                 List.of(new GeminiContent("user", parts)),

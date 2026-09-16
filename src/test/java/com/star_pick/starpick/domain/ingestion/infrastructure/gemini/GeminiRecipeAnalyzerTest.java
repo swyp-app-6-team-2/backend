@@ -83,7 +83,7 @@ class GeminiRecipeAnalyzerTest {
                 "STOP"));
 
         AnalysisOutcome outcome = analyzer().analyze(
-                AnalysisInput.ofVideo("https://www.youtube.com/shorts/T-JwDP_5hEY"), Duration.ofSeconds(2));
+                AnalysisInput.ofVideo("https://www.youtube.com/shorts/T-JwDP_5hEY", null), Duration.ofSeconds(2));
 
         assertThat(outcome.draft().title()).isEqualTo("잡채");
         var request = JsonMapper.builder().build().readTree(requestBody.get());
@@ -93,6 +93,23 @@ class GeminiRecipeAnalyzerTest {
         assertThat(request.at("/contents/0/parts").size()).isEqualTo(2);
         assertThat(request.at("/contents/0/parts/1/text").asString()).isEqualTo("입력: YouTube 영상.");
         assertThat(request.at("/contents/0/parts/0").has("inlineData")).isFalse();
+    }
+
+    @Test
+    @DisplayName("설명란이 있으면 영상 문구를 바꾸고 설명란 데이터 블록을 뒤에 붙인다")
+    void analyzesYouTubeVideoWithDescription() throws Exception {
+        respond(200, candidateResponse(
+                "{\"verdict\":\"RECIPE\",\"title\":\"잡채\",\"categoryCode\":\"KOREAN\",\"ingredients\":[],\"steps\":[{\"content\":\"볶는다\"}]}",
+                "STOP"));
+
+        analyzer().analyze(AnalysisInput.ofVideo("https://www.youtube.com/shorts/T-JwDP_5hEY",
+                "재료\n간장 3T"), Duration.ofSeconds(2));
+
+        var parts = JsonMapper.builder().build().readTree(requestBody.get()).at("/contents/0/parts");
+        assertThat(parts.size()).isEqualTo(3);
+        assertThat(parts.get(1).path("text").asString()).isEqualTo("입력: YouTube 영상과 설명란.");
+        assertThat(parts.get(2).path("text").asString())
+                .isEqualTo("분석할 데이터(영상 설명란):\n<<<\n재료\n간장 3T\n>>>");
     }
 
     @Test

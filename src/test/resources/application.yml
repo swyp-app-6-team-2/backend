@@ -75,6 +75,11 @@ ingestion:
     # 50MB 는 업로드 약 15초라 upload-timeout 안에 든다. 더 큰 영상은 PROCESSING_FAILED.
     max-video-bytes: 52428800
     upload-timeout: 30s
+  youtube:
+    api-key: test-only-not-a-real-key
+    # job.deadline 이 10s 라 운영값(10s)을 그대로 쓰면 `fetchTimeout + 5s` 가드에 항상 걸려
+    # 설명란을 한 번도 조회하지 않는다. analyze-timeout 을 줄인 것과 같은 이유다.
+    fetch-timeout: 1s
 
 # 실제 FCM Bean 을 만들지 않는다. PushGateway 자리에는 TestcontainersConfiguration 이 FakePushGateway 를 등록한다.
 # project-id 가 비어 있어 알림 스케줄도 등록되지 않는다. 테스트는 NotificationDispatchService 를 직접 호출한다.
