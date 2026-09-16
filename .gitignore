@@ -9,6 +9,9 @@ ONBOARDING.md
 ADD_INGREDIENTS.md
 RE_TOKEN.md
 USER_INGREDIENTS.md
+PROFILE_RESULT.md
+/docs/issues/rewarded-ad/
+/REWARDED_AD_ISSUE.md
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/

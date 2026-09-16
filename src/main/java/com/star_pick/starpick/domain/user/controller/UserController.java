@@ -56,4 +56,11 @@ public class UserController {
     public ApiResponse<MyInfoResponse> getMe(@AuthenticationPrincipal AuthenticatedUser user) {
         return ApiResponse.ok("내 정보 조회에 성공했습니다.", users.getMe(user.userId()));
     }
+
+    @PatchMapping("/profile")
+    @Operation(summary = "프로필 수정", description = "닉네임은 필수 1~6자입니다. profileImageKey는 생략 시 유지, null이면 삭제합니다. PROFILE_IMAGE 용도로 업로드한 objectKey를 사용합니다.")
+    public ApiResponse<ProfileResponse> updateProfile(@AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody ProfileUpdateRequest request) {
+        return ApiResponse.ok("프로필이 수정되었습니다.", users.updateProfile(user.userId(), request));
+    }
 }

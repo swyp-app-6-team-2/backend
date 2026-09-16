@@ -38,6 +38,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
+    private final com.star_pick.starpick.domain.user.repository.ProfileRepository profiles;
     private final JwtProvider jwtProvider;
     private final UserRepository users;
     private final SocialCredentialRepository credentials;
@@ -86,6 +87,7 @@ public class AuthService {
                 .lastLoginProvider(identity.provider())
                 .lastLoginAt(now)
                 .build());
+        profiles.save(com.star_pick.starpick.domain.user.entity.Profile.initial(user));
         credentials.saveAndFlush(SocialCredential.builder()
                 .user(user).provider(identity.provider()).socialUid(identity.socialUid()).email(identity.email()).build());
         JwtProvider.TokenPair tokens = issueForActiveUser(user.getUserId());
