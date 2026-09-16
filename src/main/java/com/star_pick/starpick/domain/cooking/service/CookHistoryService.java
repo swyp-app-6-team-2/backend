@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.cooking.service;
 
+import com.star_pick.starpick.domain.user.service.UserLifecycleGuard;
 import com.star_pick.starpick.domain.cooking.controller.request.CookHistoryCreateRequest;
 import com.star_pick.starpick.domain.cooking.controller.response.CookHistoryResponse;
 import com.star_pick.starpick.domain.cooking.domain.CookHistory;
@@ -28,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CookHistoryService {
 
     private final CookHistoryRepository cookHistoryRepository;
+    private final UserLifecycleGuard lifecycle;
 
     private final RecipeService recipeService;
 
@@ -44,6 +46,7 @@ public class CookHistoryService {
      */
     @Transactional
     public void create(Long userId, Long recipeId, CookHistoryCreateRequest request) {
+        lifecycle.lockActive(userId);
         recipeService.requireOwnedRecipe(userId, recipeId);
 
         String photoKey = request.photoKey();

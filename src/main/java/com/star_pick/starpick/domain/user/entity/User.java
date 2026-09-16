@@ -72,6 +72,10 @@ public class User {
     @Column(name = "onboarding_completed_at")
     private Instant onboardingCompletedAt;
 
+    public void beginWithdrawal(Instant now) {
+        if (deletedAt == null) deletedAt = now;
+    }
+
     public boolean isOnboardingRequired() {
         return onboardingCompletedAt == null;
     }

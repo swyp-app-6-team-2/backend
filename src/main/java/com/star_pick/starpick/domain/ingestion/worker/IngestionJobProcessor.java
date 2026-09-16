@@ -124,6 +124,8 @@ public class IngestionJobProcessor {
                 log.info("분석을 완료했습니다. ingestionJobId={}, sourceType={}, attempt={}, elapsedMs={}, tokens={}",
                         snapshot.id(), snapshot.sourceType(), snapshot.attempt(),
                         elapsedMs(startedNanos), outcome.usage());
+            } else {
+                uploadService.deleteSourceThumbnail(thumbnailKey);
             }
         } catch (IngestionInputException e) {
             log.warn("입력을 준비할 수 없어 실패로 끝냅니다. ingestionJobId={}, sourceType={}, failureCode={}, reason={}",

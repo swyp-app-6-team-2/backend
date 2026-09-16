@@ -16,6 +16,10 @@ public class IngestionJobPurger {
     private final IngestionJobRepository repository;
     private final UploadService uploadService;
 
+    public List<Long> findWithdrawalBatch(Long userId) {
+        return repository.findIdsForWithdrawal(userId, org.springframework.data.domain.PageRequest.of(0, 20));
+    }
+
     /**
      * Job 하나를 트랜잭션 하나로 지우고 입력 사진을 해제한다. 원본 대표 이미지 파일도 커밋 후 지운다.
      *
@@ -25,7 +29,7 @@ public class IngestionJobPurger {
      */
     @Transactional
     public void purgeOne(Long jobId) {
-        IngestionJob job = repository.findById(jobId).orElse(null);
+        IngestionJob job = repository.findByIdForUpdate(jobId).orElse(null);
         if (job == null) {
             return;
         }

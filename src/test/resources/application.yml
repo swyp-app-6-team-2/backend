@@ -119,3 +119,7 @@ ad-reward:
 logging:
   level:
     org.hibernate.SQL: warn
+
+user-withdrawal:
+  recovery:
+    enabled: false

@@ -576,6 +576,25 @@ class IngestionJobProcessorTest {
         assertThat(storage.read(saved.getSourceThumbnailKey())).containsExactly(1);
     }
 
+    @Autowired
+    private com.star_pick.starpick.domain.user.service.UserWithdrawalService withdrawals;
+
+    @Test
+    void deletesLateThumbnailWhenAccountIsWithdrawnDuringAnalysis() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "1.jpg"))));
+        instagram.putMedia(CDN + "1.jpg", new byte[]{1});
+        analyzer.enqueueAction(() -> withdrawals.withdraw(1L),
+                new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(POST_URL);
+
+        processor.process(job);
+
+        assertThat(repository.findById(job.id())).isEmpty();
+        assertThat(storage.operations()).contains("write");
+        assertThat(storage.objectKeys()).isEmpty();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from users where user_id=1", Integer.class)).isZero();
+    }
+
     @Test
     @DisplayName("카드 지정 링크도 대표 이미지는 분석한 카드가 아니라 첫 카드다")
     void storesFirstCardEvenForIndexedLink() {

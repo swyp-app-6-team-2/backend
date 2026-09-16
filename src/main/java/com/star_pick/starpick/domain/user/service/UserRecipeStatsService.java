@@ -42,6 +42,7 @@ public class UserRecipeStatsService {
     }
 
     private static void requireRemainingSlot(User user) {
+        if (user.getDeletedAt() != null) throw new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED);
         if (user.getRemainingRecipeSlots() <= 0) {
             throw new BusinessException(UserRecipeSlotErrorCode.RECIPE_SLOT_EXCEEDED);
         }
@@ -57,6 +58,7 @@ public class UserRecipeStatsService {
     public void onAdRewardGranted(Long userId, int amount) {
         User user = users.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED));
+        if (user.getDeletedAt() != null) throw new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED);
         user.increaseRecipeSlotLimit(amount);
     }
 }

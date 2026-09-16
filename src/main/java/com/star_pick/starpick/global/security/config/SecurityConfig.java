@@ -34,7 +34,8 @@ public class SecurityConfig {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtProvider jwtProvider, JsonMapper jsonMapper)
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtProvider jwtProvider, JsonMapper jsonMapper,
+            com.star_pick.starpick.domain.user.repository.UserRepository users)
             throws Exception {
 
         ApiSecurityErrorHandler errorHandler = new ApiSecurityErrorHandler(jsonMapper);
@@ -60,7 +61,7 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(new JwtAuthenticationFilter(jwtProvider), UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new JwtAuthenticationFilter(jwtProvider, users), UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(errorHandler)
                         .accessDeniedHandler(errorHandler)

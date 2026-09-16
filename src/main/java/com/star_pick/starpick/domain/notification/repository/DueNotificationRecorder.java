@@ -22,9 +22,15 @@ public class DueNotificationRecorder {
     // due: distinct on 으로 토큰당 1행. 같은 시각이 두 번 들어가 있으면 마지막 join 이 2행을 돌려줘 두 번 발송된다.
     // inserted: 같은 분에 두 번 실행되면 UNIQUE(push_token_id, scheduled_at) 에 막혀 아무것도 돌려주지 않는다.
     private static final String RECORD_DUE = """
-            with due as (
+            with active_users as materialized (
+                select u.user_id from users u
+                where u.deleted_at is null
+                  and exists (select 1 from notification_setting s where s.user_id = u.user_id and s.enabled)
+                order by u.user_id for update of u
+            ), due as (
                 select distinct on (t.id) s.user_id, t.id as push_token_id, t.token, slot ->> 'label' as label
                   from notification_setting s
+                  join active_users u on u.user_id = s.user_id
                   cross join lateral jsonb_array_elements(s.time_slots) slot
                   join push_token t on t.user_id = s.user_id and t.active
                  where s.enabled

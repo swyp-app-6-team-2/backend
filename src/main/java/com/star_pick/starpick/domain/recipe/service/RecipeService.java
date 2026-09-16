@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.recipe.service;
 
+import com.star_pick.starpick.domain.user.service.UserLifecycleGuard;
 import com.star_pick.starpick.domain.cooking.service.CookHistoryCleanupService;
 import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
 import com.star_pick.starpick.domain.ingestion.service.IngestionJobConsumeService;
@@ -48,6 +49,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RecipeService {
 
     private final RecipeRepository recipeRepository;
+    private final UserLifecycleGuard lifecycle;
 
     private final IngredientService ingredientService;
 
@@ -103,6 +105,7 @@ public class RecipeService {
      */
     @Transactional
     public RecipeCreateResult create(Long userId, RecipeCreateRequest request) {
+        lifecycle.lockActive(userId);
         Long ingestionJobId = request.ingestionJobId();
         if (ingestionJobId == null) {
             Recipe recipe = Recipe.createManual(userId, request.title(), request.categoryCode(),
@@ -266,6 +269,7 @@ public class RecipeService {
      */
     @Transactional
     public void updateRecipe(Long userId, Long recipeId, RecipeUpdateRequest request) {
+        lifecycle.lockActive(userId);
         if (request.hasNoChanges()) {
             throw new BusinessException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
         }
@@ -310,9 +314,26 @@ public class RecipeService {
      */
     @Transactional
     public void deleteRecipe(Long userId, Long recipeId) {
+        lifecycle.lockActive(userId);
         Recipe recipe = recipeRepository.findByIdAndUserIdForUpdate(recipeId, userId)
                 .orElseThrow(() -> new BusinessException(RecipeErrorCode.RECIPE_NOT_FOUND));
 
+        deleteRecipeData(userId, recipe);
+    }
+
+    /** 호출자가 탈퇴 중 사용자 행을 잠근다. 이미 없는 레시피는 재시도 성공으로 처리한다. */
+    @Transactional
+    public void deleteForWithdrawal(Long userId, Long recipeId) {
+        recipeRepository.findByIdAndUserIdForUpdate(recipeId, userId)
+                .ifPresent(recipe -> deleteRecipeData(userId, recipe));
+    }
+
+    public List<Long> findWithdrawalBatch(Long userId) {
+        return recipeRepository.findByUserId(userId, PageRequest.of(0, 20)).stream().map(Recipe::getId).toList();
+    }
+
+    private void deleteRecipeData(Long userId, Recipe recipe) {
+        Long recipeId = recipe.getId();
         uploadService.releaseAndDeleteFile(userId, recipe.getCoverImageKey(), UploadPurpose.RECIPE_COVER);
         // 원본 사진의 용도는 Recipe 로 넘어온 뒤에도 INGESTION_INPUT 이다. 소비된 Job 행은 남긴다.
         uploadService.releaseAndDeleteFiles(userId, recipe.getSourceImageKeys(), UploadPurpose.INGESTION_INPUT);

@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.notification.service;
 
+import com.star_pick.starpick.domain.user.service.UserLifecycleGuard;
 import com.star_pick.starpick.domain.notification.controller.request.NotificationSettingRequest;
 import com.star_pick.starpick.domain.notification.controller.response.NotificationSettingResponse;
 import com.star_pick.starpick.domain.notification.domain.NotificationSetting;
@@ -14,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationSettingService {
 
     private final NotificationSettingRepository repository;
+    private final UserLifecycleGuard lifecycle;
 
     @Transactional(readOnly = true)
     public NotificationSettingResponse get(Long userId) {
@@ -28,6 +30,7 @@ public class NotificationSettingService {
      */
     @Transactional
     public void save(Long userId, NotificationSettingRequest request) {
+        lifecycle.lockActive(userId);
         repository.insertIfAbsent(userId);
         NotificationSetting setting = repository.findByUserId(userId).orElseThrow();
         setting.replace(

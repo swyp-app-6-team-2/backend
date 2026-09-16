@@ -17,6 +17,14 @@ import org.springframework.web.bind.annotation.*;
 @Tag(name = "사용자", description = "사용자 온보딩 및 보유 재료 관리")
 public class UserController {
     private final UserService users;
+    private final com.star_pick.starpick.domain.user.service.UserWithdrawalService withdrawals;
+
+    @DeleteMapping
+    @Operation(summary = "회원 탈퇴", description = "계정과 사용자 데이터를 삭제합니다. 중간 실패는 서버에서 자동 복구합니다. 외부 소셜 연결 해제는 수행하지 않습니다.")
+    public ApiResponse<Void> withdraw(@AuthenticationPrincipal AuthenticatedUser user) {
+        withdrawals.withdraw(user.userId());
+        return ApiResponse.ok("회원 탈퇴가 완료되었습니다.", null);
+    }
 
     @PostMapping("/ingredients")
     @Operation(summary = "재료 추가", description = "유효한 access token이 필요합니다. 활성 마스터 ID를 다건 등록하며 이미 보유한 재료는 무시합니다. 새로 추가된 재료만 반환합니다.")

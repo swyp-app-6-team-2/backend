@@ -27,9 +27,13 @@ class IngredientIconBaseUrlTest {
     @Autowired
     private JwtProvider jwtProvider;
 
+    @Autowired
+    private com.star_pick.starpick.support.TestFixtures fixtures;
+
     @Test
     @DisplayName("base URL 끝 슬래시는 여러 개여도 전부 제거되어 경로가 중복 슬래시로 이어지지 않는다")
     void trimsTrailingSlashFromIconBaseUrl() throws Exception {
+        fixtures.seedUser(1L);
         String accessToken = jwtProvider.generateTokens(1L).accessToken();
 
         mockMvc.perform(get("/api/v1/ingredients")

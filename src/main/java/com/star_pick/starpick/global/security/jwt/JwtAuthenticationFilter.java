@@ -31,6 +31,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtProvider jwtProvider;
+    private final com.star_pick.starpick.domain.user.repository.UserRepository users;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -40,10 +41,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (token != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             try {
                 AuthenticatedUser principal = new AuthenticatedUser(jwtProvider.parseAccessToken(token));
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(principal, null, List.of());
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                boolean withdrawal = "DELETE".equals(request.getMethod())
+                        && (request.getContextPath() + "/api/v1/users/me").equals(request.getRequestURI());
+                boolean allowed = withdrawal ? users.existsById(principal.userId())
+                        : users.existsByUserIdAndDeletedAtIsNull(principal.userId());
+                if (allowed) {
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(principal, null, List.of());
+                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                }
             } catch (JwtException | IllegalArgumentException e) {
                 // 인증하지 않고 넘긴다. 예상 가능한 실패이고 토큰 문자열은 민감정보라 로그로 남기지 않는다(04-3).
             }

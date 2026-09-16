@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.inquiry.service;
 
+import com.star_pick.starpick.domain.user.service.UserLifecycleGuard;
 import com.star_pick.starpick.domain.inquiry.controller.request.InquiryCreateRequest;
 import com.star_pick.starpick.domain.inquiry.controller.response.InquiryDetailResponse;
 import com.star_pick.starpick.domain.inquiry.controller.response.InquiryListResponse;
@@ -32,6 +33,7 @@ public class InquiryService {
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
     private final InquiryRepository inquiryRepository;
+    private final UserLifecycleGuard lifecycle;
 
     private final UploadService uploadService;
 
@@ -45,6 +47,7 @@ public class InquiryService {
      */
     @Transactional
     public Long create(Long userId, InquiryCreateRequest request) {
+        lifecycle.lockActive(userId);
         List<String> keys = request.attachmentKeysOrEmpty();
         for (String key : keys) {
             switch (uploadService.attach(userId, key, UploadPurpose.INQUIRY_ATTACHMENT)) {

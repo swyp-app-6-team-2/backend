@@ -123,7 +123,9 @@ public class AdRewardCallbackService {
         AdRewardSession session = sessions.findByIdForUpdate(parsed.sessionId()).orElse(null);
 
         if (session == null) {
-            recordRejectedSafely(parsed, null, userId, receivedAt, now, REASON_SESSION_NOT_FOUND);
+            // 세션 정리와 최종 사용자 삭제 사이의 콜백도 사용자 FK를 다시 만들지 않는다.
+            Long remainingUserId = user == null || user.getDeletedAt() != null ? null : userId;
+            recordRejectedSafely(parsed, null, remainingUserId, receivedAt, now, REASON_SESSION_NOT_FOUND);
             return;
         }
 
