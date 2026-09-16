@@ -332,4 +332,24 @@ class AdRewardCallbackApiTest {
     void malformedParametersReturn400() throws Exception {
         mvc.perform(get(PATH)).andExpect(status().isBadRequest());
     }
+    @Autowired
+    com.star_pick.starpick.domain.user.service.UserWithdrawalService withdrawals;
+
+    @Test
+    void callbacksAfterWithdrawalDoNotRestoreUserOrGrantAgain() throws Exception {
+        seedQuota(0, 1);
+        UUID session = seedSession("PENDING", Instant.now(), Instant.now().plusSeconds(1800),
+                Instant.now().plus(1, ChronoUnit.DAYS));
+        var original = validParams(session,"withdraw-granted");
+        callCallback(original).andExpect(status().isOk());
+        withdrawals.withdraw(OWNER);
+        callCallback(original).andExpect(status().isOk());
+        callCallback(validParams(session,"withdraw-late")).andExpect(status().isOk());
+        assertThat(transactionCount("withdraw-granted")).isOne();
+        assertThat(transactionStatus("withdraw-late")).isEqualTo("REJECTED");
+        assertThat(jdbc.queryForMap("select user_id,session_id from ad_reward_transaction where transaction_id='withdraw-granted'"))
+                .containsEntry("user_id",null).containsEntry("session_id",null);
+        assertThat(jdbc.queryForObject("select count(*) from users where user_id=?",Integer.class,OWNER)).isZero();
+    }
+
 }

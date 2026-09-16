@@ -138,3 +138,9 @@ ad-reward:
     # 운영은 false. 실제 SSV 테스트 도구로 dev 환경을 확인할 때만 이 값을 잠깐 true 로 바꾼다.
     # 환경변수로 빼지 않는다 — Boolean 값이 빈 문자열로 넘어오면 바인딩이 깨진다(ADMOB_AD_UNIT_* 와 다른 점).
     use-test-verifying-keys: false
+
+user-withdrawal:
+  recovery:
+    enabled: ${USER_WITHDRAWAL_RECOVERY_ENABLED:true}
+    delay-ms: ${USER_WITHDRAWAL_RECOVERY_DELAY_MS:60000}
+    batch-size: ${USER_WITHDRAWAL_RECOVERY_BATCH_SIZE:20}

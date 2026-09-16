@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface UploadObjectRepository extends JpaRepository<UploadObject, String> {
+    java.util.List<UploadObject> findTop20ByUserIdOrderByObjectKey(Long userId);
 
     /**
      * 미연결 상태일 때만 연결한다. 갱신된 행 수를 반환하며 1이면 성공이다.

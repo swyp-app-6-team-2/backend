@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.auth.service;
 
+import com.star_pick.starpick.domain.user.service.UserLifecycleGuard;
 import com.star_pick.starpick.domain.auth.client.SocialUserInfo;
 import com.star_pick.starpick.domain.auth.client.SocialUserInfoClient;
 import com.star_pick.starpick.domain.auth.client.SocialUserInfoClientResolver;
@@ -40,6 +41,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class AuthService {
     private final com.star_pick.starpick.domain.user.repository.ProfileRepository profiles;
     private final JwtProvider jwtProvider;
+    private final UserLifecycleGuard lifecycle;
     private final UserRepository users;
     private final SocialCredentialRepository credentials;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -145,6 +147,16 @@ public class AuthService {
     }
 
     @Transactional
+    public void revokeForWithdrawal(Long userId) {
+        refreshTokenRepository.deleteByUserId(userId);
+    }
+
+    @Transactional
+    public void deleteCredentialsForWithdrawal(Long userId) {
+        credentials.deleteByUser_UserId(userId);
+    }
+
+    @Transactional
     public void revoke(Long userId) {
         lockActiveUser(userId, CommonErrorCode.AUTHENTICATION_REQUIRED);
         refreshTokenRepository.deleteByUserId(userId);
@@ -185,9 +197,7 @@ public class AuthService {
     }
 
     private void lockActiveUser(Long userId, ErrorCode failure) {
-        var user = users.findByIdForUpdate(userId)
-                .orElseThrow(() -> new BusinessException(failure));
-        if (user.getDeletedAt() != null) {
+        if (!lifecycle.lockIfActive(userId)) {
             throw new BusinessException(failure);
         }
     }

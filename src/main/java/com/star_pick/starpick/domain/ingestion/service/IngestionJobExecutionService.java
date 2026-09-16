@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.ingestion.service;
 
+import com.star_pick.starpick.domain.user.service.UserLifecycleGuard;
 import com.star_pick.starpick.domain.ingestion.config.IngestionProperties;
 import com.star_pick.starpick.domain.ingestion.domain.IngestionFailureCode;
 import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
@@ -18,8 +19,11 @@ public class IngestionJobExecutionService {
 
     private final IngestionJobRepository repository;
     private final IngestionProperties properties;
+    private final UserLifecycleGuard lifecycle;
 
-    public IngestionJobExecutionService(IngestionJobRepository repository, IngestionProperties properties) {
+    public IngestionJobExecutionService(IngestionJobRepository repository, IngestionProperties properties,
+            UserLifecycleGuard lifecycle) {
+        this.lifecycle = lifecycle;
         this.repository = repository;
         this.properties = properties;
     }
@@ -39,17 +43,18 @@ public class IngestionJobExecutionService {
     @Transactional(readOnly = true)
     public Optional<IngestionJobSnapshot> loadForProcessing(Long jobId, int attempt) {
         return repository.findById(jobId)
-                .filter(job -> job.isCurrentAttempt(attempt))
+                .filter(job -> job.isCurrentAttempt(attempt) && repository.hasActiveOwner(jobId))
                 .map(IngestionJobSnapshot::from);
     }
 
     /**
      * 결과와 원본 대표 이미지 Key 를 한 번에 저장한다. 따로 저장하면 결과만 보이는 사이에 사용자가 레시피로
-     * 저장해 대표 이미지 없이 소비될 수 있다. 무효가 된 시도면 버리고, 그때 이미 올린 대표 이미지는 정리하지
-     * 않는다(드문 경로라 고아 객체를 받아들인다).
+     * 저장해 대표 이미지 없이 소비될 수 있다. 탈퇴했거나 무효가 된 시도는 false를 반환하며,
+     * 호출자가 이미 올린 대표 이미지를 정리한다.
      */
     @Transactional
     public boolean saveResult(Long jobId, int attempt, RecipeDraft draft, String sourceThumbnailKey) {
+        if (!lockActiveOwner(jobId)) return false;
         var job = repository.findByIdForUpdate(jobId).orElse(null);
         if (job == null || !job.isCurrentAttempt(attempt)) {
             log.warn("늦게 끝난 결과를 버립니다. ingestionJobId={}, attempt={}", jobId, attempt);
@@ -61,6 +66,7 @@ public class IngestionJobExecutionService {
 
     @Transactional
     public boolean saveFailure(Long jobId, int attempt, IngestionFailureCode code) {
+        if (!lockActiveOwner(jobId)) return false;
         var job = repository.findByIdForUpdate(jobId).orElse(null);
         if (job == null || !job.isCurrentAttempt(attempt)) {
             log.warn("늦게 끝난 실패를 버립니다. ingestionJobId={}, attempt={}", jobId, attempt);
@@ -70,9 +76,14 @@ public class IngestionJobExecutionService {
         return true;
     }
 
+    private boolean lockActiveOwner(Long jobId) {
+        return repository.findOwnerId(jobId).map(lifecycle::lockIfActive).orElse(false);
+    }
+
     /** 결과보다 먼저 저장해 분석 중 화면에 원본 썸네일이 보이게 한다. 무효가 된 시도면 아무것도 하지 않는다. */
     @Transactional
     public void savePreview(Long jobId, int attempt, String previewImageUrl) {
+        if (!lockActiveOwner(jobId)) return;
         repository.savePreviewImageUrl(jobId, attempt, previewImageUrl);
     }
 
@@ -86,6 +97,7 @@ public class IngestionJobExecutionService {
      */
     @Transactional
     public boolean releaseToQueued(Long jobId, int attempt) {
+        if (!lockActiveOwner(jobId)) return false;
         return repository.releaseToQueued(jobId, attempt) == 1;
     }
 }

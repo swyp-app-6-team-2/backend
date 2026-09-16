@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.ingestion.service;
 
+import com.star_pick.starpick.domain.user.service.UserLifecycleGuard;
 import static com.star_pick.starpick.domain.ingestion.exception.IngestionErrorCode.INGESTION_DAILY_LIMIT_EXCEEDED;
 import static com.star_pick.starpick.domain.ingestion.exception.IngestionErrorCode.INGESTION_INPUT_IMAGE_ALREADY_USED;
 import static com.star_pick.starpick.domain.ingestion.exception.IngestionErrorCode.INGESTION_INPUT_IMAGE_INVALID;
@@ -36,12 +37,14 @@ public class IngestionJobService {
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
     private final IngestionJobRepository repository;
+    private final UserLifecycleGuard lifecycle;
     private final UploadService uploadService;
     private final IngestionProperties properties;
     private final UserRecipeStatsService userRecipeStatsService;
 
     @Transactional
     public IngestionJobCreateResponse create(Long userId, IngestionJobCreateRequest request) {
+        lifecycle.lockActive(userId);
         IngestionJob urlJob = request.inputType() == IngestionInputType.URL ? urlJob(userId, request.url()) : null;
         // 저장할 수 없는 결과를 만드느라 분석 비용과 대기 시간을 쓰지 않는다. 슬롯은 저장할 때 쓴다.
         userRecipeStatsService.requireRemainingSlot(userId);

@@ -9,6 +9,8 @@ import jakarta.persistence.LockModeType;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
+    boolean existsByUserIdAndDeletedAtIsNull(Long userId);
+
     /** Refresh token 행이 없어도 같은 사용자에 대한 발급/폐기를 직렬화한다. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.userId = :userId")

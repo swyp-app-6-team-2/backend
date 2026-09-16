@@ -16,6 +16,14 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 public interface IngestionJobRepository extends JpaRepository<IngestionJob, Long> {
+    @Query("select j.id from IngestionJob j where j.userId = :userId order by j.id")
+    List<Long> findIdsForWithdrawal(@Param("userId") Long userId, Pageable pageable);
+
+    @Query("select j.userId from IngestionJob j where j.id = :id")
+    Optional<Long> findOwnerId(@Param("id") Long id);
+
+    @Query("select count(j) > 0 from IngestionJob j, User u where j.id = :id and j.userId = u.userId and u.deletedAt is null")
+    boolean hasActiveOwner(@Param("id") Long id);
 
     Optional<IngestionJob> findByIdAndUserId(Long id, Long userId);
 
@@ -26,6 +34,7 @@ public interface IngestionJobRepository extends JpaRepository<IngestionJob, Long
     @Query("""
             select j from IngestionJob j
             where j.status = com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus.QUEUED
+              and exists (select u.userId from User u where u.userId = j.userId and u.deletedAt is null)
             order by j.id asc
             """)
     List<IngestionJob> findQueuedForUpdateSkipLocked(Pageable pageable);

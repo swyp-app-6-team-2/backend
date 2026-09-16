@@ -55,6 +55,10 @@ public class FakeObjectStorage implements ObjectStorage {
         return uploaded.containsKey(objectKey);
     }
 
+    public java.util.Set<String> objectKeys() {
+        return java.util.Set.copyOf(uploaded.keySet());
+    }
+
     public List<String> operations() {
         return List.copyOf(operations);
     }

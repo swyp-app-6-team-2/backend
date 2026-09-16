@@ -1,5 +1,6 @@
 package com.star_pick.starpick.domain.upload.service;
 
+import com.star_pick.starpick.domain.user.service.UserLifecycleGuard;
 import com.star_pick.starpick.domain.upload.controller.response.UploadUrlIssueResponse;
 import com.star_pick.starpick.domain.upload.domain.UploadObject;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
@@ -34,18 +35,18 @@ public class UploadService {
     private static final String SOURCE_THUMBNAIL_PREFIX = "source-thumbnails";
 
     private final UploadObjectRepository uploadObjectRepository;
+    private final UserLifecycleGuard lifecycle;
     private final ObjectStorage objectStorage;
 
     /**
-     * 트랜잭션을 걸지 않는다. 서명(원격 호출)을 끝낸 뒤 저장 한 번으로 끝나기 때문이다.
-     * 저장이 실패하면 서명한 URL이 클라이언트에 전달되지 않으므로 저장소에는 아무 일도 일어나지
-     * 않는다. 반대로 저장 후 사용자가 업로드하지 않으면 미연결 UploadObject가 남는데, 이는
-     * 이미 허용하기로 한 상태다.
+     * URL 서명 후 사용자 잠금으로 탈퇴 여부를 재검사하고 발급 정보를 저장한다.
      */
+    @Transactional
     public UploadUrlIssueResponse issueUploadUrl(Long userId, UploadPurpose purpose, String contentType) {
         String objectKey = generateObjectKey(userId, purpose, contentType);
         SignedPutUrl signed = objectStorage.generateUploadUrl(objectKey, contentType);
 
+        lifecycle.lockActive(userId);
         uploadObjectRepository.save(UploadObject.issue(objectKey, userId, purpose));
 
         return new UploadUrlIssueResponse(objectKey, signed.url(), signed.headers(), signed.expiresAt());
@@ -155,7 +156,16 @@ public class UploadService {
         deleteAfterCommit(List.of(objectKey));
     }
 
-    /** 커밋 이후 저장소 파일 삭제를 한 번 예약한다. 트랜잭션 안에서만 부른다. */
+    /** 탈퇴 정리용 작은 배치. 호출자가 사용자 행을 잠근 상태에서 실행한다. */
+    @Transactional
+    public boolean deleteNextForUser(Long userId) {
+        var batch = uploadObjectRepository.findTop20ByUserIdOrderByObjectKey(userId);
+        for (var object : batch) {
+            releaseAndDeleteFile(userId, object.getObjectKey(), object.getPurpose());
+        }
+        return !batch.isEmpty();
+    }
+
     private void deleteAfterCommit(List<String> objectKeys) {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
