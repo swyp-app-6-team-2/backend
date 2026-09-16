@@ -73,6 +73,18 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    public void requireActiveUser(Long userId) {
+        active(users.findById(userId).orElseThrow(this::unauthorized));
+    }
+
+    /** 추천 등 다른 도메인에는 사용자 엔티티 대신 보유 재료 ID만 제공한다. */
+    @Transactional(readOnly = true)
+    public List<Long> getOwnedIngredientIds(Long userId) {
+        requireActiveUser(userId);
+        return owned.findIngredientIds(userId);
+    }
+
+    @Transactional(readOnly = true)
     public UserIngredientsResponse getIngredients(Long userId, String searchQuery) {
         active(users.findById(userId).orElseThrow(this::unauthorized));
         var ids = owned.findIngredientIds(userId);

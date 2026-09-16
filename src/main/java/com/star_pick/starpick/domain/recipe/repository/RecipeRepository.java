@@ -22,6 +22,31 @@ public interface RecipeRepository extends JpaRepository<Recipe, Long> {
      */
     Page<Recipe> findByUserId(Long userId, Pageable pageable);
 
+    /** 후보 전체를 앱 메모리에 올리지 않고 DB에서 섞은 뒤 한 건으로 제한한다. */
+    @Query("""
+            select r from Recipe r
+            where r.userId = :userId
+              and (:previousRecipeId is null or r.id <> :previousRecipeId)
+            order by function('random')
+            """)
+    List<Recipe> findRandomCandidates(@Param("userId") Long userId,
+            @Param("previousRecipeId") Long previousRecipeId, Pageable pageable);
+
+    /** EXISTS로 재료가 여러 개 일치해도 레시피별 추첨 확률이 중복되지 않게 한다. */
+    @Query("""
+            select r from Recipe r
+            where r.userId = :userId
+              and (:previousRecipeId is null or r.id <> :previousRecipeId)
+              and exists (
+                  select ri.id from RecipeIngredient ri
+                  where ri.recipe = r and ri.ingredientId in :ingredientIds
+              )
+            order by function('random')
+            """)
+    List<Recipe> findIngredientBasedCandidates(@Param("userId") Long userId,
+            @Param("previousRecipeId") Long previousRecipeId,
+            @Param("ingredientIds") List<Long> ingredientIds, Pageable pageable);
+
     /**
      * 여러 Recipe 의 재료명을 한 번에 읽는다. 목록의 N+1 을 막는 것이 목적이다.
      *
