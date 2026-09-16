@@ -10,6 +10,7 @@ package com.star_pick.starpick.domain.upload.domain;
  */
 public enum UploadPurpose {
 
+    PROFILE_IMAGE("profile-images"),
     RECIPE_COVER("recipe-covers"),
     COOK_HISTORY_PHOTO("cook-history"),
     INGESTION_INPUT("ingestion-inputs"),

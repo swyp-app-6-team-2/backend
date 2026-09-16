@@ -39,6 +39,7 @@ class SignupApiTest {
     @Autowired MockMvc mvc;
     @Autowired TestFixtures fixtures;
     @Autowired UserRepository users;
+    @Autowired com.star_pick.starpick.domain.user.repository.ProfileRepository profiles;
     @Autowired SocialCredentialRepository credentials;
     @Autowired AuthService signupService;
     @Autowired JsonMapper json;
@@ -84,6 +85,10 @@ class SignupApiTest {
         var data = json.readTree(response).get("data");
         assertThat(data.get("onboardingRequired").asBoolean()).isTrue();
         long userId = data.get("userId").asLong();
+        var profile = profiles.findByUser_UserId(userId).orElseThrow();
+        assertThat(profile.getNickname()).matches("스타[0-9]{4}");
+        assertThat(profile.getProfileImageKey()).isNull();
+        assertThat(profile.getProfileImageUrl()).isNull();
         assertThat(jwt.parseAccessToken(data.get("accessToken").asText())).isEqualTo(userId);
         var user = users.findById(userId).orElseThrow();
         assertThat(user.getAgeOver14Agreed()).isTrue();
@@ -208,13 +213,15 @@ class SignupApiTest {
         assertThat(credentials.findByProviderAndSocialUid(Provider.APPLE, "forged-id")).isEmpty();
     }
 
-    @Test void tokenIssuanceFailureRollsBackBothUserAndCredential() throws Exception {
+    @Test void tokenIssuanceFailureRollsBackUserCredentialAndProfile() throws Exception {
         var request = body(token(Provider.NAVER, null));
         long before = users.count();
+        long profilesBefore = profiles.count();
         doThrow(new IllegalStateException("test token failure")).when(jwt).generateTokens(anyLong());
         send(request).andExpect(status().isInternalServerError());
         assertThat(users.count()).isEqualTo(before);
         assertThat(credentials.count()).isZero();
+        assertThat(profiles.count()).isEqualTo(profilesBefore);
     }
 
     @Test void concurrentSignupCreatesExactlyOneUser() throws Exception {

@@ -6,11 +6,18 @@ import com.star_pick.starpick.domain.user.entity.Profile;
 import com.star_pick.starpick.domain.user.entity.User;
 import com.star_pick.starpick.domain.ingredient.domain.Ingredient;
 import java.time.Instant;
+import com.star_pick.starpick.domain.user.repository.ProfileRepository;
+import com.star_pick.starpick.domain.user.dto.ProfileUpdateRequest;
+import com.star_pick.starpick.domain.user.dto.ProfileResponse;
+import com.star_pick.starpick.domain.user.exception.ProfileErrorCode;
+import com.star_pick.starpick.domain.upload.service.UploadService;
+import com.star_pick.starpick.domain.upload.service.AttachOutcome;
+import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
+import java.util.Objects;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.Locale;
 import com.star_pick.starpick.domain.user.exception.UserIngredientErrorCode;
-import com.star_pick.starpick.domain.user.repository.ProfileRepository;
 import com.star_pick.starpick.domain.user.repository.UserIngredientRepository;
 import com.star_pick.starpick.domain.user.repository.UserRepository;
 import com.star_pick.starpick.global.exception.BusinessException;
@@ -27,14 +34,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class UserService {
+    private final ProfileRepository profiles;
+    private final UploadService uploads;
     private final UserRepository users;
     private final IngredientRepository ingredients;
     private final UserIngredientRepository owned;
     private final String iconBaseUrl;
-    private final ProfileRepository profiles;
 
-    public UserService(UserRepository users, IngredientRepository ingredients,
-            UserIngredientRepository owned, ProfileRepository profiles, @Value("${starpick.ingredient.icon-base-url}") String iconBaseUrl) {
+    public UserService(ProfileRepository profiles, UploadService uploads, UserRepository users, IngredientRepository ingredients,
+            UserIngredientRepository owned, @Value("${starpick.ingredient.icon-base-url}") String iconBaseUrl) {
+        this.uploads = uploads;
         this.users = users;
         this.ingredients = ingredients;
         this.owned = owned;
@@ -104,6 +113,30 @@ public class UserService {
     public MyInfoResponse getMe(Long userId) {
         User user = active(users.findById(userId).orElseThrow(this::unauthorized));
         Profile profile = profiles.findByUser_UserId(userId).orElse(null);
-        return MyInfoResponse.from(user, profile);
+        String url = profile == null ? null : profile.getProfileImageKey() == null
+                ? profile.getProfileImageUrl() : uploads.getViewUrl(userId, profile.getProfileImageKey());
+        return new MyInfoResponse(userId, profile == null ? null : profile.getNickname(), url,
+                user.getRemainingRecipeSlots(), user.getRecipeSlotLimit(), user.getCumulativeRecipeCount());
+    }
+
+    @Transactional
+    public ProfileResponse updateProfile(Long userId, ProfileUpdateRequest request) {
+        var user = active(users.findByIdForUpdate(userId).orElseThrow(this::unauthorized));
+        var profile = profiles.findByUser_UserId(userId).orElseGet(() -> profiles.save(Profile.initial(user)));
+        if (request.getProfileImageKey() != null) {
+            String next = request.getProfileImageKey().orElse(null);
+            String previous = profile.getProfileImageKey();
+            if (!Objects.equals(previous, next)) {
+                if (next != null && uploads.attach(userId, next, UploadPurpose.PROFILE_IMAGE) != AttachOutcome.ATTACHED) {
+                    throw new BusinessException(ProfileErrorCode.PROFILE_IMAGE_INVALID);
+                }
+                uploads.releaseAndDeleteFile(userId, previous, UploadPurpose.PROFILE_IMAGE);
+            }
+            profile.changeImage(next);
+        }
+        profile.changeNickname(request.getNickname());
+        String url = profile.getProfileImageKey() == null ? profile.getProfileImageUrl()
+                : uploads.getViewUrl(userId, profile.getProfileImageKey());
+        return new ProfileResponse(userId, profile.getNickname(), url);
     }
 }

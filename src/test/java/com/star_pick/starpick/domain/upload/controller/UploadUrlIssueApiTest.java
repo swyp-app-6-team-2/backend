@@ -105,7 +105,7 @@ class UploadUrlIssueApiTest {
     void rejectsUnknownPurpose() throws Exception {
         // enum 역직렬화 실패라 Bean Validation 이전 단계에서 걸린다.
         issue("""
-                {"purpose":"PROFILE_IMAGE","contentType":"image/jpeg"}
+                {"purpose":"UNKNOWN_PURPOSE","contentType":"image/jpeg"}
                 """)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.data.code").value("INVALID_REQUEST_FORMAT"));

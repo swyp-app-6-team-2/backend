@@ -32,7 +32,8 @@ public class UploadController {
                     이미지를 저장소에 직접 올릴 수 있는 임시 URL을 발급합니다.
                     - 응답의 uploadUrl 로 이미지 바이너리를 PUT 합니다.
                     - uploadHeaders 를 그대로 포함해야 합니다. 서명에 포함된 값이라 하나라도 빠지면 저장소가 거부합니다.
-                    - 업로드를 마친 뒤 objectKey 를 레시피·조리기록 API 에 전달합니다.
+                    - 업로드를 마친 뒤 objectKey 를 레시피·조리기록·문의·프로필 API 에 전달합니다.
+                    - 프로필은 purpose=PROFILE_IMAGE로 발급하고 profileImageKey에 objectKey를 전달합니다.
                     - URL 은 발급 시점부터 15분간 유효합니다.
                     """)
     @PostMapping("/images")
