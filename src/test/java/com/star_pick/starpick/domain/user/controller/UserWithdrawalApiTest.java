@@ -64,6 +64,7 @@ class UserWithdrawalApiTest {
         jdbc.update("insert into profiles (user_id,nickname,created_at,updated_at) values (?, '탈퇴', now(),now())", OWNER);
         jdbc.update("insert into social_credentials (user_id,provider,social_uid,created_at) values (?,'GOOGLE','withdraw-test',now())", OWNER);
         jdbc.update("insert into user_ingredient(user_id,ingredient_id) select ?,id from ingredient limit 1", OWNER);
+        jdbc.update("insert into user_custom_ingredient(user_id,name,created_at) values (?,'루꼴라',now())", OWNER);
         jdbc.update("insert into notification_setting(user_id,enabled) values (?,true)", OWNER);
         jdbc.update("insert into push_token(user_id,token,platform,active) values (?,'withdraw-token','ANDROID',true)", OWNER);
         jdbc.update("insert into push_log(user_id,push_token_id,scheduled_at,status) select ?,id,now(),'SENT' from push_token where user_id=?", OWNER,OWNER);
@@ -83,8 +84,8 @@ class UserWithdrawalApiTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.message").value("회원 탈퇴가 완료되었습니다."))
                 .andExpect(jsonPath("$.data").doesNotExist());
         for (String table : new String[]{"users","profiles","social_credentials","refresh_tokens","recipe",
-                "ingestion_job","upload_object","user_ingredient","inquiry","notification_setting","push_token",
-                "push_log","ad_reward_session","ad_reward_daily_quota"}) {
+                "ingestion_job","upload_object","user_ingredient","user_custom_ingredient","inquiry",
+                "notification_setting","push_token","push_log","ad_reward_session","ad_reward_daily_quota"}) {
             assertThat(count(table,OWNER)).as(table).isZero();
         }
         assertThat(count("recipe",OTHER)).isEqualTo(1);

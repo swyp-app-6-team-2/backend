@@ -17,7 +17,9 @@ import java.util.Objects;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.Locale;
+import com.star_pick.starpick.domain.user.entity.UserCustomIngredient;
 import com.star_pick.starpick.domain.user.exception.UserIngredientErrorCode;
+import com.star_pick.starpick.domain.user.repository.UserCustomIngredientRepository;
 import com.star_pick.starpick.domain.user.repository.UserIngredientRepository;
 import com.star_pick.starpick.domain.user.repository.UserRepository;
 import com.star_pick.starpick.global.exception.BusinessException;
@@ -39,14 +41,19 @@ public class UserService {
     private final UserRepository users;
     private final IngredientRepository ingredients;
     private final UserIngredientRepository owned;
+    private final UserCustomIngredientRepository customIngredients;
+    private final UserLifecycleGuard lifecycle;
     private final String iconBaseUrl;
 
     public UserService(ProfileRepository profiles, UploadService uploads, UserRepository users, IngredientRepository ingredients,
-            UserIngredientRepository owned, @Value("${starpick.ingredient.icon-base-url}") String iconBaseUrl) {
+            UserIngredientRepository owned, UserCustomIngredientRepository customIngredients, UserLifecycleGuard lifecycle,
+            @Value("${starpick.ingredient.icon-base-url}") String iconBaseUrl) {
         this.uploads = uploads;
         this.users = users;
         this.ingredients = ingredients;
         this.owned = owned;
+        this.customIngredients = customIngredients;
+        this.lifecycle = lifecycle;
         this.profiles = profiles;
         this.iconBaseUrl = iconBaseUrl.replaceAll("/+$", "");
     }
@@ -84,19 +91,41 @@ public class UserService {
         return owned.findIngredientIds(userId);
     }
 
+    /** 추천 도메인에 커스텀 재료 이름만 제공한다. recipe_ingredient.name 과 트림 후 완전 일치로 매칭한다. */
+    @Transactional(readOnly = true)
+    public List<String> getOwnedCustomIngredientNames(Long userId) {
+        requireActiveUser(userId);
+        return customIngredients.findByUserId(userId).stream().map(UserCustomIngredient::getName).toList();
+    }
+
+    @Transactional
+    public UserIngredientResponse addCustomIngredient(Long userId, String name) {
+        lifecycle.lockActive(userId);
+        var saved = customIngredients.save(UserCustomIngredient.create(userId, name));
+        return UserIngredientResponse.fromCustom(saved);
+    }
+
     @Transactional(readOnly = true)
     public UserIngredientsResponse getIngredients(Long userId, String searchQuery) {
         active(users.findById(userId).orElseThrow(this::unauthorized));
-        var ids = owned.findIngredientIds(userId);
-        if (ids.isEmpty()) return new UserIngredientsResponse(List.of());
         String query = searchQuery == null ? "" : searchQuery.strip().toLowerCase(Locale.ROOT);
+        var ids = owned.findIngredientIds(userId);
         // 보유한 비활성 재료도 유지한다. 검색 기호는 LIKE 패턴이 아니라 일반 문자로 취급한다.
-        var result = ingredients.findAllByIdIn(ids).stream()
+        var master = ids.isEmpty() ? List.<UserIngredientResponse>of() : ingredients.findAllByIdIn(ids).stream()
                 .filter(i -> i.getName().toLowerCase(Locale.ROOT).contains(query))
                 .sorted(Comparator.comparing(Ingredient::getCategory).thenComparing(Ingredient::getName)
                         .thenComparing(Ingredient::getId))
                 .map(i -> UserIngredientResponse.from(i, iconBaseUrl))
                 .toList();
+        // 커스텀 재료는 기존 재료 뒤에 이름순·ID순으로 배치한다.
+        var custom = customIngredients.findByUserId(userId).stream()
+                .filter(c -> c.getName().toLowerCase(Locale.ROOT).contains(query))
+                .sorted(Comparator.comparing(UserCustomIngredient::getName).thenComparing(UserCustomIngredient::getId))
+                .map(UserIngredientResponse::fromCustom)
+                .toList();
+        var result = new ArrayList<UserIngredientResponse>(master.size() + custom.size());
+        result.addAll(master);
+        result.addAll(custom);
         return new UserIngredientsResponse(result);
     }
 

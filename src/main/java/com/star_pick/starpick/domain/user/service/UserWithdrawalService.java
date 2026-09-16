@@ -62,7 +62,9 @@ public class UserWithdrawalService {
         while (step(userId, "uploads", () -> uploads.deleteNextForUser(userId))) { }
         step(userId, "notifications", () -> { notifications.deleteAllForUser(userId); return false; });
         step(userId, "ingredients", () -> {
-            jdbc.update("delete from user_ingredient where user_id = ?", userId); return false;
+            jdbc.update("delete from user_ingredient where user_id = ?", userId);
+            jdbc.update("delete from user_custom_ingredient where user_id = ?", userId);
+            return false;
         });
         step(userId, "inquiries", () -> { inquiries.deleteAllForUser(userId); return false; });
         step(userId, "ads", () -> { ads.deleteAllForUser(userId); return false; });

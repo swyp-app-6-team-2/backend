@@ -69,6 +69,7 @@ public class TestFixtures {
      */
     public void reset() {
         jdbcTemplate.update("delete from user_ingredient");
+        jdbcTemplate.update("delete from user_custom_ingredient");
         refreshTokenRepository.deleteAll();
         inquiryRepository.deleteAll();
         // push_log → push_token → notification_setting 은 FK 순서다.

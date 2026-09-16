@@ -95,6 +95,7 @@ class EnumCheckConstraintTest {
         // ck_ad_reward_daily_quota_non_negative·ck_ad_reward_daily_quota_limit(카운터 범위),
         // ck_ad_reward_session_reward_amount(양수 확인), ck_ad_reward_transaction_granted_amount
         // (상태·지급 금액·시각 조합)도 enum 값 집합이 아니라 제외한다.
+        // ck_user_custom_ingredient_name_not_blank 도 공백만 입력한 이름을 막는 제약이라 enum 과 무관해 제외한다.
         List<String> inDatabase = jdbcTemplate.queryForList("""
                 select conname from pg_constraint
                 where contype = 'c'
@@ -103,7 +104,8 @@ class EnumCheckConstraintTest {
                   and conname not in ('ck_ingestion_job_input', 'ck_recipe_source', 'ck_recipe_source_thumbnail',
                                       'ck_inquiry_attachment_keys', 'ck_inquiry_answer',
                                       'ck_ad_reward_daily_quota_non_negative', 'ck_ad_reward_daily_quota_limit',
-                                      'ck_ad_reward_session_reward_amount', 'ck_ad_reward_transaction_granted_amount')
+                                      'ck_ad_reward_session_reward_amount', 'ck_ad_reward_transaction_granted_amount',
+                                      'ck_user_custom_ingredient_name_not_blank')
                 """, String.class);
 
         assertThat(inDatabase)

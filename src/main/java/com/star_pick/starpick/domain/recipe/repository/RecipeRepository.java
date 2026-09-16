@@ -33,20 +33,26 @@ public interface RecipeRepository extends JpaRepository<Recipe, Long>, JpaSpecif
     List<Recipe> findRandomCandidates(@Param("userId") Long userId,
             @Param("previousRecipeId") Long previousRecipeId, Pageable pageable);
 
-    /** EXISTS로 재료가 여러 개 일치해도 레시피별 추첨 확률이 중복되지 않게 한다. */
+    /**
+     * EXISTS로 재료가 여러 개 일치해도 레시피별 추첨 확률이 중복되지 않게 한다.
+     *
+     * <p>커스텀 재료는 마스터 ID가 없으므로 {@code recipe_ingredient.name} 을 양쪽 트림 후 완전 일치로 매칭한다.
+     */
     @Query("""
             select r from Recipe r
             where r.userId = :userId
               and (:previousRecipeId is null or r.id <> :previousRecipeId)
               and exists (
                   select ri.id from RecipeIngredient ri
-                  where ri.recipe = r and ri.ingredientId in :ingredientIds
+                  where ri.recipe = r
+                    and (ri.ingredientId in :ingredientIds or trim(ri.name) in :customNames)
               )
             order by function('random')
             """)
     List<Recipe> findIngredientBasedCandidates(@Param("userId") Long userId,
             @Param("previousRecipeId") Long previousRecipeId,
-            @Param("ingredientIds") List<Long> ingredientIds, Pageable pageable);
+            @Param("ingredientIds") List<Long> ingredientIds,
+            @Param("customNames") List<String> customNames, Pageable pageable);
 
     /**
      * 여러 Recipe 의 재료명을 한 번에 읽는다. 목록의 N+1 을 막는 것이 목적이다.

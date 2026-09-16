@@ -40,11 +40,23 @@ public class UserController {
     }
 
     @GetMapping("/ingredients")
-    @Operation(summary = "내 재료 목록 조회", description = "본인이 등록한 재료만 조회합니다. searchQuery는 재료명 부분 검색이며 빈 값은 전체 조회입니다. 카테고리 순서 및 이름 가나다순으로 반환하고 보유한 비활성 재료도 포함합니다.")
+    @Operation(summary = "내 재료 목록 조회", description = "본인이 등록한 재료만 조회합니다. searchQuery는 재료명 부분 검색이며 빈 값은 전체 조회입니다. 카테고리 순서 및 이름 가나다순으로 반환하고 보유한 비활성 재료도 포함합니다. 커스텀 재료는 뒤에 이름순·ID순으로 배치합니다.")
     public ApiResponse<UserIngredientsResponse> getIngredients(@AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String searchQuery) {
         var result = users.getIngredients(user.userId(), searchQuery);
         return ApiResponse.ok(result.ingredients().isEmpty() ? "조회된 재료가 없습니다." : "내 재료 목록을 조회했습니다.", result);
+    }
+
+    @PostMapping("/ingredients/custom")
+    @Operation(summary = "커스텀 재료 추가", description = "유효한 access token이 필요합니다. 재료명을 앞뒤 공백 제거 후 1~50자로 저장하며 마스터·기존 커스텀 재료와 이름이 같아도 새 항목으로 등록합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "등록된 커스텀 재료 반환"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "재료명 누락·공백·길이 초과"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증 실패 또는 사용할 수 없는 사용자")
+    })
+    public ApiResponse<UserIngredientResponse> addCustomIngredient(@AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody CustomIngredientCreateRequest request) {
+        return ApiResponse.ok("재료가 등록되었습니다.", users.addCustomIngredient(user.userId(), request.name()));
     }
 
     @GetMapping("/onboarding")
