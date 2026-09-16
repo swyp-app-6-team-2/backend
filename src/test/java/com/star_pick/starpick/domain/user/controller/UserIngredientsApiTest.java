@@ -108,6 +108,56 @@ class UserIngredientsApiTest {
         mvc.perform(get(PATH).header("Authorization", bearer(OWNER))).andExpect(status().isUnauthorized());
     }
 
+    @Test void customIngredientsAppearAfterMasterInNameThenIdOrderAndCarryCustomFields() throws Exception {
+        users.addIngredients(OWNER, List.of(chicken));
+        users.addCustomIngredient(OWNER, "루꼴라");
+        users.addCustomIngredient(OWNER, "가지");
+        users.addCustomIngredient(OWNER, "가지");
+        var body = mvc.perform(get(PATH).header("Authorization", bearer(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ingredients.length()").value(4))
+                .andExpect(jsonPath("$.data.ingredients[0].ingredientType").value("MASTER"))
+                .andExpect(jsonPath("$.data.ingredients[0].name").value("닭가슴살"))
+                .andExpect(jsonPath("$.data.ingredients[1].ingredientType").value("CUSTOM"))
+                .andExpect(jsonPath("$.data.ingredients[1].name").value("가지"))
+                .andExpect(jsonPath("$.data.ingredients[1].ingredientId").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.ingredients[1].categoryCode").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.ingredients[1].iconUrl").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.ingredients[2].ingredientType").value("CUSTOM"))
+                .andExpect(jsonPath("$.data.ingredients[2].name").value("가지"))
+                .andExpect(jsonPath("$.data.ingredients[3].name").value("루꼴라"))
+                .andReturn().getResponse().getContentAsString();
+        long firstGajiId = json.readTree(body).get("data").get("ingredients").get(1).get("customIngredientId").asLong();
+        long secondGajiId = json.readTree(body).get("data").get("ingredients").get(2).get("customIngredientId").asLong();
+        assertThat(firstGajiId).isLessThan(secondGajiId);
+    }
+
+    @Test void searchAppliesToBothMasterAndCustomNames() throws Exception {
+        users.addIngredients(OWNER, List.of(chicken, garlic));
+        users.addCustomIngredient(OWNER, "마늘종");
+        mvc.perform(get(PATH).header("Authorization", bearer(OWNER)).param("searchQuery", "마늘"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ingredients.length()").value(2))
+                .andExpect(jsonPath("$.data.ingredients[0].name").value("마늘"))
+                .andExpect(jsonPath("$.data.ingredients[1].name").value("마늘종"));
+    }
+
+    @Test void customIngredientsAloneAreReturnedWhenMasterIsEmpty() throws Exception {
+        users.addCustomIngredient(OWNER, "루꼴라");
+        mvc.perform(get(PATH).header("Authorization", bearer(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("내 재료 목록을 조회했습니다."))
+                .andExpect(jsonPath("$.data.ingredients.length()").value(1))
+                .andExpect(jsonPath("$.data.ingredients[0].ingredientType").value("CUSTOM"))
+                .andExpect(jsonPath("$.data.ingredients[0].name").value("루꼴라"));
+    }
+
+    @Test void customIngredientsAreIsolatedPerUser() throws Exception {
+        users.addCustomIngredient(OTHER, "루꼴라");
+        mvc.perform(get(PATH).header("Authorization", bearer(OWNER)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.ingredients").isEmpty());
+    }
+
     @Test void getDoesNotChangeOwnership() throws Exception {
         users.addIngredients(OWNER, List.of(chicken));
         for (int i = 0; i < 2; i++) {

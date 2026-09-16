@@ -73,9 +73,10 @@ public class RecipeService {
             }
             case INGREDIENT_BASED -> {
                 List<Long> ingredientIds = userService.getOwnedIngredientIds(userId);
-                yield ingredientIds.isEmpty() ? List.of()
+                List<String> customNames = userService.getOwnedCustomIngredientNames(userId);
+                yield ingredientIds.isEmpty() && customNames.isEmpty() ? List.of()
                         : recipeRepository.findIngredientBasedCandidates(
-                                userId, request.previousRecipeId(), ingredientIds, PageRequest.of(0, 1));
+                                userId, request.previousRecipeId(), ingredientIds, customNames, PageRequest.of(0, 1));
             }
         };
         if (candidates.isEmpty()) {

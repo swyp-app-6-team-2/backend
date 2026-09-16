@@ -12,6 +12,7 @@ import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.recipe.domain.RecipeIngredient;
 import com.star_pick.starpick.domain.recipe.repository.RecipeRepository;
 import com.star_pick.starpick.domain.user.repository.UserIngredientRepository;
+import com.star_pick.starpick.domain.user.service.UserService;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.IntegrationTest;
@@ -42,6 +43,7 @@ class RecipeRecommendationApiTest {
     @Autowired TestFixtures fixtures;
     @Autowired RecipeRepository recipes;
     @Autowired UserIngredientRepository pantry;
+    @Autowired UserService users;
     @Autowired JdbcTemplate jdbc;
     @Autowired FakeObjectStorage storage;
 
@@ -161,6 +163,55 @@ class RecipeRecommendationApiTest {
         String name = jdbc.queryForObject("select name from ingredient where id = ?", String.class, ingredientId);
         save(OWNER_ID, RecipeIngredient.of(null, name, null));
         assertEmpty("INGREDIENT_BASED", null);
+    }
+
+    @Test
+    void customIngredientOnlyUserMatchesByTrimmedExactName() throws Exception {
+        users.addCustomIngredient(OWNER_ID, "루꼴라");
+        Long match = save(OWNER_ID, RecipeIngredient.of(null, " 루꼴라 ", null));
+        save(OWNER_ID, RecipeIngredient.of(null, "다른 재료", null));
+        save(OTHER_ID, RecipeIngredient.of(null, "루꼴라", null));
+
+        recommend("{\"recommendationMode\":\"INGREDIENT_BASED\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.recipeId").value(match));
+    }
+
+    @Test
+    void customIngredientDoesNotMatchAsSubstring() throws Exception {
+        users.addCustomIngredient(OWNER_ID, "루꼴라");
+        save(OWNER_ID, RecipeIngredient.of(null, "생루꼴라", null));
+        assertEmpty("INGREDIENT_BASED", null);
+    }
+
+    @Test
+    void masterAndCustomIngredientsAreCombinedWithOrMatching() throws Exception {
+        pantry.insertIfAbsent(OWNER_ID, ingredientId);
+        users.addCustomIngredient(OWNER_ID, "루꼴라");
+        Long viaMaster = save(OWNER_ID, RecipeIngredient.of(ingredientId, "마스터 재료", null));
+        Long viaCustom = save(OWNER_ID, RecipeIngredient.of(null, "루꼴라", null));
+
+        for (int i = 0; i < 5; i++) {
+            String body = recommend("{\"recommendationMode\":\"INGREDIENT_BASED\"}")
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            Number recipeId = JsonPath.parse(body).read("$.data.recipeId");
+            assertThat(recipeId.longValue()).isIn(viaMaster, viaCustom);
+        }
+    }
+
+    @Test
+    void duplicateCustomIngredientMatchesDoNotInflateCandidateCount() throws Exception {
+        users.addCustomIngredient(OWNER_ID, "루꼴라");
+        Long previous = save(OWNER_ID, RecipeIngredient.of(null, "첫 재료", null));
+        Long next = save(OWNER_ID, RecipeIngredient.of(null, "루꼴라", null),
+                RecipeIngredient.of(null, "루꼴라", null));
+
+        recommend("""
+                {"recommendationMode":"INGREDIENT_BASED","previousRecipeId":%d}
+                """.formatted(previous))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.recipeId").value(next));
     }
 
     @Test
