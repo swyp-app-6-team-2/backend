@@ -685,7 +685,7 @@ class IngestionJobProcessorTest {
                 new IngestionProperties.Gemini(
                         properties.gemini().apiKey(), properties.gemini().model(),
                         properties.gemini().baseUrl(), analyzeTimeout, properties.gemini().videoFps()),
-                properties.instagram());
+                properties.instagram(), properties.youtube());
         return new IngestionJobProcessor(
                 executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom,
                 uploadService);

@@ -49,6 +49,11 @@ public class TestcontainersConfiguration {
     }
 
     @Bean
+    FakeYouTubeMetadataClient youTubeMetadataClient() {
+        return new FakeYouTubeMetadataClient();
+    }
+
+    @Bean
     FakePushGateway pushGateway() {
         return new FakePushGateway();
     }
