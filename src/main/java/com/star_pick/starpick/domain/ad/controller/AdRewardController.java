@@ -2,7 +2,9 @@ package com.star_pick.starpick.domain.ad.controller;
 
 import com.star_pick.starpick.domain.ad.dto.request.AdRewardSessionCreateRequest;
 import com.star_pick.starpick.domain.ad.dto.response.AdRewardSessionResponse;
+import com.star_pick.starpick.domain.ad.dto.response.AdRewardStatusResponse;
 import com.star_pick.starpick.domain.ad.service.AdRewardSessionService;
+import com.star_pick.starpick.domain.ad.service.AdRewardStatusService;
 import com.star_pick.starpick.global.ApiResponse;
 import com.star_pick.starpick.global.security.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.Operation;
@@ -11,6 +13,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,6 +26,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdRewardController {
 
     private final AdRewardSessionService sessions;
+    private final AdRewardStatusService status;
+
+    @GetMapping("/status")
+    @Operation(summary = "광고 보상 상태 조회", description = "유효한 access token이 필요합니다. 저장 한도·잔여 슬롯·당일 지급 및 "
+            + "예약 횟수와 진행 중 세션을 반환합니다. 슬롯을 지급하지 않습니다.")
+    public ApiResponse<AdRewardStatusResponse> getStatus(@AuthenticationPrincipal AuthenticatedUser user) {
+        return ApiResponse.ok("광고 보상 상태를 조회했습니다.", status.getStatus(user.userId()));
+    }
 
     @PostMapping("/sessions")
     @Operation(summary = "시청 세션 발급", description = "유효한 access token이 필요합니다. platform과 requestId를 받아 세션을 "

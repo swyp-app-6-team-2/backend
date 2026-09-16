@@ -25,7 +25,13 @@ public interface AdRewardSessionRepository extends JpaRepository<AdRewardSession
     /** 본인 세션만 조회한다(§4.3, §4.4). 없거나 다른 사용자 것이면 동일한 404 대상이다. */
     Optional<AdRewardSession> findByIdAndUserId(UUID id, Long userId);
 
-    /** 날짜별 사용자당 진행 중 세션 1개 제한 확인(§2.1)과 상태 조회(§4.1) 복구용. */
+    /** 날짜별 사용자당 진행 중 세션 1개 제한 확인(§2.1)에 쓴다. */
     List<AdRewardSession> findByUserIdAndQuotaDateAndStatus(Long userId, LocalDate quotaDate,
             AdRewardSessionStatus status);
+
+    /**
+     * 날짜와 무관하게 진행 중인 세션 전체. 상태 조회(§4.1)가 전날의 미완료 세션까지 복구용으로
+     * 돌려줘야 해서 날짜로 좁히지 않는다.
+     */
+    List<AdRewardSession> findByUserIdAndStatus(Long userId, AdRewardSessionStatus status);
 }
