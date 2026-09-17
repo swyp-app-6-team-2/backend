@@ -13,9 +13,11 @@ import jakarta.validation.Valid;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -41,14 +43,10 @@ public class AdminInquiryController {
     private static final DateTimeFormatter DISPLAY =
             DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm").withZone(ZoneId.of("Asia/Seoul"));
 
-    /** 앱 문의 화면과 같은 표시 이름. 칩·카드·상세가 함께 쓴다. */
-    private static final Map<InquiryType, String> TYPE_LABELS = new EnumMap<>(Map.of(
-            InquiryType.RECIPE, "레시피",
-            InquiryType.SLOT, "별 슬롯 확장",
-            InquiryType.ACCOUNT, "계정·로그인",
-            InquiryType.NOTIFICATION, "알림",
-            InquiryType.BUG, "오류 신고",
-            InquiryType.ETC, "제안·기타"));
+    /** 칩·카드·상세가 함께 쓴다. 상수 선언 순서가 칩 순서다. */
+    private static final Map<InquiryType, String> TYPE_LABELS = Arrays.stream(InquiryType.values())
+            .collect(Collectors.toMap(type -> type, InquiryType::label,
+                    (a, b) -> a, () -> new EnumMap<>(InquiryType.class)));
 
     private static final Map<InquiryStatus, String> STATUS_LABELS = new EnumMap<>(Map.of(
             InquiryStatus.RECEIVED, "접수완료",
