@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -43,15 +44,31 @@ class InquiryDiscordNotifierTest {
     }
 
     @Test
-    @DisplayName("번호·유형·접수 시각·관리자 링크만 한 줄로 보낸다")
+    @DisplayName("번호·유형 표시 이름·제목·접수 시각·관리자 링크를 한 줄로 보낸다")
     void sendsCompactLine() {
         server.expect(requestTo(WEBHOOK_URL))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().json("""
-                        {"content":"문의 #12 · SLOT · 2026-09-16 21:04 · <http://localhost/admin/inquiries/12>"}"""))
+                        {"content":"문의 #12 · 별 슬롯 확장 · 광고 봤는데 슬롯이 안 늘어나요 · 2026-09-16 21:04 · <http://localhost/admin/inquiries/12>"}"""))
                 .andRespond(withSuccess());
 
-        notifier(WEBHOOK_URL).notifyCreated(12L, InquiryType.SLOT,
+        notifier(WEBHOOK_URL).notifyCreated(12L, InquiryType.SLOT, "광고 봤는데 슬롯이 안 늘어나요",
+                Instant.parse("2026-09-16T12:04:30Z"));
+
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("제목의 줄바꿈은 공백으로 바꾸고, 멘션과 링크 미리보기는 막는다")
+    void neutralizesUserTitle() {
+        server.expect(requestTo(WEBHOOK_URL))
+                .andExpect(content().json("""
+                        {"content":"문의 #12 · 오류 신고 · @everyone 급해요 https://example.com · 2026-09-16 21:04 · <http://localhost/admin/inquiries/12>",
+                         "allowed_mentions":{"parse":[]},
+                         "flags":4}""", JsonCompareMode.STRICT))
+                .andRespond(withSuccess());
+
+        notifier(WEBHOOK_URL).notifyCreated(12L, InquiryType.BUG, "@everyone\n급해요\r\nhttps://example.com",
                 Instant.parse("2026-09-16T12:04:30Z"));
 
         server.verify();
@@ -62,7 +79,7 @@ class InquiryDiscordNotifierTest {
     void swallowsFailure() {
         server.expect(requestTo(WEBHOOK_URL)).andRespond(withServerError());
 
-        assertThatCode(() -> notifier(WEBHOOK_URL).notifyCreated(12L, InquiryType.BUG, Instant.now()))
+        assertThatCode(() -> notifier(WEBHOOK_URL).notifyCreated(12L, InquiryType.BUG, "제목", Instant.now()))
                 .doesNotThrowAnyException();
 
         server.verify();
@@ -71,7 +88,7 @@ class InquiryDiscordNotifierTest {
     @Test
     @DisplayName("웹훅 주소가 없으면 호출하지 않는다")
     void doesNothingWithoutWebhookUrl() {
-        notifier("").notifyCreated(12L, InquiryType.ETC, Instant.now());
+        notifier("").notifyCreated(12L, InquiryType.ETC, "제목", Instant.now());
 
         server.verify(); // 기대한 요청이 없으므로 한 건이라도 나가면 실패한다
     }
@@ -81,7 +98,7 @@ class InquiryDiscordNotifierTest {
     void swallowsMissingRequestContext() {
         RequestContextHolder.resetRequestAttributes();
 
-        assertThatCode(() -> notifier(WEBHOOK_URL).notifyCreated(12L, InquiryType.ETC, Instant.now()))
+        assertThatCode(() -> notifier(WEBHOOK_URL).notifyCreated(12L, InquiryType.ETC, "제목", Instant.now()))
                 .doesNotThrowAnyException();
 
         server.verify();

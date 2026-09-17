@@ -72,7 +72,8 @@ public class InquiryService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                discordNotifier.notifyCreated(inquiry.getId(), inquiry.getType(), inquiry.getCreatedAt());
+                discordNotifier.notifyCreated(inquiry.getId(), inquiry.getType(), inquiry.getTitle(),
+                        inquiry.getCreatedAt());
             }
         });
     }
