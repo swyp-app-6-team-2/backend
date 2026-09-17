@@ -21,4 +21,12 @@ public class UserIngredientRepository {
                 on conflict (user_id, ingredient_id) do nothing returning ingredient_id
                 """, Long.class, userId, ingredientId).isEmpty();
     }
+
+    public int delete(Long userId, Long ingredientId) {
+        return jdbc.update("delete from user_ingredient where user_id = ? and ingredient_id = ?", userId, ingredientId);
+    }
+
+    public int deleteAllForUser(Long userId) {
+        return jdbc.update("delete from user_ingredient where user_id = ?", userId);
+    }
 }

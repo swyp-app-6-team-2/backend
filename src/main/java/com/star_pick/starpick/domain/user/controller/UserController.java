@@ -59,6 +59,19 @@ public class UserController {
         return ApiResponse.ok("재료가 등록되었습니다.", users.addCustomIngredient(user.userId(), request.name()));
     }
 
+    @DeleteMapping("/ingredients")
+    @Operation(summary = "보유 재료 삭제", description = "마스터·커스텀 재료를 선택 또는 전체 삭제합니다. 이미 삭제된 대상은 무시하며 레시피 자체는 삭제하지 않습니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "삭제 결과 반환"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "삭제 범위 또는 대상 형식 오류"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증 실패 또는 사용할 수 없는 사용자")
+    })
+    public ApiResponse<DeleteIngredientsResponse> deleteIngredients(@AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody DeleteIngredientsRequest request) {
+        var result = users.deleteIngredients(user.userId(), request);
+        return ApiResponse.ok(result.deletedCount() == 0 ? "삭제된 재료가 없습니다." : "재료가 삭제되었습니다.", result);
+    }
+
     @GetMapping("/onboarding")
     @Operation(summary = "내 온보딩 상태 조회", description = "앱 시작 및 자동 로그인 시 조회합니다. 유효한 access token이 필요합니다.")
     public ApiResponse<OnboardingResponse> getOnboarding(@AuthenticationPrincipal AuthenticatedUser user) {
