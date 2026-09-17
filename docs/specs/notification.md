@@ -40,11 +40,12 @@ Notification은 사용자가 정한 요일·시각에 식사 리마인드 푸시
 | 발송 재시도·대기열·오래된 `PROCESSING` 복구 | 식사 리마인드 1건 누락은 체감이 작고, 재시도는 이미 받은 알림을 다시 보낼 수 있다 |
 | 알림함·발송 이력 조회 API | 화면이 없다 |
 | 설정 시각을 놓쳤을 때 뒤늦게 보내기 | 설정 직후 지난 시각 알림이 바로 나가는 문제가 생긴다 |
-| 탈퇴 시 정리 | 탈퇴 방식(행 삭제 여부)이 정해지지 않았다. 사용자 행을 지우는 방식이면 `push_log → push_token → notification_setting` 순으로 지워야 한다 |
+
+탈퇴 시 정리는 **2026-09-16에 구현했다**(이슈 #107). 아래 `도메인 협력`을 참고한다.
 
 ### 2.3. 도메인 협력
 
-- **Account**: `users(user_id)`를 FK로 참조만 한다.
+- **Account**: `users(user_id)`를 FK로 참조만 한다. 탈퇴 시에는 Account가 `NotificationCleanupService.deleteAllForUser`를 호출하고, Notification이 `push_log → push_token → notification_setting` 순으로 지운다. FK 순서를 지키기 위한 순서이며, Account가 사용자 행을 잠근 트랜잭션 안에서만 실행한다. 전체 흐름과 도메인 간 순서는 [User Withdrawal Spec](./user-withdraw.md)의 `처리 흐름`이 소유한다. 이미 FCM에 넘어간 푸시의 철회까지 보장하지는 않는다.
 - **App/OS**: OS 알림 권한, 푸시 수신, 딥링크 라우팅.
 - **Discovery**: 알림을 누른 뒤 이동하는 추천 화면.
 
@@ -261,4 +262,5 @@ notification:
 | 식사 알림 본문 문구 | 기획 | 없음. dev는 임시값으로 가동 중이며 확정되면 값만 교체한다 |
 | 앱 딥링크 실제 주소 | FE | 없음. dev는 임시값으로 가동 중이며 확정되면 값만 교체한다 |
 | 온보딩 칩별 기본 시각·요일 | 기획·FE | 서버 작업 없음(앱이 보유) |
-| 탈퇴 방식과 Notification 정리 | 팀 | 탈퇴 구현 |
+
+~~탈퇴 방식과 Notification 정리~~ **확정 완료(2026-09-16)** — 하드 삭제로 정해졌고 `§2.3 도메인 협력`에 반영했다.

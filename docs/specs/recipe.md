@@ -1,6 +1,6 @@
 # Recipe Tech Spec
 
-> **문서 버전**: v1 · **기준일**: 2026-09-14
+> **문서 버전**: v2 · **기준일**: 2026-09-17 · **상태**: 구현 완료
 
 ## 한눈에 보기
 
@@ -9,12 +9,12 @@ Recipe는 사용자가 최종 저장한 레시피와 그 출처를 관리한다.
 | 질문                   | 답변                                                                            |
 |----------------------|-------------------------------------------------------------------------------|
 | 무엇을 관리하는가?           | Recipe, 재료, 조리 순서, 대표 이미지, 원본 출처                                              |
-| 사용자는 무엇을 할 수 있는가?    | 직접 입력 또는 Ingestion 결과로 Recipe를 생성하고 목록·상세 조회·수정·삭제                            |
-| 어떤 API를 제공하는가?       | 생성, 목록 조회, 상세 조회, 수정, 삭제                                                      |
+| 사용자는 무엇을 할 수 있는가?    | 직접 입력 또는 Ingestion 결과로 Recipe를 생성하고 목록·상세 조회·수정·삭제, 검색·필터, 추천 받기             |
+| 어떤 API를 제공하는가?       | 생성, 목록 조회(검색·필터 포함), 상세 조회, 수정, 삭제, 추천                                       |
 | 핵심 데이터는 무엇인가?        | Recipe, RecipeIngredient, RecipeStep. 출처는 Recipe의 컬럼 3개                    |
-| 어떤 도메인과 협력하는가?       | Ingestion·Cooking과 협력하고 [Upload](./upload.md)를 사용하며, Discovery에 Recipe 정보를 제공 |
+| 어떤 도메인과 협력하는가?       | Ingestion·Cooking과 협력하고 [Upload](./upload.md)를 사용하며, Account의 저장 슬롯을 쓴다      |
 | 핵심 기술 결정은 무엇인가?      | 동일 분석 결과의 중복 저장을 `ingestionJobId`·행 잠금·UNIQUE로 방지                             |
-| MVP에서 제외하거나 감수하는 것은? | Ingredient·Step 독립 CRUD와 Recipe–Billing 저장 한도 연동을 도입하지 않음                     |
+| MVP에서 제외하거나 감수하는 것은? | Ingredient·Step 독립 CRUD를 도입하지 않음. 확장팩 구매(Billing)는 유예                         |
 
 ## 1. 개요
 
@@ -44,18 +44,23 @@ Recipe 도메인은 MVP에서 다음 기능을 제공한다.
 ### 2.2. MVP 제외 범위
 
 - Ingredient와 Step의 독립적인 CRUD API
-- Recipe 검색·필터
-    - 검색·필터링은 Discovery 책임이다. 목록 조회는 Recipe가 제공하고, 조건을 거는 검색·필터는 Discovery가 담당한다.
-- Recipe 저장 한도와 Billing 연동
-    - Billing Tech Spec이 확정되기 전에는 임시 검증 Service나 `403` 계약을 두지 않는다.
+- 확장팩 구매와 Billing 연동
+    - 슬롯을 **쓰는** 쪽은 구현했다(아래 `생성`). 슬롯을 **늘리는** 쪽(보상형 광고·구매)은 Account/Billing 담당이며 이 문서의 계약이 아니다.
+
+**2026-09-16·17에 닫힌 제외 항목**
+
+- ~~Recipe 검색·필터~~ — `GET /api/v1/recipes`에 `searchQuery`·`category`·`ingredientName`을 구현했다(2026-09-17 반영). 계약은 아래 `목록 조회`에 있다. 기능 담당은 Discovery이지만 엔드포인트가 Recipe 경로라 계약을 이 문서가 기술한다.
+- ~~Recipe 저장 한도~~ — 슬롯 차감과 `409 + RECIPE_SLOT_EXCEEDED` 거절을 구현했다(2026-09-16, 이슈 #83). 2026-09-05에 두지 않기로 한 저장 한도 `403` 계약을 대체한다.
 
 ### 2.3. 도메인 협력
 
 ```text
 Recipe   ── 분석 작업 잠금·소비 요청 ──▶ Ingestion
-Recipe   ── 정보 제공 ──▶ Discovery
+Recipe   ── 저장 슬롯 확인·차감 ──▶ Account
+Recipe   ── 추천 시 보유 재료 조회 ──▶ Account
 Cooking  ── 존재·소유권 확인 ──▶ Recipe
 Recipe   ── 삭제 시 이력 정리 요청 ──▶ Cooking
+Account  ── 탈퇴 시 Recipe 일괄 삭제 요청 ──▶ Recipe
 Recipe   ── 이미지 Key 연결·상태 관리 요청 ──▶ Upload
 ```
 
@@ -134,10 +139,11 @@ Recipe 1 ── 0..N RecipeStep
 | Method   | Endpoint                     | 기능        |
 |----------|------------------------------|-----------|
 | `POST`   | `/api/v1/recipes`            | Recipe 생성 |
-| `GET`    | `/api/v1/recipes`            | Recipe 목록 조회 |
+| `GET`    | `/api/v1/recipes`            | Recipe 목록 조회(검색·필터 포함) |
 | `GET`    | `/api/v1/recipes/{recipeId}` | Recipe 상세 조회 |
 | `PATCH`  | `/api/v1/recipes/{recipeId}` | Recipe 수정 |
 | `DELETE` | `/api/v1/recipes/{recipeId}` | Recipe 삭제 |
+| `POST`   | `/api/v1/recipes/recommendations` | Recipe 추천(Discovery 담당) |
 
 모든 API는 인증된 사용자만 호출할 수 있다. 조회·수정·삭제는 사용자가 소유한 Recipe에만 허용하며, 존재하지 않거나 다른 사용자가 소유한 Recipe는
 `404 + RECIPE_NOT_FOUND`로 처리한다.
@@ -163,13 +169,26 @@ Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출
 
 #### 목록 조회
 
-사용자가 소유한 Recipe를 페이지 단위로 반환한다. 조건을 거는 검색·필터는 제공하지 않는다(`MVP 제외 범위`).
+사용자가 소유한 Recipe를 페이지 단위로 반환한다. 제목 검색과 카테고리·재료 필터를 함께 제공한다(2026-09-17 반영).
 
 | 파라미터 | 타입 | 필수 | 기본값 | 제약 |
 |---------|------|-----|-------|------|
 | `page` | int | X | `0` | `0` 이상 |
 | `size` | int | X | `20` | `1` 이상 `100` 이하 |
 | `sort` | enum | X | `LATEST` | `LATEST`, `OLDEST` |
+| `searchQuery` | String | X | 없음 | 255자 이하 |
+| `category` | enum | X | 없음 | 반복 전달, 100개 이하 |
+| `ingredientName` | String | X | 없음 | 반복 전달, 100개 이하 |
+
+**검색·필터 규칙.** 셋을 함께 보내면 서로 AND로 묶인다.
+
+- `searchQuery`는 **제목만** 부분 검색한다. 메모·재료·조리 순서는 보지 않는다. 대소문자를 무시하고, 사용자가 입력한 `%`·`_`·`!`는 SQL 패턴으로 해석하지 않는다.
+- `category`는 **선택한 것 중 하나라도 맞으면 포함**한다(OR).
+- `ingredientName`은 **선택한 재료를 모두 포함해야 한다**(AND). 재료명은 앞뒤 공백을 지우고 대소문자를 무시한 **완전 일치**이며 부분 일치가 아니다. 사용자가 실제로 그 재료를 보유했는지는 보지 않는다.
+- 값은 앞뒤 공백을 지우고, 빈 값은 무시하며, 같은 값을 여러 번 보내도 한 번만 적용한다.
+- 복수 값은 `category=KOREAN&category=CHINESE&ingredientName=두부&ingredientName=대파`처럼 **같은 이름을 반복**해 전달한다.
+
+재료 필터는 컬렉션 조인이 아니라 서브쿼리로 계산한다. 조인하면 재료 수만큼 Recipe 행이 늘어 페이지와 `totalCount`가 어긋나기 때문이다.
 
 정렬은 `LATEST`가 생성 시각 내림차순, `OLDEST`가 오름차순이다. 두 경우 모두 Recipe ID를 같은 방향의 동률 판정자로 함께 사용한다. 생성 시각이 같은 Recipe가 페이지 경계에 걸릴 때 중복되거나 누락되는 것을 막기 위함이다.
 
@@ -184,7 +203,20 @@ Recipe 내용은 사용자가 전달하고, 소유자·등록 방식·원본 출
 
 `memo`, `steps`, `source`, `cookTimeMinutes`, `servings`는 상세 조회 전용이며 목록에 포함하지 않는다. 조리 이력과 최근 조리 시각도 포함하지 않는다.
 
-`page`가 음수이거나 `size`가 범위를 벗어나면 `400 + REQUEST_VALIDATION_FAILED`, `sort`에 정의되지 않은 값이나 숫자가 아닌 `page`를 전달하면 `400 + INVALID_REQUEST_FORMAT`으로 처리한다.
+`page`가 음수이거나 `size`가 범위를 벗어나면 `400 + REQUEST_VALIDATION_FAILED`, `sort`에 정의되지 않은 값이나 숫자가 아닌 `page`를 전달하면 `400 + INVALID_REQUEST_FORMAT`으로 처리한다. `searchQuery`가 255자를 넘거나 `category`·`ingredientName`이 각각 100개를 넘으면 `400 + REQUEST_VALIDATION_FAILED`, `category`에 정의되지 않은 값을 전달하면 `400 + INVALID_REQUEST_FORMAT`이다.
+
+#### 추천
+
+`POST /api/v1/recipes/recommendations`. 사용자가 저장한 Recipe 중 한 건을 골라 준다. **기능 담당은 Discovery이고 엔드포인트가 Recipe 경로라 계약만 이 문서가 기술한다.**
+
+요청은 `recommendationMode`(필수, `RANDOM` 또는 `INGREDIENT_BASED`)와 `previousRecipeId`(선택, 양수)다. `previousRecipeId`는 재추천에서 직전 결과를 제외하는 용도이며, 두 방식 모두에 적용된다. 남은 후보가 그것뿐이어도 다시 반환하지 않는다.
+
+- `RANDOM`: 보유 Recipe 전체에서 한 건
+- `INGREDIENT_BASED`: 서버에 등록된 보유 재료와 하나 이상 겹치는 Recipe 중 한 건. 마스터 재료는 `ingredientId`로, 커스텀 재료는 **재료명을 앞뒤 공백만 지운 완전 일치**로 맞춘다. 목록 필터와 달리 대소문자를 무시하지 않는다.
+
+응답 필드는 `recipeId`, `title`, `category`, `thumbnailUrl`, `mainIngredients`다. **`category`는 목록·상세의 `categoryCode`와 이름이 다르다** — 추천 카드 명세를 따른다. `thumbnailUrl`은 대표 이미지를 우선 쓰고 없으면 분석 원본 대표 이미지를 쓰며, 둘 다 없으면 `null`이다. 즉 앱이 두 값을 고를 필요가 없다.
+
+조건에 맞는 후보가 없으면 **`200`과 `data: null`**을 반환한다. 서버가 전체 랜덤으로 자동 전환하지 않는다. 다른 조건으로 다시 요청할지는 앱이 정한다.
 
 #### 상세 조회
 
@@ -224,6 +256,8 @@ Cover Key 오류는 생성과 같은 `RECIPE_COVER_INVALID`, `RECIPE_COVER_ALREA
 논리 삭제 없이 영구 삭제(Hard Delete)한다. Recipe를 삭제하면 Ingredient, Step, 대표 이미지, 분석 원본 사진(`sourceImageKeys`), 원본 대표 이미지(`sourceThumbnailKey`)와 CookHistory도 함께 삭제한다. 원본 IngestionJob과 소비 기록은 남기므로 같은 Job으로 다시 저장할 수 없다.
 
 GCS 삭제 시도까지 끝난 뒤 `200 OK`를 반환하며, GCS 삭제가 실패해도 Recipe 삭제 결과는 유지한다.
+
+**탈퇴 시 정리.** Recipe는 Account에 `findWithdrawalBatch`(20건씩 조회)와 `deleteForWithdrawal`(한 건 삭제)을 공개한다. Account가 남을 때까지 반복 호출하며, 각 호출은 사용자 행을 잠근 독립 트랜잭션에서 돌아 중간에 끊겨도 이어서 처리할 수 있다. 이미 없는 Recipe는 성공으로 처리한다. 지우는 내용은 공개 삭제와 같다. 전체 흐름과 도메인 간 순서는 [User Withdrawal Spec](./user-withdraw.md)의 `처리 흐름`이 소유한다.
 
 ### 3.4. 트랜잭션과 동시성 제어
 

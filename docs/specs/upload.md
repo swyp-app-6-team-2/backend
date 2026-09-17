@@ -81,11 +81,14 @@ Upload는 이미지 파일 자체를 다루지 않는다. 사용자가 클라우
 ### 2.3. 도메인 협력
 
 ```text
-Recipe / Cooking / Ingestion / Inquiry ── 연결·해제·조회 URL 요청 ──▶ Upload
+Recipe / Cooking / Ingestion / Inquiry / Account ── 연결·해제·조회 URL 요청 ──▶ Upload
+Account ── 탈퇴 시 남은 파일 일괄 삭제 요청 ──▶ Upload
 Upload ── URL 서명, 파일 존재 확인, 파일 삭제 ──▶ GCS
 ```
 
 Upload는 소비 도메인의 Repository나 Entity를 알지 못한다. 호출은 항상 소비 도메인에서 Upload로만 향한다.
+
+**탈퇴 시 정리.** Upload는 Account에 `deleteNextForUser`를 공개한다. 한 번에 한 건을 지우고 남았는지를 알려 주며, Account가 남을 때까지 반복 호출한다. 소비 도메인들이 먼저 자기 파일을 정리한 뒤에 도는 단계라, 여기서 지우는 것은 **어느 도메인에도 연결되지 않은 채 남은 파일**이다. 전체 흐름과 도메인 간 순서는 [User Withdrawal Spec](./user-withdraw.md)의 `처리 흐름`이 소유한다.
 
 ## 3. 기술 설계
 
@@ -161,13 +164,14 @@ Instagram 분석이 성공하면 Worker가 게시물 첫 카드를 받아 **서�
 |--------------|----|---------------------------------------------------------|
 | `objectKey`  | O  | 식별자. 서버가 생성하며 삭제한 값을 다시 발급하지 않는다                        |
 | `userId`     | O  | 발급받은 사용자. 다른 도메인 Entity를 참조하지 않는 스칼라 값                  |
-| `purpose`    | O  | `RECIPE_COVER`, `COOK_HISTORY_PHOTO`, `INGESTION_INPUT`, `INQUIRY_ATTACHMENT` |
+| `purpose`    | O  | `PROFILE_IMAGE`, `RECIPE_COVER`, `COOK_HISTORY_PHOTO`, `INGESTION_INPUT`, `INQUIRY_ATTACHMENT` |
 | `attachedAt` | X  | 연결 시각. 값이 없으면 미연결이며, 연결 이후 다시 비우지 않는다                   |
 
 `objectKey`는 `{용도별 prefix}/{userId}/{임의 식별자}.{확장자}` 형태다. 예: `recipe-covers/1/a3f2e8b1-....jpg`
 
 | 용도                   | prefix             | 
 |----------------------|--------------------|
+| `PROFILE_IMAGE`      | `profile-images`   |
 | `RECIPE_COVER`       | `recipe-covers`    |
 | `COOK_HISTORY_PHOTO` | `cook-history`     |
 | `INGESTION_INPUT`    | `ingestion-inputs` |
@@ -187,7 +191,7 @@ Instagram 분석이 성공하면 Worker가 게시물 첫 카드를 받아 **서�
 
 | 속성            | 필수 | 규칙                                                      |
 |---------------|----|---------------------------------------------------------|
-| `purpose`     | O  | `RECIPE_COVER`, `COOK_HISTORY_PHOTO`, `INGESTION_INPUT`, `INQUIRY_ATTACHMENT` |
+| `purpose`     | O  | `PROFILE_IMAGE`, `RECIPE_COVER`, `COOK_HISTORY_PHOTO`, `INGESTION_INPUT`, `INQUIRY_ATTACHMENT` |
 | `contentType` | O  | `image/jpeg`, `image/png`, `image/webp`                 |
 
 #### 응답

@@ -80,9 +80,12 @@ Ingestion ── 입력 사진 연결·읽기·조회 URL·해제, 원본 대표
 Ingestion ── 활성 재료 조회 ──▶ Ingredient
 Ingestion ── 분석 ──▶ Gemini
 Ingestion ── 게시물 수집 ──▶ Instagram
+Account   ── 탈퇴 시 Job 일괄 삭제 요청 ──▶ Ingestion
 ```
 
 Ingestion은 Recipe를 알지 못한다. 호출은 항상 Recipe에서 Ingestion으로만 향한다.
+
+**탈퇴 시 정리.** Ingestion은 Account에 `findWithdrawalBatch`(20건씩 조회)와 `purgeOne`(한 건 삭제)을 공개한다. Account가 남을 때까지 반복 호출하며, 각 호출은 사용자 행을 잠근 독립 트랜잭션에서 돌아 중간에 끊겨도 이어서 처리할 수 있다. 지우는 내용은 주기 작업의 7일 정리와 같다. 전체 흐름과 도메인 간 순서는 [User Withdrawal Spec](./user-withdraw.md)의 `처리 흐름`이 소유한다.
 
 ## 3. 기술 설계
 
