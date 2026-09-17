@@ -105,6 +105,41 @@ public class UserService {
         return UserIngredientResponse.fromCustom(saved);
     }
 
+    @Transactional
+    public DeleteIngredientsResponse deleteIngredients(Long userId, DeleteIngredientsRequest request) {
+        lifecycle.lockActive(userId);
+        validateDeleteRequest(request);
+
+        int deletedCount;
+        if (request.mode() == IngredientDeleteMode.ALL) {
+            deletedCount = owned.deleteAllForUser(userId) + customIngredients.deleteAllByUserId(userId);
+        } else {
+            var masterIds = request.ingredients().stream()
+                    .filter(item -> item.type() == IngredientType.MASTER)
+                    .map(DeleteIngredientItem::id)
+                    .distinct()
+                    .toList();
+            var customIds = request.ingredients().stream()
+                    .filter(item -> item.type() == IngredientType.CUSTOM)
+                    .map(DeleteIngredientItem::id)
+                    .distinct()
+                    .toList();
+            deletedCount = masterIds.stream().mapToInt(id -> owned.delete(userId, id)).sum();
+            if (!customIds.isEmpty()) {
+                deletedCount += customIngredients.deleteByUserIdAndIdIn(userId, customIds);
+            }
+        }
+        return new DeleteIngredientsResponse(deletedCount);
+    }
+
+    private void validateDeleteRequest(DeleteIngredientsRequest request) {
+        if (request == null || request.mode() == null || request.ingredients() == null
+                || (request.mode() == IngredientDeleteMode.SELECTED && request.ingredients().isEmpty())
+                || (request.mode() == IngredientDeleteMode.ALL && !request.ingredients().isEmpty())) {
+            throw new BusinessException(CommonErrorCode.REQUEST_VALIDATION_FAILED);
+        }
+    }
+
     @Transactional(readOnly = true)
     public UserIngredientsResponse getIngredients(Long userId, String searchQuery) {
         active(users.findById(userId).orElseThrow(this::unauthorized));
