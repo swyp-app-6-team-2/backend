@@ -6,6 +6,7 @@ import com.star_pick.starpick.domain.cooking.controller.response.CookHistoryResp
 import com.star_pick.starpick.domain.cooking.domain.CookHistory;
 import com.star_pick.starpick.domain.cooking.exception.CookingErrorCode;
 import com.star_pick.starpick.domain.cooking.repository.CookHistoryRepository;
+import com.star_pick.starpick.domain.recipe.exception.RecipeErrorCode;
 import com.star_pick.starpick.domain.recipe.service.RecipeService;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.AttachOutcome;
@@ -42,7 +43,7 @@ public class CookHistoryService {
      * {@code attachedAt} 이 남지 않는다.
      *
      * <p>생성 시 Recipe 행을 잠그지 않는다(cooking.md §4.2). 확인 직후 Recipe 가 삭제되는
-     * 경쟁은 허용하며, 그 결과 남는 데이터는 spec §3.4 에 적었다.
+     * 경쟁은 FK 가 막는다. 이 요청은 FK 위반으로 실패하고 {@code 404} 로 번역된다.
      */
     @Transactional
     public void create(Long userId, Long recipeId, CookHistoryCreateRequest request) {
@@ -93,12 +94,21 @@ public class CookHistoryService {
 
     /**
      * 제약 이름으로만 분기한다. 무결성 위반을 뭉뚱그려 409 로 바꾸면 무관한 오류까지 409 가 되어
-     * 계약이 깨진다. 사진 UNIQUE 가 아닌 위반은 그대로 500 으로 나간다.
+     * 계약이 깨진다. 아래 두 제약이 아닌 위반은 그대로 500 으로 나간다.
+     *
+     * <p>FK 위반은 소유권 확인과 저장 사이에 Recipe 가 삭제된 경우다. 사전 검증이 통과했더라도
+     * 사용자 입장에서는 없는 레시피이므로 {@code 404} 로 돌려준다(cooking.md §3.4).
      */
     private RuntimeException translate(DataIntegrityViolationException e) {
-        if (e.getCause() instanceof ConstraintViolationException violation
-                && CookHistory.PHOTO_KEY_UNIQUE.equalsIgnoreCase(violation.getConstraintName())) {
-            return new BusinessException(CookingErrorCode.COOK_HISTORY_PHOTO_ALREADY_USED);
+        if (e.getCause() instanceof ConstraintViolationException violation) {
+            String constraint = violation.getConstraintName();
+
+            if (CookHistory.PHOTO_KEY_UNIQUE.equalsIgnoreCase(constraint)) {
+                return new BusinessException(CookingErrorCode.COOK_HISTORY_PHOTO_ALREADY_USED);
+            }
+            if (CookHistory.RECIPE_FK.equalsIgnoreCase(constraint)) {
+                return new BusinessException(RecipeErrorCode.RECIPE_NOT_FOUND);
+            }
         }
         return e;
     }

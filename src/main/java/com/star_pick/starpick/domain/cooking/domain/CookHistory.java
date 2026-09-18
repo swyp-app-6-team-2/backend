@@ -36,13 +36,16 @@ public class CookHistory {
      */
     public static final String PHOTO_KEY_UNIQUE = "uk_cook_history_photo_key";
 
+    /** 같은 이유로 고정한다. Recipe 삭제와 경쟁해 진 생성 요청을 404 로 번역할 때 쓴다. */
+    public static final String RECIPE_FK = "fk_cook_history_recipe";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     /**
-     * 조리한 Recipe. 도메인 경계 규칙상 Recipe Entity 를 참조하지 않는 스칼라이고 FK 가 없다.
-     * FK 는 migration 도구 도입(이슈 #11) 때 추가한다. 근거는 cooking.md §3.4.
+     * 조리한 Recipe. 도메인 경계 규칙상 Recipe Entity 를 참조하지 않는 스칼라이지만,
+     * DB 에는 {@link #RECIPE_FK} 가 걸려 있다(이슈 #117). 근거는 cooking.md §3.4.
      */
     @Column(nullable = false, updatable = false)
     private Long recipeId;
