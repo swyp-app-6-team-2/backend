@@ -334,7 +334,7 @@ IngestionJob 1 ── 0..1 Recipe
 | 재시도                      | timeout, 연결 끊김, 본문 읽기 멈춤, 5xx, `RetryInfo`가 있는 429(Gemini). 파일 업로드는 제외                  |
 | `CONTENT_NOT_RECOGNIZED` | 안전 차단 응답, 레시피가 아니라는 판정, 정규화 후 재료·단계가 모두 없음, Instagram에서 분석할 이미지 카드가 없음(`img_index`가 영상 카드이거나 이미지 카드 0장. Gemini를 부르지 않는다), **영상을 얻지 못한 Reel을 캡션으로 분석했으나 레시피가 아닌 경우** |
 | `MULTIPLE_RECIPES`       | 원본 하나에 서로 다른 레시피가 여러 개라는 판정(사진·YouTube·Instagram 공통). 앱은 레시피 하나만 담긴 카드 링크나 스크린샷으로 다시 요청하도록 안내한다 |
-| `SOURCE_UNAVAILABLE`     | YouTube 입력에 Gemini가 `400 INVALID_ARGUMENT`로 답함(없는 영상에서 실측. **API 키 오류는 제외**). Instagram 원본을 쓸 수 없음: redirect·4xx(429 포함), embed에 게시물 정보가 없음(없는 게시물은 200에 정보 없음으로 실측), 분석할 카드의 주소가 없거나 허용 밖, 지원하지 않거나 빈 미디어, `img_index`가 카드 수를 넘음. 원인은 서버 로그의 `reason`(`BLOCKED`·`EMBED_BROKEN`·`NOT_FOUND`·`NO_VIDEO`·`CARD_OUT_OF_RANGE`·`MEDIA_UNUSABLE`·`UNKNOWN`)으로 구분한다 |
+| `SOURCE_UNAVAILABLE`     | YouTube 입력에 Gemini가 `400 INVALID_ARGUMENT`로 답함(없는 영상에서 실측. **API 키 오류는 제외**). Instagram 원본을 쓸 수 없음: redirect·4xx(429 포함), embed가 200으로 응답했지만 게시물 정보가 없음(없는 게시물과 임베드가 막힌 게시물은 embed 응답이 같아 구분하지 않는다), 분석할 카드의 주소가 없거나 허용 밖, 지원하지 않거나 빈 미디어, `img_index`가 카드 수를 넘음. 원인은 서버 로그의 `reason`(`BLOCKED`·`EMBED_NO_DATA`·`NOT_FOUND`·`NO_VIDEO`·`CARD_OUT_OF_RANGE`·`MEDIA_UNUSABLE`·`UNKNOWN`)으로 구분한다 |
 | `PROCESSING_FAILED`      | 그 밖의 전부. 재시도 소진, `RetryInfo`가 없는 429(선불 잔액 소진 등), 인증·모델 설정 오류, 응답 해석 실패, 사진 합계 14MB 초과(Instagram 이미지 포함)·지원하지 않는 사진 형식, Reel 50MB 초과, 파일 업로드 실패, 올린 파일 처리 `FAILED`·deadline까지 ACTIVE가 안 됨 |
 
 - **오류를 분류하는 곳과 결정하는 곳이 다르다.** 외부 Adapter는 실패를 재시도 가능·불가능과 원인 종류로 분류하기만 한다. 재시도 여부와 최종 `failureCode`는 Worker가 정한다.

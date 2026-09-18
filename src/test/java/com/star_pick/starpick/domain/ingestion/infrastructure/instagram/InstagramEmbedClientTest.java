@@ -169,15 +169,21 @@ class InstagramEmbedClientTest {
     }
 
     @Test
-    @DisplayName("깨진 embed 는 없는 게시물과 구분한다")
+    @DisplayName("contextJSON 이 없으면 EmbedBrokenMedia 마커가 있든 없든 같은 사유다(없는 게시물과 임베드 차단을 구분할 수 없다)")
     void classifiesBrokenEmbed() {
         serve("/p/BROKEN0001/embed/captioned/", exchange ->
                 write(exchange, 200, "text/html", "<div class=\"EmbedBrokenMedia\"></div>"));
+        serve("/p/BROKEN0002/embed/captioned/", exchange ->
+                write(exchange, 200, "text/html", "<div>no marker here</div>"));
 
         assertThatThrownBy(() -> client().fetchPost("BROKEN0001", false, Duration.ofSeconds(2)))
                 .isInstanceOf(InstagramFetchException.class)
                 .extracting(e -> ((InstagramFetchException) e).failure())
-                .isEqualTo(InstagramFailure.EMBED_BROKEN);
+                .isEqualTo(InstagramFailure.EMBED_NO_DATA);
+        assertThatThrownBy(() -> client().fetchPost("BROKEN0002", false, Duration.ofSeconds(2)))
+                .isInstanceOf(InstagramFetchException.class)
+                .extracting(e -> ((InstagramFetchException) e).failure())
+                .isEqualTo(InstagramFailure.EMBED_NO_DATA);
     }
 
     @Test

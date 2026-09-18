@@ -43,7 +43,6 @@ class InstagramEmbedClient implements InstagramClient {
     private static final String USER_AGENT = "Mozilla/5.0";
     private static final String REFERER = "https://www.instagram.com/";
     private static final String CONTEXT_MARKER = "contextJSON\":\"";
-    private static final String BROKEN_EMBED_MARKER = "EmbedBrokenMedia";
     /** 실측 embed HTML 은 28만~47만 byte 였다. */
     private static final int MAX_EMBED_BYTES = 2 * 1024 * 1024;
 
@@ -136,8 +135,7 @@ class InstagramEmbedClient implements InstagramClient {
     InstagramPost parse(String html) {
         int start = html.indexOf(CONTEXT_MARKER);
         if (start < 0) {
-            throw new InstagramFetchException(Kind.UNAVAILABLE,
-                    html.contains(BROKEN_EMBED_MARKER) ? InstagramFailure.EMBED_BROKEN : InstagramFailure.NOT_FOUND,
+            throw new InstagramFetchException(Kind.UNAVAILABLE, InstagramFailure.EMBED_NO_DATA,
                     "embed 에 게시물 정보가 없습니다.");
         }
         int from = start + CONTEXT_MARKER.length();
@@ -147,7 +145,7 @@ class InstagramEmbedClient implements InstagramClient {
             String context = jsonMapper.readValue("\"" + html.substring(from, end) + "\"", String.class);
             JsonNode shortcodeMedia = jsonMapper.readTree(context).path("gql_data").path("shortcode_media");
             if (!shortcodeMedia.isObject()) {
-                throw new InstagramFetchException(Kind.UNAVAILABLE, InstagramFailure.NOT_FOUND,
+                throw new InstagramFetchException(Kind.UNAVAILABLE, InstagramFailure.EMBED_NO_DATA,
                         "embed 에 게시물 정보가 없습니다.");
             }
             List<JsonNode> nodes = new ArrayList<>();

@@ -7,9 +7,12 @@ package com.star_pick.starpick.domain.ingestion.service;
 public enum InstagramFailure {
     /** 로그인 페이지로 돌려보냄(3xx) 또는 429. 우리 IP 가 막힌 상태다. */
     BLOCKED,
-    /** 게시물은 있는데 embed 가 깨진 화면을 준다(2026-09-17 실측: contextJSON 없이 EmbedBrokenMedia 만 있다). */
-    EMBED_BROKEN,
-    /** 없는·비공개 게시물. embed 에 게시물 정보가 없다. */
+    /**
+     * embed 가 200 을 줬지만 게시물 정보(contextJSON)가 없다. 삭제·비공개·임베드 차단은 embed
+     * 응답이 동일해 구분할 수 없다(2026-09-18 실측).
+     */
+    EMBED_NO_DATA,
+    /** embed 가 200 이 아닌 상태를 줬다. */
     NOT_FOUND,
     /** Reel 인데 embed 에 영상 주소가 없다(음원 Reel). */
     NO_VIDEO,
