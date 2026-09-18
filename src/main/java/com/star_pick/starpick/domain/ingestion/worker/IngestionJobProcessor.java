@@ -139,9 +139,9 @@ public class IngestionJobProcessor {
             } else {
                 IngestionFailureCode code = e.kind() == InstagramFetchException.Kind.TOO_LARGE
                         ? IngestionFailureCode.PROCESSING_FAILED : IngestionFailureCode.SOURCE_UNAVAILABLE;
-                // 삭제·비공개 게시물, embed 구조 변경, 차단(429)이 여기로 온다. 몰리면 구조 변경이나 차단부터 의심한다.
-                log.warn("Instagram 원본을 쓸 수 없어 실패로 끝냅니다. ingestionJobId={}, attempt={}, kind={}, failureCode={}, reason={}, elapsedMs={}",
-                        snapshot.id(), snapshot.attempt(), e.kind(), code, e.getMessage(), elapsedMs(startedNanos));
+                // reason 은 enum 이라 URL·본문이 새지 않는다. BLOCKED 가 몰리면 우리 IP 차단부터 의심한다.
+                log.warn("Instagram 원본을 쓸 수 없어 실패로 끝냅니다. ingestionJobId={}, attempt={}, kind={}, reason={}, failureCode={}, elapsedMs={}",
+                        snapshot.id(), snapshot.attempt(), e.kind(), e.failure(), code, elapsedMs(startedNanos));
                 executionService.saveFailure(snapshot.id(), snapshot.attempt(), code);
             }
         } catch (RecipeAnalysisException e) {
@@ -188,7 +188,7 @@ public class IngestionJobProcessor {
             executionService.savePreview(snapshot.id(), snapshot.attempt(), preview);
         }
         if (selection.failureCode() != null) {
-            throw new IngestionInputException(selection.failureCode(), "분석할 카드가 없다");
+            throw new IngestionInputException(selection.failureCode(), "분석할 카드가 없다: " + selection.failure());
         }
         String thumbnailImageUrl = post.media().getFirst().displayUrl();
         if (selection.videoUrl() != null) {

@@ -10,7 +10,7 @@ import java.util.Objects;
  * <p>분기 기준은 링크 종류가 아니라 embed 의 미디어 구성이다. 서버가 여러 카드 중 하나를 임의로 고르지 않는다.
  */
 public record InstagramSelection(List<String> imageUrls, String videoUrl, String previewImageUrl,
-                                 IngestionFailureCode failureCode) {
+                                 IngestionFailureCode failureCode, InstagramFailure failure) {
 
     public static InstagramSelection of(InstagramPost post, Integer imgIndex) {
         List<InstagramMedia> media = post.media();
@@ -20,17 +20,19 @@ public record InstagramSelection(List<String> imageUrls, String videoUrl, String
         }
         if (imgIndex != null) {
             if (imgIndex > media.size()) {
-                return failed(null, IngestionFailureCode.SOURCE_UNAVAILABLE);
+                return failed(null, IngestionFailureCode.SOURCE_UNAVAILABLE, InstagramFailure.CARD_OUT_OF_RANGE);
             }
             InstagramMedia card = media.get(imgIndex - 1);
             // 영상 카드 분석은 제품 결정 전이다(spec OQ5).
             return card.video()
-                    ? failed(card.displayUrl(), IngestionFailureCode.CONTENT_NOT_RECOGNIZED)
+                    ? failed(card.displayUrl(), IngestionFailureCode.CONTENT_NOT_RECOGNIZED,
+                            InstagramFailure.MEDIA_UNUSABLE)
                     : images(List.of(card));
         }
         List<InstagramMedia> imageCards = media.stream().filter(card -> !card.video()).toList();
         return imageCards.isEmpty()
-                ? failed(media.getFirst().displayUrl(), IngestionFailureCode.CONTENT_NOT_RECOGNIZED)
+                ? failed(media.getFirst().displayUrl(), IngestionFailureCode.CONTENT_NOT_RECOGNIZED,
+                        InstagramFailure.MEDIA_UNUSABLE)
                 : images(imageCards);
     }
 
@@ -38,19 +40,22 @@ public record InstagramSelection(List<String> imageUrls, String videoUrl, String
     private static InstagramSelection images(List<InstagramMedia> cards) {
         String preview = cards.stream().map(InstagramMedia::displayUrl).filter(Objects::nonNull).findFirst().orElse(null);
         if (cards.stream().anyMatch(card -> card.displayUrl() == null)) {
-            return failed(preview, IngestionFailureCode.SOURCE_UNAVAILABLE);
+            return failed(preview, IngestionFailureCode.SOURCE_UNAVAILABLE, InstagramFailure.MEDIA_UNUSABLE);
         }
-        return new InstagramSelection(cards.stream().map(InstagramMedia::displayUrl).toList(), null, preview, null);
+        return new InstagramSelection(cards.stream().map(InstagramMedia::displayUrl).toList(), null, preview,
+                null, null);
     }
 
+    /** 영상 주소가 없으면 음원 Reel 이다(2026-09-17 실측). Worker 가 보조 수집기로 한 번 더 시도한다. */
     private static InstagramSelection video(InstagramMedia media) {
         if (media.videoUrl() == null) {
-            return failed(media.displayUrl(), IngestionFailureCode.SOURCE_UNAVAILABLE);
+            return failed(media.displayUrl(), IngestionFailureCode.SOURCE_UNAVAILABLE, InstagramFailure.NO_VIDEO);
         }
-        return new InstagramSelection(List.of(), media.videoUrl(), media.displayUrl(), null);
+        return new InstagramSelection(List.of(), media.videoUrl(), media.displayUrl(), null, null);
     }
 
-    private static InstagramSelection failed(String previewImageUrl, IngestionFailureCode failureCode) {
-        return new InstagramSelection(List.of(), null, previewImageUrl, failureCode);
+    private static InstagramSelection failed(String previewImageUrl, IngestionFailureCode failureCode,
+                                             InstagramFailure failure) {
+        return new InstagramSelection(List.of(), null, previewImageUrl, failureCode, failure);
     }
 }

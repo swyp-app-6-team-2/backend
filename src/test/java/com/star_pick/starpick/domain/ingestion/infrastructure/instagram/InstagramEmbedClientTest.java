@@ -4,9 +4,11 @@ import static com.star_pick.starpick.domain.ingestion.service.InstagramFetchExce
 import static com.star_pick.starpick.domain.ingestion.service.InstagramFetchException.Kind.TOO_LARGE;
 import static com.star_pick.starpick.domain.ingestion.service.InstagramFetchException.Kind.UNAVAILABLE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import com.star_pick.starpick.domain.ingestion.service.InlineImage;
+import com.star_pick.starpick.domain.ingestion.service.InstagramFailure;
 import com.star_pick.starpick.domain.ingestion.service.InstagramFetchException;
 import com.star_pick.starpick.domain.ingestion.service.InstagramMedia;
 import com.star_pick.starpick.domain.ingestion.service.InstagramPost;
@@ -150,6 +152,31 @@ class InstagramEmbedClientTest {
             assertThat(failure.getMessage()).as(code).doesNotContain("SENSITIVE_BODY", "localhost");
         }
         assertThat(redirectFollowed).isFalse();
+
+        assertThatThrownBy(() -> client().fetchPost("REDIRECT01", false, Duration.ofSeconds(2)))
+                .isInstanceOf(InstagramFetchException.class)
+                .extracting(e -> ((InstagramFetchException) e).failure())
+                .isEqualTo(InstagramFailure.BLOCKED);
+        assertThatThrownBy(() -> client().fetchPost("LIMITED001", false, Duration.ofSeconds(2)))
+                .isInstanceOf(InstagramFetchException.class)
+                .extracting(e -> ((InstagramFetchException) e).failure())
+                .isEqualTo(InstagramFailure.BLOCKED);
+        assertThatThrownBy(() -> client().fetchPost("NOTFOUND01", false, Duration.ofSeconds(2)))
+                .isInstanceOf(InstagramFetchException.class)
+                .extracting(e -> ((InstagramFetchException) e).failure())
+                .isEqualTo(InstagramFailure.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("깨진 embed 는 없는 게시물과 구분한다")
+    void classifiesBrokenEmbed() {
+        serve("/p/BROKEN0001/embed/captioned/", exchange ->
+                write(exchange, 200, "text/html", "<div class=\"EmbedBrokenMedia\"></div>"));
+
+        assertThatThrownBy(() -> client().fetchPost("BROKEN0001", false, Duration.ofSeconds(2)))
+                .isInstanceOf(InstagramFetchException.class)
+                .extracting(e -> ((InstagramFetchException) e).failure())
+                .isEqualTo(InstagramFailure.EMBED_BROKEN);
     }
 
     @Test

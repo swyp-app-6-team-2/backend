@@ -2,6 +2,7 @@ package com.star_pick.starpick.domain.ingestion.infrastructure.instagram;
 
 import com.star_pick.starpick.domain.ingestion.service.InlineImage;
 import com.star_pick.starpick.domain.ingestion.service.InstagramClient;
+import com.star_pick.starpick.domain.ingestion.service.InstagramFailure;
 import com.star_pick.starpick.domain.ingestion.service.InstagramFetchException;
 import com.star_pick.starpick.domain.ingestion.service.InstagramFetchException.Kind;
 import com.star_pick.starpick.domain.ingestion.service.InstagramMedia;
@@ -42,6 +43,7 @@ class InstagramEmbedClient implements InstagramClient {
     private static final String USER_AGENT = "Mozilla/5.0";
     private static final String REFERER = "https://www.instagram.com/";
     private static final String CONTEXT_MARKER = "contextJSON\":\"";
+    private static final String BROKEN_EMBED_MARKER = "EmbedBrokenMedia";
     /** 실측 embed HTML 은 28만~47만 byte 였다. */
     private static final int MAX_EMBED_BYTES = 2 * 1024 * 1024;
     private static final List<String> MEDIA_HOST_SUFFIXES = List.of(".cdninstagram.com", ".fbcdn.net");
@@ -145,7 +147,9 @@ class InstagramEmbedClient implements InstagramClient {
     InstagramPost parse(String html) {
         int start = html.indexOf(CONTEXT_MARKER);
         if (start < 0) {
-            throw unavailable("embed 에 게시물 정보가 없습니다.");
+            throw new InstagramFetchException(Kind.UNAVAILABLE,
+                    html.contains(BROKEN_EMBED_MARKER) ? InstagramFailure.EMBED_BROKEN : InstagramFailure.NOT_FOUND,
+                    "embed 에 게시물 정보가 없습니다.");
         }
         int from = start + CONTEXT_MARKER.length();
         int end = closingQuote(html, from);
@@ -154,7 +158,8 @@ class InstagramEmbedClient implements InstagramClient {
             String context = jsonMapper.readValue("\"" + html.substring(from, end) + "\"", String.class);
             JsonNode shortcodeMedia = jsonMapper.readTree(context).path("gql_data").path("shortcode_media");
             if (!shortcodeMedia.isObject()) {
-                throw unavailable("embed 에 게시물 정보가 없습니다.");
+                throw new InstagramFetchException(Kind.UNAVAILABLE, InstagramFailure.NOT_FOUND,
+                        "embed 에 게시물 정보가 없습니다.");
             }
             List<JsonNode> nodes = new ArrayList<>();
             for (JsonNode edge : shortcodeMedia.path("edge_sidecar_to_children").path("edges")) {
@@ -238,10 +243,17 @@ class InstagramEmbedClient implements InstagramClient {
     private static void requireOk(ClientHttpResponse response) throws IOException {
         int status = response.getStatusCode().value();
         if (status >= 500) {
-            throw new InstagramFetchException(Kind.RETRYABLE, "Instagram 서버 오류: " + status);
+            throw new InstagramFetchException(Kind.RETRYABLE, InstagramFailure.UNKNOWN,
+                    "Instagram 서버 오류: " + status);
+        }
+        if (status == 429 || (status >= 300 && status < 400)) {
+            // 로그인 페이지로 돌려보내거나 429 면 우리 IP 가 막힌 상태다. 원본 문제와 구분한다.
+            throw new InstagramFetchException(Kind.UNAVAILABLE, InstagramFailure.BLOCKED,
+                    "Instagram 응답 상태: " + status);
         }
         if (status != 200) {
-            throw unavailable("Instagram 응답 상태: " + status);
+            throw new InstagramFetchException(Kind.UNAVAILABLE, InstagramFailure.NOT_FOUND,
+                    "Instagram 응답 상태: " + status);
         }
     }
 
