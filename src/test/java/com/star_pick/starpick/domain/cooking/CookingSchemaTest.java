@@ -2,8 +2,10 @@ package com.star_pick.starpick.domain.cooking;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.star_pick.starpick.domain.cooking.domain.CookHistory;
 import com.star_pick.starpick.support.IntegrationTest;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,19 +75,37 @@ class CookingSchemaTest {
     }
 
     @Test
-    @DisplayName("cook_history.recipe_id 에는 FK 가 없다 — 도메인 경계 규칙의 의도된 결과")
-    void recipeIdHasNoForeignKey() {
-        // FK 를 넣으면 Recipe 삭제의 행 잠금이 FK 검사를 막지 못해 삭제 쪽이 실패한다(실측).
-        // 잠금 전략과 함께 정할 후속 과제다. 허용하는 빈틈은 cooking.md §3.4 참고.
-        Integer count = jdbcTemplate.queryForObject("""
-                select count(*)
+    @DisplayName("cook_history.recipe_id 는 recipe.id 를 참조한다")
+    void recipeIdReferencesRecipe() {
+        // 이름을 고정해야 FK 위반을 404 로 번역하는 분기가 조용히 깨지지 않는다(CookHistory.RECIPE_FK).
+        Map<String, Object> fk = jdbcTemplate.queryForMap("""
+                select kcu.column_name, ccu.table_name as referenced_table,
+                       ccu.column_name as referenced_column
                 from information_schema.table_constraints tc
                 join information_schema.key_column_usage kcu
-                  on tc.constraint_name = kcu.constraint_name
-                where tc.constraint_type = 'FOREIGN KEY'
-                  and tc.table_name = 'cook_history' and kcu.column_name = 'recipe_id'
-                """, Integer.class);
+                  on tc.constraint_schema = kcu.constraint_schema
+                 and tc.constraint_name = kcu.constraint_name
+                join information_schema.constraint_column_usage ccu
+                  on tc.constraint_schema = ccu.constraint_schema
+                 and tc.constraint_name = ccu.constraint_name
+                where tc.constraint_schema = 'public'
+                  and tc.constraint_type = 'FOREIGN KEY'
+                  and tc.constraint_name = ?
+                """, CookHistory.RECIPE_FK);
 
-        assertThat(count).isZero();
+        assertThat(fk)
+                .containsEntry("column_name", "recipe_id")
+                .containsEntry("referenced_table", "recipe")
+                .containsEntry("referenced_column", "id");
+    }
+
+    @Test
+    @DisplayName("Recipe 삭제가 조리 기록을 지우지 않고 통과하지 못한다 — cascade 가 아니다")
+    void recipeForeignKeyIsNotCascade() {
+        String definition = jdbcTemplate.queryForObject("""
+                select pg_get_constraintdef(oid) from pg_constraint where conname = ?
+                """, String.class, CookHistory.RECIPE_FK);
+
+        assertThat(definition).doesNotContain("ON DELETE");
     }
 }

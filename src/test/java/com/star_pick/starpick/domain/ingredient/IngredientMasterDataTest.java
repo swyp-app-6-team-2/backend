@@ -41,6 +41,16 @@ class IngredientMasterDataTest {
     }
 
     @Test
+    @DisplayName("재료 name 은 9자를 넘지 않는다 — 재료 관리 화면에서 잘린다")
+    void ingredientNamesFitInNineCharacters() {
+        List<String> tooLong = jdbcTemplate.queryForList("""
+                select name from ingredient where char_length(name) > 9 order by code
+                """, String.class);
+
+        assertThat(tooLong).isEmpty();
+    }
+
+    @Test
     @DisplayName("재료 name 은 104행 전체에서 유일하다")
     void ingredientNamesAreUnique() {
         List<String> duplicateNames = jdbcTemplate.queryForList("""

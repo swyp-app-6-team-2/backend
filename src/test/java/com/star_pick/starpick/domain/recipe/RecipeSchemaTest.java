@@ -111,7 +111,7 @@ class RecipeSchemaTest {
                 order by tc.table_name
                 """, String.class);
 
-        assertThat(tables).containsExactly("recipe_ingredient", "recipe_step");
+        assertThat(tables).containsExactly("cook_history", "recipe_ingredient", "recipe_step");
     }
 
     @Test
