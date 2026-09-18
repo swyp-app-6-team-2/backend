@@ -326,15 +326,15 @@ IngestionJob 1 ── 0..1 Recipe
 - **파일 업로드만 재시도하지 않는다.** 본문이 서버에 도착했는데 응답만 늦으면 재시도가 새 파일을 만들고, 첫 파일은 이름을 몰라 지울 수 없기 때문이다. 업로드 실패는 `PROCESSING_FAILED`이고 사용자는 다시 요청한다.
 - **처리 완료(ACTIVE) 확인은 1초 간격으로 deadline까지 반복한다.** 따로 대기 상한을 두지 않는다.
 - **대기 시간은 2초 → 8초로 늘리고 jitter를 더한다.** Gemini가 `RetryInfo`로 대기 시간을 주면 그 값을 우선한다. 대기 뒤 남은 시간이 부족하면 재시도하지 않는다.
-- **설정값으로 관리하는 것**: 동시 처리 수, 확인 주기(2초), deadline(120초), stale 기준(3분), 대기 상한(10분), 결과 유효기간(24시간), 보존 기간(7일), 재시도 횟수·대기, 단계별 상한(Gemini 분석 60초·Instagram embed와 처리 상태 확인 각 10초·미디어 30초·업로드 30초), 사진 합계 상한(14MB, Instagram 이미지에도 적용), Reel 크기 상한(50MB), YouTube 영상 fps(0.2)와 설명란 조회 상한(10초), 일일 한도, 모델 이름. 값을 코드에 고정하지 않는다.
+- **설정값으로 관리하는 것**: 동시 처리 수, 확인 주기(2초), deadline(120초), stale 기준(3분), 대기 상한(10분), 결과 유효기간(24시간), 보존 기간(7일), 재시도 횟수·대기, 단계별 상한(Gemini 분석 60초·Instagram embed와 처리 상태 확인 각 10초·미디어 30초·업로드 30초), 사진 합계 상한(14MB, Instagram 이미지에도 적용), Reel 크기 상한(50MB), YouTube 영상 fps(0.2)와 설명란 조회 상한(10초), Instagram 보조 수집 설정(`ingestion.apify.token`(비면 보조 수집 끔)·`base-url`·`actor-id`·`timeout`(20초)·`min-remaining`(45초)), 일일 한도, 모델 이름. 값을 코드에 고정하지 않는다.
 - **설정값이 아닌 것**: 사진 최대 개수(10장)는 Bean Validation 제약이라 **컴파일 상수**여야 한다. Worker를 맡을지는 `GEMINI_API_KEY` 유무로 정하며 운영용 on/off 설정을 두지 않는다. Worker를 맡는 프로세스는 `YOUTUBE_API_KEY`도 있어야 하며, 없으면 기동하지 않는다. 테스트만 `ingestion.external.enabled=false`로 끈다(기본 `true`).
 
 | 결과                       | 조건                                                                          |
 |--------------------------|-----------------------------------------------------------------------------|
 | 재시도                      | timeout, 연결 끊김, 본문 읽기 멈춤, 5xx, `RetryInfo`가 있는 429(Gemini). 파일 업로드는 제외                  |
-| `CONTENT_NOT_RECOGNIZED` | 안전 차단 응답, 레시피가 아니라는 판정, 정규화 후 재료·단계가 모두 없음, Instagram에서 분석할 이미지 카드가 없음(`img_index`가 영상 카드이거나 이미지 카드 0장. Gemini를 부르지 않는다) |
+| `CONTENT_NOT_RECOGNIZED` | 안전 차단 응답, 레시피가 아니라는 판정, 정규화 후 재료·단계가 모두 없음, Instagram에서 분석할 이미지 카드가 없음(`img_index`가 영상 카드이거나 이미지 카드 0장. Gemini를 부르지 않는다), **영상을 얻지 못한 Reel을 캡션으로 분석했으나 레시피가 아닌 경우** |
 | `MULTIPLE_RECIPES`       | 원본 하나에 서로 다른 레시피가 여러 개라는 판정(사진·YouTube·Instagram 공통). 앱은 레시피 하나만 담긴 카드 링크나 스크린샷으로 다시 요청하도록 안내한다 |
-| `SOURCE_UNAVAILABLE`     | YouTube 입력에 Gemini가 `400 INVALID_ARGUMENT`로 답함(없는 영상에서 실측. **API 키 오류는 제외**). Instagram 원본을 쓸 수 없음: redirect·4xx(429 포함), embed에 게시물 정보가 없음(없는 게시물은 200에 정보 없음으로 실측), 분석할 카드의 주소가 없거나 허용 밖, 지원하지 않거나 빈 미디어, `img_index`가 카드 수를 넘음 |
+| `SOURCE_UNAVAILABLE`     | YouTube 입력에 Gemini가 `400 INVALID_ARGUMENT`로 답함(없는 영상에서 실측. **API 키 오류는 제외**). Instagram 원본을 쓸 수 없음: redirect·4xx(429 포함), embed에 게시물 정보가 없음(없는 게시물은 200에 정보 없음으로 실측), 분석할 카드의 주소가 없거나 허용 밖, 지원하지 않거나 빈 미디어, `img_index`가 카드 수를 넘음. 원인은 서버 로그의 `reason`(`BLOCKED`·`EMBED_BROKEN`·`NOT_FOUND`·`NO_VIDEO`·`CARD_OUT_OF_RANGE`·`MEDIA_UNUSABLE`·`UNKNOWN`)으로 구분한다 |
 | `PROCESSING_FAILED`      | 그 밖의 전부. 재시도 소진, `RetryInfo`가 없는 429(선불 잔액 소진 등), 인증·모델 설정 오류, 응답 해석 실패, 사진 합계 14MB 초과(Instagram 이미지 포함)·지원하지 않는 사진 형식, Reel 50MB 초과, 파일 업로드 실패, 올린 파일 처리 `FAILED`·deadline까지 ACTIVE가 안 됨 |
 
 - **오류를 분류하는 곳과 결정하는 곳이 다르다.** 외부 Adapter는 실패를 재시도 가능·불가능과 원인 종류로 분류하기만 한다. 재시도 여부와 최종 `failureCode`는 Worker가 정한다.
@@ -435,6 +435,10 @@ Job 행과 `consumedAt`은 남긴다. 같은 Job으로 다시 저장하면 `409 
 - **Reel 요청**: 영상을 임시 파일로 받아 Files API 재개형 업로드(시작 → 본문)로 올리고, ACTIVE를 확인한 뒤 `fileData`(mimeType `video/mp4`) → `입력: Instagram Reel 영상과 캡션.` → caption 블록으로 분석한다. **fps를 지정하지 않는다(기본 1fps)** — 72초 Reel에서 fps 0.2는 조리 단계가 5~6개에서 3개로 줄었다.
   - 이름을 아는 업로드 파일은 성공·실패와 무관하게 5초로 한 번 지우고, 임시 파일도 지운다. 업로드 응답을 받지 못한 파일은 Gemini가 48시간 뒤 스스로 지운다.
   - 실측 처리 시간은 72초·17MB Reel에서 18~24초였다. 운영 로그의 처리 시간으로 deadline과 단계별 상한을 다시 본다.
+- **보조 수집(Apify)**: 공개 embed로 영상을 얻지 못한 **Reel**은 외부 수집 API로 영상 주소를 한 번 더 찾고, 그래도 없으면 캡션과 대표 이미지로 분석한다. 외부 수집은 재시도하지 않고 첫 시도에서만 부른다.
+  - 외부 수집 월 한도에 걸리면 그 기간에는 캡션 분석으로만 동작한다.
+  - 캡션도 없는 음원 Reel은 계속 실패한다.
+  - 보조 수집으로 영상을 얻은 뒤 다운로드·분석이 실패하면 캡션 분석으로 되돌아가지 않는다.
 - **caption 데이터 블록**: `분석할 데이터(게시물 캡션):\n<<<\n{caption}\n>>>`. caption 안의 `>>>`는 블록을 일찍 닫지 못하게 바꿔 넣는다.
 - **요청 대상 제한**
   - embed 주소는 파싱한 게시물 코드로 서버가 직접 만든다. redirect는 따라가지 않는다(로그인 페이지 이동을 수집 실패로 드러낸다).
