@@ -121,7 +121,7 @@ alter table recipe_ingredient
 
 마스터 스키마·시드와 `recipe_ingredient` FK를 **다른 migration 파일로 나눈다.** 전자는 Ingredient 도메인만의 변경이고 후자는 Recipe 계약 변경이라 커밋 경계가 다르다.
 
-`V2__create_ingredient_master.sql`이 최초 87건과 기본 스키마를 만들고, `V3__add_recipe_ingredient_foreign_key.sql`이 Recipe FK를 추가한다. `V6__add_ingredient_icon_and_extend_master.sql`은 `icon_key`를 기존 87건에 채워 `NOT NULL`로 바꾸고 신규 17건을 추가한다. 이미 적용된 V2·V3는 수정하지 않는다.
+`V2__create_ingredient_master.sql`이 최초 87건과 기본 스키마를 만들고, `V3__add_recipe_ingredient_foreign_key.sql`이 Recipe FK를 추가한다. `V6__add_ingredient_icon_and_extend_master.sql`은 `icon_key`를 기존 87건에 채워 `NOT NULL`로 바꾸고 신규 17건을 추가한다. 이미 적용된 V2·V3는 수정하지 않는다. `V28__rename_long_ingredient_names.sql`은 시트가 갱신된 이름 2건을 `update`로 반영한다.
 
 ---
 
@@ -130,6 +130,15 @@ alter table recipe_ingredient
 출처는 PM팀 Google Sheets(`1XX4-YRimYD-ppcCDdcYMOF8O1oY3C8rGvPQbySPByW4`, gid `1442157040`)다. V2의 최초 87행에 V6의 17행을 더한 104행이며, 카테고리별로 육류 13 / 해산물 15 / 채소 27 / 소스류 26 / 기타 23이다.
 
 `name`은 시트의 `ingre_name`을 **그대로** 쓴다. 괄호·슬래시 표기(`돼지고기(삼겹살)`, `파프리카/피망`)를 다듬지 않는다 — 이름은 PM·디자인팀 소유이고, 표시명 정리는 [#22](https://github.com/swyp-app-6-team-2/backend/issues/22)에서 **A안(시트 표기 유지)으로 확정됐다**(2026-09-11).
+
+시트가 바뀌면 그대로 따라간다. 9자를 넘는 이름이 재료 관리 화면에서 잘려(QA 2026-09-16) PM이 두 건의 이름을 다시 정했고, `V28__rename_long_ingredient_names.sql`이 이를 반영했다. **아래 V2 블록은 최초 시드 그대로이며, 이 두 행의 현재 `name`은 표의 값이다.**
+
+| code | V2 최초 | 현재 (V28, 2026-09-18) |
+|---|---|---|
+| `MET004` | `돼지고기(앞다리살)` | `돼지고기(앞다리)` |
+| `MET006` | `쇠고기(등심/불고기용)` | `쇠고기(등심)` |
+
+`aliases`는 바꾸지 않았다. 이름에서 빠진 `앞다리살`·`불고기용`이 이미 별칭에 들어 있어 Ingestion 이름 매칭이 유지된다.
 
 별칭은 **`name` 안에 이미 들어 있는 표기를 쪼갠 것**과 명백한 이표기(`쇠고기`→`소고기`)뿐이다. V6에서 `MET013`, `SAU026`에 별칭을 추가해 총 15개 재료에만 있고 나머지 89개는 빈 배열이다. **없는 별칭을 상상해서 채우지 않는다.**
 

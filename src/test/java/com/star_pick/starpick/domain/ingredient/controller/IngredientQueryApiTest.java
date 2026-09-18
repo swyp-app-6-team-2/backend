@@ -45,6 +45,9 @@ class IngredientQueryApiTest {
 
     @BeforeEach
     void setUp() {
+        // JwtAuthenticationFilter 가 매 요청마다 users 행을 확인한다. 이 행이 없으면 401 이다.
+        // 앞선 테스트가 남긴 users 행에 기대면 실행 순서에 따라 결과가 달라진다.
+        fixtures.seedUser(USER_ID);
         accessToken = jwtProvider.generateTokens(USER_ID).accessToken();
     }
 
