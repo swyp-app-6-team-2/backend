@@ -24,6 +24,8 @@ import com.star_pick.starpick.domain.ingestion.service.RecipeAnalysisException;
 import com.star_pick.starpick.domain.ingestion.service.RecipeAnalysisException.Kind;
 import com.star_pick.starpick.domain.ingestion.service.RecipeAnalyzer;
 import com.star_pick.starpick.domain.ingestion.service.RecipeDraftNormalizer;
+import com.star_pick.starpick.domain.ingestion.service.ReelVideo;
+import com.star_pick.starpick.domain.ingestion.service.ReelVideoResolver;
 import com.star_pick.starpick.domain.ingestion.service.UploadedVideo;
 import com.star_pick.starpick.domain.ingestion.service.Verdict;
 import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
@@ -40,6 +42,7 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.UnknownContentTypeException;
@@ -63,6 +66,8 @@ public class IngestionJobProcessor {
     private final IngestionProperties properties;
     private final UploadService uploadService;
     private final YouTubeMetadataClient youTubeMetadataClient;
+    /** 토큰이 없으면 Bean 자체가 없다({@code ApifyConfig}). 그래서 직접 주입하지 않는다. */
+    private final ObjectProvider<ReelVideoResolver> reelVideoResolver;
 
     public IngestionJobProcessor(IngestionJobExecutionService executionService,
                                  IngestionImageLoader imageLoader,
@@ -72,7 +77,8 @@ public class IngestionJobProcessor {
                                  IngredientService ingredientService,
                                  IngestionProperties properties,
                                  UploadService uploadService,
-                                 YouTubeMetadataClient youTubeMetadataClient) {
+                                 YouTubeMetadataClient youTubeMetadataClient,
+                                 ObjectProvider<ReelVideoResolver> reelVideoResolver) {
         this.executionService = executionService;
         this.imageLoader = imageLoader;
         this.instagramClient = instagramClient;
@@ -82,6 +88,7 @@ public class IngestionJobProcessor {
         this.properties = properties;
         this.uploadService = uploadService;
         this.youTubeMetadataClient = youTubeMetadataClient;
+        this.reelVideoResolver = reelVideoResolver;
     }
 
     /** 분석 결과와, 성공하면 원본 대표 이미지로 복사할 주소. 대표 이미지는 Instagram 게시물의 첫 카드만 있다. */
@@ -189,6 +196,14 @@ public class IngestionJobProcessor {
             executionService.savePreview(snapshot.id(), snapshot.attempt(), preview);
         }
         if (selection.failure() == InstagramFailure.NO_VIDEO) {
+            // Reel 일 때만 부른다. 단일 영상 `/p/` 게시물도 NO_VIDEO 지만, 그 링크를 Reel 주소로 바꿔
+            // 부르면 없는 Reel 을 찾는 엉뚱한 유료 호출이 된다.
+            ReelVideo resolved = url.reel() ? resolveReelVideo(snapshot, url, deadline) : null;
+            if (resolved != null) {
+                String caption = resolved.caption() != null ? resolved.caption() : post.caption();
+                return new Analysis(analyzeReel(snapshot, resolved.videoUrl(), caption, deadline),
+                        resolved.thumbnailUrl() != null ? resolved.thumbnailUrl() : preview);
+            }
             return analyzeReelWithoutVideo(snapshot, post, preview, deadline);
         }
         if (selection.failureCode() != null) {
@@ -201,6 +216,39 @@ public class IngestionJobProcessor {
         return new Analysis(analyzeWithRetry(snapshot,
                 AnalysisInput.ofInstagramPost(downloadImages(snapshot, selection.imageUrls(), deadline), post.caption()),
                 deadline), thumbnailImageUrl);
+    }
+
+    /**
+     * 보조 수집기가 없거나, 재시도이거나, 시간이 모자라거나, 호출이 실패하면 null 이다. 실패해도 분석을 끝내지 않는다.
+     *
+     * <p>유료 호출이라 첫 시도에만 부른다. stale 복구로 다시 잡힌 Job 이 같은 비용을 반복하지 않게 한다.
+     * 남은 시간은 호출 상한과 그 뒤 단계(다운로드·업로드·분석) 몫을 더한 값보다 커야 한다.
+     *
+     * <p>로그에 URL·캡션·토큰을 남기지 않는다.
+     */
+    private ReelVideo resolveReelVideo(IngestionJobSnapshot snapshot, InstagramUrl url, Instant deadline) {
+        ReelVideoResolver resolver = reelVideoResolver.getIfAvailable();
+        if (resolver == null || snapshot.attempt() != 1) {
+            return null;
+        }
+        Duration required = properties.apify().timeout().plus(properties.apify().minRemaining());
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        if (remaining.compareTo(required) < 0) {
+            log.warn("남은 시간이 모자라 보조 수집을 건너뜁니다. ingestionJobId={}, remainingMs={}",
+                    snapshot.id(), remaining.toMillis());
+            return null;
+        }
+        long startedNanos = System.nanoTime();
+        try {
+            ReelVideo video = resolver.resolve(url.canonicalUrl(), properties.apify().timeout()).orElse(null);
+            log.info("보조 수집 결과. ingestionJobId={}, attempt={}, found={}, elapsedMs={}",
+                    snapshot.id(), snapshot.attempt(), video != null, elapsedMs(startedNanos));
+            return video;
+        } catch (RuntimeException e) {
+            log.warn("보조 수집 호출이 실패했습니다. ingestionJobId={}, attempt={}, error={}, elapsedMs={}",
+                    snapshot.id(), snapshot.attempt(), e.getClass().getSimpleName(), elapsedMs(startedNanos));
+            return null;
+        }
     }
 
     /**
