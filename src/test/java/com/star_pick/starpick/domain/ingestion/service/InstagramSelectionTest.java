@@ -18,35 +18,58 @@ class InstagramSelectionTest {
     @DisplayName("단일 이미지·단일 영상은 img_index 와 관계없이 그 미디어를 분석한다")
     void singleMediaIgnoresIndex() {
         assertThat(InstagramSelection.of(new InstagramPost(null, List.of(IMAGE_1)), 5))
-                .isEqualTo(new InstagramSelection(List.of("i1"), null, "i1", null));
+                .isEqualTo(new InstagramSelection(List.of("i1"), null, "i1", null, null));
         assertThat(InstagramSelection.of(new InstagramPost(null, List.of(VIDEO_2)), null))
-                .isEqualTo(new InstagramSelection(List.of(), "v2", "t2", null));
+                .isEqualTo(new InstagramSelection(List.of(), "v2", "t2", null, null));
     }
 
     @Test
     @DisplayName("img_index 없는 carousel 은 이미지 카드 전부를 순서대로, 미리보기는 첫 이미지 카드")
     void carouselWithoutIndexTakesAllImages() {
         assertThat(InstagramSelection.of(CAROUSEL, null))
-                .isEqualTo(new InstagramSelection(List.of("i1", "i3"), null, "i1", null));
+                .isEqualTo(new InstagramSelection(List.of("i1", "i3"), null, "i1", null, null));
     }
 
     @Test
     @DisplayName("img_index 는 1부터 세고, 영상 카드면 분석 없이 CONTENT_NOT_RECOGNIZED")
     void carouselWithIndex() {
         assertThat(InstagramSelection.of(CAROUSEL, 3))
-                .isEqualTo(new InstagramSelection(List.of("i3"), null, "i3", null));
+                .isEqualTo(new InstagramSelection(List.of("i3"), null, "i3", null, null));
         assertThat(InstagramSelection.of(CAROUSEL, 2))
-                .isEqualTo(new InstagramSelection(List.of(), null, "t2", IngestionFailureCode.CONTENT_NOT_RECOGNIZED));
+                .isEqualTo(new InstagramSelection(List.of(), null, "t2", IngestionFailureCode.CONTENT_NOT_RECOGNIZED,
+                        InstagramFailure.MEDIA_UNUSABLE));
     }
 
     @Test
     @DisplayName("카드 수를 넘는 img_index 는 SOURCE_UNAVAILABLE, 이미지 카드가 없으면 CONTENT_NOT_RECOGNIZED")
     void failsWithoutAnalyzableCard() {
         assertThat(InstagramSelection.of(CAROUSEL, 4))
-                .isEqualTo(new InstagramSelection(List.of(), null, null, IngestionFailureCode.SOURCE_UNAVAILABLE));
+                .isEqualTo(new InstagramSelection(List.of(), null, null, IngestionFailureCode.SOURCE_UNAVAILABLE,
+                        InstagramFailure.CARD_OUT_OF_RANGE));
         InstagramPost videos = new InstagramPost(null, List.of(VIDEO_2, new InstagramMedia(true, "t4", "v4")));
         assertThat(InstagramSelection.of(videos, null))
-                .isEqualTo(new InstagramSelection(List.of(), null, "t2", IngestionFailureCode.CONTENT_NOT_RECOGNIZED));
+                .isEqualTo(new InstagramSelection(List.of(), null, "t2", IngestionFailureCode.CONTENT_NOT_RECOGNIZED,
+                        InstagramFailure.MEDIA_UNUSABLE));
+    }
+
+    @Test
+    @DisplayName("영상 주소가 없는 Reel 은 NO_VIDEO 다")
+    void reelWithoutVideoUrl() {
+        InstagramSelection selection = InstagramSelection.of(
+                new InstagramPost("캡션", List.of(new InstagramMedia(true, "https://x/t.jpg", null))), null);
+
+        assertThat(selection.failureCode()).isEqualTo(IngestionFailureCode.SOURCE_UNAVAILABLE);
+        assertThat(selection.failure()).isEqualTo(InstagramFailure.NO_VIDEO);
+    }
+
+    @Test
+    @DisplayName("카드 번호가 카드 수를 넘으면 CARD_OUT_OF_RANGE 다")
+    void imgIndexOutOfRange() {
+        InstagramSelection selection = InstagramSelection.of(
+                new InstagramPost(null, List.of(new InstagramMedia(false, "https://x/1.jpg", null),
+                        new InstagramMedia(false, "https://x/2.jpg", null))), 3);
+
+        assertThat(selection.failure()).isEqualTo(InstagramFailure.CARD_OUT_OF_RANGE);
     }
 
     @Test
@@ -56,14 +79,17 @@ class InstagramSelectionTest {
         InstagramMedia brokenImage = new InstagramMedia(false, null, null);
 
         assertThat(InstagramSelection.of(new InstagramPost(null, List.of(IMAGE_1, brokenVideo)), null))
-                .isEqualTo(new InstagramSelection(List.of("i1"), null, "i1", null));
+                .isEqualTo(new InstagramSelection(List.of("i1"), null, "i1", null, null));
         assertThat(InstagramSelection.of(new InstagramPost(null, List.of(IMAGE_1, brokenImage)), 1))
-                .isEqualTo(new InstagramSelection(List.of("i1"), null, "i1", null));
+                .isEqualTo(new InstagramSelection(List.of("i1"), null, "i1", null, null));
         assertThat(InstagramSelection.of(new InstagramPost(null, List.of(IMAGE_1, brokenImage)), null))
-                .isEqualTo(new InstagramSelection(List.of(), null, "i1", IngestionFailureCode.SOURCE_UNAVAILABLE));
+                .isEqualTo(new InstagramSelection(List.of(), null, "i1", IngestionFailureCode.SOURCE_UNAVAILABLE,
+                        InstagramFailure.MEDIA_UNUSABLE));
         assertThat(InstagramSelection.of(new InstagramPost(null, List.of(new InstagramMedia(true, "t", null))), null))
-                .isEqualTo(new InstagramSelection(List.of(), null, "t", IngestionFailureCode.SOURCE_UNAVAILABLE));
+                .isEqualTo(new InstagramSelection(List.of(), null, "t", IngestionFailureCode.SOURCE_UNAVAILABLE,
+                        InstagramFailure.NO_VIDEO));
         assertThat(InstagramSelection.of(new InstagramPost(null, List.of(brokenImage)), null))
-                .isEqualTo(new InstagramSelection(List.of(), null, null, IngestionFailureCode.SOURCE_UNAVAILABLE));
+                .isEqualTo(new InstagramSelection(List.of(), null, null, IngestionFailureCode.SOURCE_UNAVAILABLE,
+                        InstagramFailure.MEDIA_UNUSABLE));
     }
 }

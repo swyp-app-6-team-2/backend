@@ -10,6 +10,7 @@ import com.star_pick.starpick.domain.ingestion.domain.IngestionJobStatus;
 import com.star_pick.starpick.domain.ingestion.domain.RecipeDraft;
 import com.star_pick.starpick.domain.ingestion.domain.InstagramUrl;
 import com.star_pick.starpick.domain.ingestion.domain.YouTubeUrl;
+import com.star_pick.starpick.domain.ingestion.infrastructure.apify.ApifyUnavailableException;
 import com.star_pick.starpick.domain.ingestion.repository.IngestionJobRepository;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisInput;
 import com.star_pick.starpick.domain.ingestion.service.AnalysisOutcome;
@@ -21,6 +22,8 @@ import com.star_pick.starpick.domain.ingestion.service.IngestionImageLoader;
 import com.star_pick.starpick.domain.ingestion.service.PreemptedJob;
 import com.star_pick.starpick.domain.ingestion.service.RecipeAnalysisException;
 import com.star_pick.starpick.domain.ingestion.service.RecipeDraftNormalizer;
+import com.star_pick.starpick.domain.ingestion.service.ReelVideo;
+import com.star_pick.starpick.domain.ingestion.service.ReelVideoResolver;
 import com.star_pick.starpick.domain.ingestion.service.TokenUsage;
 import com.star_pick.starpick.domain.ingestion.service.Verdict;
 import com.star_pick.starpick.domain.ingestion.service.VideoFileState;
@@ -29,6 +32,7 @@ import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.support.FakeInstagramClient;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.FakeRecipeAnalyzer;
+import com.star_pick.starpick.support.FakeReelVideoResolver;
 import com.star_pick.starpick.support.FakeYouTubeMetadataClient;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
@@ -40,6 +44,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpHeaders;
@@ -81,6 +86,10 @@ class IngestionJobProcessorTest {
     private UploadService uploadService;
     @Autowired
     private FakeYouTubeMetadataClient youTube;
+    @Autowired
+    private FakeReelVideoResolver reelVideoResolver;
+    @Autowired
+    private ObjectProvider<ReelVideoResolver> reelVideoResolvers;
 
     private static final String YOUTUBE_URL = "https://www.youtube.com/watch?v=kjG6h_LTklo";
     private static final String CDN = "https://scontent-ssn1-1.cdninstagram.com/";
@@ -93,6 +102,7 @@ class IngestionJobProcessorTest {
         analyzer.clear();
         instagram.clear();
         youTube.clear();
+        reelVideoResolver.clear();
         fixtures.seedUser(1L);
     }
 
@@ -560,6 +570,86 @@ class IngestionJobProcessorTest {
     }
 
     @Test
+    @DisplayName("영상 주소가 없는 Reel 은 캡션과 대표 이미지로 분석한다")
+    void analyzesReelWithoutVideoByCaption() {
+        instagram.enqueuePost(new InstagramPost("재료: 감자 2개", List.of(video(CDN + "thumb.jpg", null))));
+        instagram.putMedia(CDN + "thumb.jpg", new byte[]{1, 2, 3});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        AnalysisInput input = analyzer.lastInput();
+        assertThat(input.source()).isEqualTo(AnalysisInput.Source.INSTAGRAM_POST);
+        assertThat(input.images()).hasSize(1);
+        assertThat(input.sourceText()).isEqualTo("재료: 감자 2개");
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("영상이 없으면 보조 수집기로 영상을 받아 분석한다")
+    void usesResolverWhenEmbedHasNoVideo() {
+        instagram.enqueuePost(new InstagramPost("캡션", List.of(video(CDN + "thumb.jpg", null))));
+        reelVideoResolver.enqueue(new ReelVideo(CDN + "reel.mp4", "보조 캡션", CDN + "thumb.jpg"));
+        instagram.putMedia(CDN + "reel.mp4", new byte[]{9, 9, 9});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        assertThat(reelVideoResolver.calls()).isEqualTo(1);
+        assertThat(reelVideoResolver.lastUrl()).isEqualTo(REEL_URL);
+        assertThat(analyzer.lastInput().source()).isEqualTo(AnalysisInput.Source.INSTAGRAM_REEL);
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("보조 수집기가 못 찾으면 캡션 분석으로 내려간다")
+    void fallsBackToCaptionWhenResolverEmpty() {
+        instagram.enqueuePost(new InstagramPost("재료: 감자 2개", List.of(video(CDN + "thumb.jpg", null))));
+        instagram.putMedia(CDN + "thumb.jpg", new byte[]{1, 2, 3});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        assertThat(reelVideoResolver.calls()).isEqualTo(1);
+        assertThat(analyzer.lastInput().source()).isEqualTo(AnalysisInput.Source.INSTAGRAM_POST);
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("보조 수집 호출이 실패해도 캡션 분석으로 끝낸다")
+    void fallsBackWhenResolverThrows() {
+        instagram.enqueuePost(new InstagramPost("재료: 감자 2개", List.of(video(CDN + "thumb.jpg", null))));
+        instagram.putMedia(CDN + "thumb.jpg", new byte[]{1, 2, 3});
+        reelVideoResolver.fail(new ApifyUnavailableException("ResourceAccessException"));
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("캡션이 없으면 지금처럼 실패한다")
+    void failsWhenReelHasNoVideoAndNoCaption() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", null))));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.FAILED);
+        assertThat(saved.getFailureCode()).isEqualTo(IngestionFailureCode.SOURCE_UNAVAILABLE);
+    }
+
+    @Test
     @DisplayName("Instagram 분석이 성공하면 게시물 첫 카드를 원본 대표 이미지로 저장소에 복사하고 Key 를 결과와 함께 저장한다")
     void storesFirstCardAsSourceThumbnail() {
         instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "1.jpg"), image(CDN + "2.jpg"))));
@@ -817,10 +907,11 @@ class IngestionJobProcessorTest {
         IngestionProperties custom = new IngestionProperties(
                 properties.dailyLimit(), properties.worker(), properties.job(), properties.retry(),
                 properties.image(), properties.external(), properties.gemini(), properties.instagram(),
-                new IngestionProperties.YouTube(properties.youtube().apiKey(), fetchTimeout));
+                new IngestionProperties.YouTube(properties.youtube().apiKey(), fetchTimeout),
+                properties.apify());
         return new IngestionJobProcessor(
                 executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom,
-                uploadService, youTube);
+                uploadService, youTube, reelVideoResolvers);
     }
 
     private IngestionJobProcessor processorWithAnalyzeTimeout(Duration analyzeTimeout) {
@@ -830,10 +921,10 @@ class IngestionJobProcessorTest {
                 new IngestionProperties.Gemini(
                         properties.gemini().apiKey(), properties.gemini().model(),
                         properties.gemini().baseUrl(), analyzeTimeout, properties.gemini().videoFps()),
-                properties.instagram(), properties.youtube());
+                properties.instagram(), properties.youtube(), properties.apify());
         return new IngestionJobProcessor(
                 executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom,
-                uploadService, youTube);
+                uploadService, youTube, reelVideoResolvers);
     }
 
     private void assertFailure(Long id, IngestionFailureCode code) {

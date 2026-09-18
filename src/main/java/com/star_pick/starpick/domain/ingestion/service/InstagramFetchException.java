@@ -13,13 +13,23 @@ public class InstagramFetchException extends RuntimeException {
     }
 
     private final Kind kind;
+    private final InstagramFailure failure;
 
     public InstagramFetchException(Kind kind, String message) {
+        this(kind, InstagramFailure.UNKNOWN, message);
+    }
+
+    public InstagramFetchException(Kind kind, InstagramFailure failure, String message) {
         super(message);
         this.kind = kind;
+        this.failure = failure;
     }
 
     public Kind kind() {
         return kind;
+    }
+
+    public InstagramFailure failure() {
+        return failure;
     }
 }

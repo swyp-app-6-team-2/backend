@@ -48,6 +48,15 @@ public class TestcontainersConfiguration {
         return new FakeInstagramClient();
     }
 
+    /**
+     * test resources 의 빈 {@code ingestion.apify.token} 이 {@code ApifyConfig} 를 꺼두므로
+     * 이 Bean 이 {@code ReelVideoResolver} 자리를 채운다. 유료 API 를 부르지 않는다.
+     */
+    @Bean
+    FakeReelVideoResolver reelVideoResolver() {
+        return new FakeReelVideoResolver();
+    }
+
     @Bean
     FakeYouTubeMetadataClient youTubeMetadataClient() {
         return new FakeYouTubeMetadataClient();

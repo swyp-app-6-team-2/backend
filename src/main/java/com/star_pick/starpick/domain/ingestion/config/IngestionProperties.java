@@ -14,7 +14,8 @@ public record IngestionProperties(
         External external,
         Gemini gemini,
         Instagram instagram,
-        YouTube youtube) {
+        YouTube youtube,
+        Apify apify) {
 
     public record Worker(int concurrency, Duration pollInterval) {
     }
@@ -41,5 +42,12 @@ public record IngestionProperties(
 
     /** 영상 설명란 조회. {@code apiKey} 는 Worker 를 맡는 프로세스에 필수다({@code IngestionWorkerConfig}). */
     public record YouTube(String apiKey, Duration fetchTimeout) {
+    }
+
+    /**
+     * 보조 수집기. {@code token} 이 비면 Bean 을 만들지 않아 경로가 꺼진다.
+     * {@code minRemaining} 은 호출 뒤 남겨 둬야 하는 시간(다운로드·업로드·분석 몫)이다.
+     */
+    public record Apify(String token, String baseUrl, String actorId, Duration timeout, Duration minRemaining) {
     }
 }

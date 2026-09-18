@@ -56,6 +56,8 @@ class IngestionWorkerConfigTest {
                 new IngestionProperties.Gemini("key", "test", "http://localhost", Duration.ofSeconds(60), 0.2),
                 new IngestionProperties.Instagram(Duration.ofSeconds(10), Duration.ofSeconds(30), 52428800,
                         Duration.ofSeconds(30)),
-                new IngestionProperties.YouTube(youTubeApiKey, Duration.ofSeconds(10)));
+                new IngestionProperties.YouTube(youTubeApiKey, Duration.ofSeconds(10)),
+                new IngestionProperties.Apify("", "http://localhost", "actor", Duration.ofSeconds(20),
+                        Duration.ofSeconds(45)));
     }
 }

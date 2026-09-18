@@ -92,6 +92,15 @@ ingestion:
     # 조용히 떨어지는 것을 막는다 — GEMINI_API_KEY 를 스위치로 쓰는 것과 같은 이유다.
     api-key: ${YOUTUBE_API_KEY:}
     fetch-timeout: 10s
+  apify:
+    # 비어 있으면 보조 수집을 하지 않는다. GEMINI_API_KEY 와 같은 방식이다.
+    token: ${APIFY_TOKEN:}
+    base-url: https://api.apify.com
+    actor-id: apify~instagram-reel-scraper
+    # 실측 7~14초(2026-09-18). deadline 을 지키려고 20초에서 끊는다.
+    timeout: 20s
+    # 호출 뒤 영상 다운로드·업로드·분석에 남겨야 하는 시간. 실측 총 18~26초라 여유를 둔다.
+    min-remaining: 45s
 
 notification:
   external:
