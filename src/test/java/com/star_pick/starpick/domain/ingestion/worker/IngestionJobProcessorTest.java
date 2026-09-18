@@ -560,6 +560,37 @@ class IngestionJobProcessorTest {
     }
 
     @Test
+    @DisplayName("영상 주소가 없는 Reel 은 캡션과 대표 이미지로 분석한다")
+    void analyzesReelWithoutVideoByCaption() {
+        instagram.enqueuePost(new InstagramPost("재료: 감자 2개", List.of(video(CDN + "thumb.jpg", null))));
+        instagram.putMedia(CDN + "thumb.jpg", new byte[]{1, 2, 3});
+        analyzer.enqueue(new AnalysisOutcome(Verdict.RECIPE, draft(), new TokenUsage(10, 20)));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        AnalysisInput input = analyzer.lastInput();
+        assertThat(input.source()).isEqualTo(AnalysisInput.Source.INSTAGRAM_POST);
+        assertThat(input.images()).hasSize(1);
+        assertThat(input.sourceText()).isEqualTo("재료: 감자 2개");
+        assertThat(repository.findById(job.id()).orElseThrow().getStatus())
+                .isEqualTo(IngestionJobStatus.RESULT_READY);
+    }
+
+    @Test
+    @DisplayName("캡션이 없으면 지금처럼 실패한다")
+    void failsWhenReelHasNoVideoAndNoCaption() {
+        instagram.enqueuePost(new InstagramPost(null, List.of(video(CDN + "thumb.jpg", null))));
+        PreemptedJob job = queuedInstagramAndPreempted(REEL_URL);
+
+        processor.process(job);
+
+        IngestionJob saved = repository.findById(job.id()).orElseThrow();
+        assertThat(saved.getStatus()).isEqualTo(IngestionJobStatus.FAILED);
+        assertThat(saved.getFailureCode()).isEqualTo(IngestionFailureCode.SOURCE_UNAVAILABLE);
+    }
+
+    @Test
     @DisplayName("Instagram 분석이 성공하면 게시물 첫 카드를 원본 대표 이미지로 저장소에 복사하고 Key 를 결과와 함께 저장한다")
     void storesFirstCardAsSourceThumbnail() {
         instagram.enqueuePost(new InstagramPost(null, List.of(image(CDN + "1.jpg"), image(CDN + "2.jpg"))));

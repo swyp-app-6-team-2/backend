@@ -15,6 +15,7 @@ import com.star_pick.starpick.domain.ingestion.service.IngestionJobExecutionServ
 import com.star_pick.starpick.domain.ingestion.service.IngestionJobSnapshot;
 import com.star_pick.starpick.domain.ingestion.service.InlineImage;
 import com.star_pick.starpick.domain.ingestion.service.InstagramClient;
+import com.star_pick.starpick.domain.ingestion.service.InstagramFailure;
 import com.star_pick.starpick.domain.ingestion.service.InstagramFetchException;
 import com.star_pick.starpick.domain.ingestion.service.InstagramPost;
 import com.star_pick.starpick.domain.ingestion.service.InstagramSelection;
@@ -187,6 +188,9 @@ public class IngestionJobProcessor {
         if (preview != null && preview.length() <= IngestionJob.PREVIEW_IMAGE_URL_MAX_LENGTH) {
             executionService.savePreview(snapshot.id(), snapshot.attempt(), preview);
         }
+        if (selection.failure() == InstagramFailure.NO_VIDEO) {
+            return analyzeReelWithoutVideo(snapshot, post, preview, deadline);
+        }
         if (selection.failureCode() != null) {
             throw new IngestionInputException(selection.failureCode(), "분석할 카드가 없다: " + selection.failure());
         }
@@ -197,6 +201,25 @@ public class IngestionJobProcessor {
         return new Analysis(analyzeWithRetry(snapshot,
                 AnalysisInput.ofInstagramPost(downloadImages(snapshot, selection.imageUrls(), deadline), post.caption()),
                 deadline), thumbnailImageUrl);
+    }
+
+    /**
+     * 영상을 얻지 못한 Reel 을 캡션과 대표 이미지로 분석한다. 캡션이 없으면 분석할 근거가 없어 원래대로 실패한다.
+     *
+     * <p>2026-09-17 실측: 음원 Reel 6건 중 3건 완전, 2건 일부(단계 없음·재료 누락), 1건 캡션에 레시피 없음.
+     * 대표 이미지는 여기서 한 번, 성공 뒤 {@code storeSourceThumbnail} 이 또 한 번 받는다. 한 장이라 그대로 둔다.
+     */
+    private Analysis analyzeReelWithoutVideo(IngestionJobSnapshot snapshot, InstagramPost post,
+                                             String thumbnailUrl, Instant deadline) {
+        if (post.caption() == null || post.caption().isBlank() || thumbnailUrl == null) {
+            throw new IngestionInputException(IngestionFailureCode.SOURCE_UNAVAILABLE,
+                    "분석할 카드가 없다: " + InstagramFailure.NO_VIDEO);
+        }
+        log.info("Reel 영상을 얻지 못해 캡션으로 분석합니다. ingestionJobId={}, attempt={}",
+                snapshot.id(), snapshot.attempt());
+        List<InlineImage> thumbnail = downloadImages(snapshot, List.of(thumbnailUrl), deadline);
+        return new Analysis(analyzeWithRetry(snapshot,
+                AnalysisInput.ofInstagramPost(thumbnail, post.caption()), deadline), thumbnailUrl);
     }
 
     /**
