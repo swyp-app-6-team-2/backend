@@ -4,6 +4,9 @@
 #   ./backup.sh daily      정기 백업 (cron). DB + .env.vm
 #   ./backup.sh predeploy  배포 직전 백업. DB 만
 #
+# predeploy 는 아직 아무도 호출하지 않는다. CD 워크플로가 배포 전에 부르고
+# 실패하면 배포를 중단하도록 바꾸는 것은 별도 작업이다.
+#
 # cron 의 기본 PATH 에는 /snap/bin 이 없다. gcloud 를 절대경로로 부르는 이유다.
 # 파이프 실패를 종료 코드로 전파하지 않으면 잘린 덤프가 정상 객체로 올라간다.
 
@@ -50,15 +53,23 @@ SIZE=$("$GCLOUD" storage ls -l "$DEST" | awk 'NR==1{print $1}')
 echo "backup: DB  $DEST (${SIZE} bytes)"
 
 # ── .env.vm 사본 (daily 만) ───────────────────────────────
+# 매번 새 이름으로 올린다. 같은 경로를 덮어쓰려면 GCS 가 storage.objects.delete 를
+# 요구하는데, 침해된 VM 이 과거 백업을 지우지 못하도록 그 권한을 주지 않았다.
 if [[ "$MODE" == "daily" && -n "$SECRETS_BUCKET" ]]; then
-  EDEST="gs://${SECRETS_BUCKET}/env-vm/env.vm"
+  EDEST="gs://${SECRETS_BUCKET}/env-vm/env.vm-${TS}"
   "$GCLOUD" storage cp "$ENV_FILE" "$EDEST" --quiet
-  echo "backup: env $EDEST (버전 관리)"
+  echo "backup: env $EDEST"
 fi
 
-# ── 마지막 성공 시각을 메트릭으로 남긴다 (Alloy textfile collector) ──
+# ── 마지막 성공 시각을 메트릭으로 남긴다 ─────────────────────
+# node_exporter 의 textfile collector 가 읽어 Grafana 로 보낸다. 6단계의
+# "백업 미생성" 알림이 이 값에 의존한다. 디렉터리가 없으면 만든다 —
+# 없다고 건너뛰면 cron 백업이 조용히 실패해도 알 방법이 없어진다.
+#
+# 쓰는 중인 파일을 읽지 않도록 임시 이름으로 쓴 뒤 옮긴다.
+# collector 는 .prom 으로 끝나는 파일만 읽는다.
 MDIR=/var/lib/node_exporter/textfile_collector
-if [[ -d "$MDIR" ]]; then
-  printf 'starpick_backup_last_success_timestamp_seconds{mode="%s"} %s\n' "$MODE" "$(date -u +%s)" \
-    > "$MDIR/starpick_backup.prom.$$" && mv "$MDIR/starpick_backup.prom.$$" "$MDIR/starpick_backup_${MODE}.prom"
-fi
+mkdir -p "$MDIR"
+TMPM="$MDIR/starpick_backup_${MODE}.prom.$$"
+printf 'starpick_backup_last_success_timestamp_seconds{mode="%s"} %s\n' "$MODE" "$(date -u +%s)" > "$TMPM"
+mv "$TMPM" "$MDIR/starpick_backup_${MODE}.prom"

@@ -12,12 +12,14 @@ set -uo pipefail
 F="${1:-.env.vm}"
 
 # application.yml 에서 기본값 없는 ${VAR} + compose 가 요구하는 값
+#
+# API_DOMAIN 은 아직 넣지 않는다. Caddyfile 이 도메인을 하드코딩하고 있어
+# 값이 없어도 아무것도 깨지지 않는다. Caddyfile 을 변수화할 때 함께 추가한다.
 REQUIRED=(
   POSTGRES_DB
   POSTGRES_USER
   POSTGRES_PASSWORD
   APP_IMAGE
-  API_DOMAIN
   JWT_SECRET
   GOOGLE_CLIENT_ID
   KAKAO_APP_ID
