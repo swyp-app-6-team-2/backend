@@ -11,6 +11,7 @@ import com.star_pick.starpick.domain.ingestion.service.InlineImage;
 import com.star_pick.starpick.domain.ingestion.service.InstagramFailure;
 import com.star_pick.starpick.domain.ingestion.service.InstagramFetchException;
 import com.star_pick.starpick.domain.ingestion.service.InstagramMedia;
+import com.star_pick.starpick.domain.ingestion.service.InstagramMediaUrls;
 import com.star_pick.starpick.domain.ingestion.service.InstagramPost;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -298,7 +299,7 @@ class InstagramEmbedClientTest {
     })
     @DisplayName("운영 미디어 주소는 https 의 Instagram CDN 호스트만 허용한다")
     void allowsOnlyInstagramCdnOverHttps(String url, boolean allowed) {
-        assertThat(InstagramEmbedClient.isAllowedMediaUrl(URI.create(url))).isEqualTo(allowed);
+        assertThat(InstagramMediaUrls.isAllowed(URI.create(url))).isEqualTo(allowed);
     }
 
     private InstagramEmbedClient client() {

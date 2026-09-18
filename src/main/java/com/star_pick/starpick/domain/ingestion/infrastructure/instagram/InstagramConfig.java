@@ -1,6 +1,7 @@
 package com.star_pick.starpick.domain.ingestion.infrastructure.instagram;
 
 import com.star_pick.starpick.domain.ingestion.service.InstagramClient;
+import com.star_pick.starpick.domain.ingestion.service.InstagramMediaUrls;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -25,6 +26,6 @@ public class InstagramConfig {
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         return new InstagramEmbedClient(restClientBuilder, httpClient, jsonMapper,
-                "https://www.instagram.com", InstagramEmbedClient::isAllowedMediaUrl);
+                "https://www.instagram.com", InstagramMediaUrls::isAllowed);
     }
 }

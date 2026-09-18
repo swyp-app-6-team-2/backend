@@ -46,7 +46,6 @@ class InstagramEmbedClient implements InstagramClient {
     private static final String BROKEN_EMBED_MARKER = "EmbedBrokenMedia";
     /** 실측 embed HTML 은 28만~47만 byte 였다. */
     private static final int MAX_EMBED_BYTES = 2 * 1024 * 1024;
-    private static final List<String> MEDIA_HOST_SUFFIXES = List.of(".cdninstagram.com", ".fbcdn.net");
 
     private final RestClient.Builder restClientBuilder;
     private final HttpClient httpClient;
@@ -61,16 +60,6 @@ class InstagramEmbedClient implements InstagramClient {
         this.jsonMapper = jsonMapper;
         this.embedBaseUrl = embedBaseUrl;
         this.mediaUrlPolicy = mediaUrlPolicy;
-    }
-
-    /** 운영 규칙: https 이고 Instagram CDN 호스트. embed 가 준 주소라도 이 밖이면 받지도, 미리보기로 내보내지도 않는다. */
-    static boolean isAllowedMediaUrl(URI uri) {
-        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
-            return false;
-        }
-        String host = uri.getHost().toLowerCase(Locale.ROOT);
-        return MEDIA_HOST_SUFFIXES.stream()
-                .anyMatch(suffix -> host.endsWith(suffix) || host.equals(suffix.substring(1)));
     }
 
     @Override

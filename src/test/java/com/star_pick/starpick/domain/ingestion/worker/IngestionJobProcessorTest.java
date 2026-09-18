@@ -848,7 +848,8 @@ class IngestionJobProcessorTest {
         IngestionProperties custom = new IngestionProperties(
                 properties.dailyLimit(), properties.worker(), properties.job(), properties.retry(),
                 properties.image(), properties.external(), properties.gemini(), properties.instagram(),
-                new IngestionProperties.YouTube(properties.youtube().apiKey(), fetchTimeout));
+                new IngestionProperties.YouTube(properties.youtube().apiKey(), fetchTimeout),
+                properties.apify());
         return new IngestionJobProcessor(
                 executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom,
                 uploadService, youTube);
@@ -861,7 +862,7 @@ class IngestionJobProcessorTest {
                 new IngestionProperties.Gemini(
                         properties.gemini().apiKey(), properties.gemini().model(),
                         properties.gemini().baseUrl(), analyzeTimeout, properties.gemini().videoFps()),
-                properties.instagram(), properties.youtube());
+                properties.instagram(), properties.youtube(), properties.apify());
         return new IngestionJobProcessor(
                 executionService, imageLoader, instagram, analyzer, normalizer, ingredientService, custom,
                 uploadService, youTube);
