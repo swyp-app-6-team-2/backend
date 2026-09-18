@@ -65,7 +65,7 @@ class InstagramEmbedClient implements InstagramClient {
     public InstagramPost fetchPost(String shortcode, boolean reel, Duration timeout) {
         URI embed = URI.create(embedBaseUrl + (reel ? "/reel/" : "/p/") + shortcode + "/embed/captioned/");
         byte[] html = get(embed, null, timeout, (request, response) -> {
-            requireOk(response);
+            requireEmbedOk(response);
             return readLimited(response, MAX_EMBED_BYTES, Kind.UNAVAILABLE);
         });
         return parse(new String(html, StandardCharsets.UTF_8));
@@ -74,14 +74,14 @@ class InstagramEmbedClient implements InstagramClient {
     @Override
     public InlineImage downloadImage(String mediaUrl, long maxBytes, Duration timeout) {
         return get(mediaUri(mediaUrl), REFERER, timeout, (request, response) -> {
-            requireOk(response);
+            requireMediaOk(response);
             String contentType = mediaType(response);
             if (!SupportedImageContentTypes.matches(contentType)) {
-                throw unavailable("지원하지 않는 이미지 형식입니다.");
+                throw mediaUnusable("지원하지 않는 이미지 형식입니다.");
             }
             byte[] content = readLimited(response, maxBytes, Kind.TOO_LARGE);
             if (content.length == 0) {
-                throw unavailable("이미지 응답이 비었습니다.");
+                throw mediaUnusable("이미지 응답이 비었습니다.");
             }
             return new InlineImage(contentType, content);
         });
@@ -90,9 +90,9 @@ class InstagramEmbedClient implements InstagramClient {
     @Override
     public long downloadVideo(String mediaUrl, Path target, long maxBytes, Duration timeout) {
         return get(mediaUri(mediaUrl), REFERER, timeout, (request, response) -> {
-            requireOk(response);
+            requireMediaOk(response);
             if (!"video/mp4".equals(mediaType(response))) {
-                throw unavailable("지원하지 않는 영상 형식입니다.");
+                throw mediaUnusable("지원하지 않는 영상 형식입니다.");
             }
             if (response.getHeaders().getContentLength() > maxBytes) {
                 throw new InstagramFetchException(Kind.TOO_LARGE, "영상이 상한을 넘었습니다.");
@@ -224,15 +224,12 @@ class InstagramEmbedClient implements InstagramClient {
         } catch (URISyntaxException ignored) {
             // embed 가 준 값도 외부 입력이다.
         }
-        throw unavailable("허용하지 않는 미디어 주소입니다.");
+        throw mediaUnusable("허용하지 않는 미디어 주소입니다.");
     }
 
-    private static void requireOk(ClientHttpResponse response) throws IOException {
-        int status = response.getStatusCode().value();
-        if (status >= 500) {
-            throw new InstagramFetchException(Kind.RETRYABLE, InstagramFailure.UNKNOWN,
-                    "Instagram 서버 오류: " + status);
-        }
+    /** embed 조회. 3xx·429 는 우리 IP 가 막힌 상태이고, 그 밖의 non-200 은 원본을 볼 수 없다는 뜻이다. */
+    private static void requireEmbedOk(ClientHttpResponse response) throws IOException {
+        int status = statusOrRetry(response);
         if (status == 429 || (status >= 300 && status < 400)) {
             // 로그인 페이지로 돌려보내거나 429 면 우리 IP 가 막힌 상태다. 원본 문제와 구분한다.
             throw new InstagramFetchException(Kind.UNAVAILABLE, InstagramFailure.BLOCKED,
@@ -242,6 +239,28 @@ class InstagramEmbedClient implements InstagramClient {
             throw new InstagramFetchException(Kind.UNAVAILABLE, InstagramFailure.NOT_FOUND,
                     "Instagram 응답 상태: " + status);
         }
+    }
+
+    /**
+     * CDN 미디어 다운로드. embed 조회와 사유를 나눈다 — CDN 의 3xx·429 를 "우리 IP 차단"으로, 만료된
+     * 서명 주소의 403·404 를 "embed 가 200 이 아님"으로 기록하면 원인을 잘못 짚는다. 여기서는 어느 쪽이든
+     * 그 카드를 쓸 수 없다는 사실만 남긴다.
+     */
+    private static void requireMediaOk(ClientHttpResponse response) throws IOException {
+        int status = statusOrRetry(response);
+        if (status != 200) {
+            throw mediaUnusable("Instagram 미디어 응답 상태: " + status);
+        }
+    }
+
+    /** 5xx 는 단계와 무관하게 재시도 대상이다. */
+    private static int statusOrRetry(ClientHttpResponse response) throws IOException {
+        int status = response.getStatusCode().value();
+        if (status >= 500) {
+            throw new InstagramFetchException(Kind.RETRYABLE, InstagramFailure.UNKNOWN,
+                    "Instagram 서버 오류: " + status);
+        }
+        return status;
     }
 
     private static String mediaType(ClientHttpResponse response) {
@@ -278,7 +297,7 @@ class InstagramEmbedClient implements InstagramClient {
             }
         }
         if (total == 0) {
-            throw unavailable("영상 응답이 비었습니다.");
+            throw mediaUnusable("영상 응답이 비었습니다.");
         }
         return total;
     }
@@ -301,5 +320,10 @@ class InstagramEmbedClient implements InstagramClient {
 
     private static InstagramFetchException unavailable(String message) {
         return new InstagramFetchException(Kind.UNAVAILABLE, message);
+    }
+
+    /** 미디어 단계의 실패. 주소·형식·상태·빈 응답 모두 "그 카드를 쓸 수 없다"로 모은다. */
+    private static InstagramFetchException mediaUnusable(String message) {
+        return new InstagramFetchException(Kind.UNAVAILABLE, InstagramFailure.MEDIA_UNUSABLE, message);
     }
 }

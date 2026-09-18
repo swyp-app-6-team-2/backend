@@ -231,8 +231,8 @@ class InstagramEmbedClientTest {
         assertThat(image.mimeType()).isEqualTo("image/jpeg");
         assertThat(image.content()).containsExactly(1, 2, 3);
         assertThat(referer.get()).isEqualTo("https://www.instagram.com/");
-        assertThat(imageFailure(baseUrl + "/page.html").kind()).isEqualTo(UNAVAILABLE);
-        assertThat(imageFailure(baseUrl + "/empty.jpg").kind()).isEqualTo(UNAVAILABLE);
+        assertThat(imageFailure(baseUrl + "/page.html").failure()).isEqualTo(InstagramFailure.MEDIA_UNUSABLE);
+        assertThat(imageFailure(baseUrl + "/empty.jpg").failure()).isEqualTo(InstagramFailure.MEDIA_UNUSABLE);
         assertThat(imageFailure(baseUrl + "/declared-large.jpg").kind()).isEqualTo(TOO_LARGE);
         assertThat(imageFailure(baseUrl + "/chunked-large.jpg").kind()).isEqualTo(TOO_LARGE);
         assertThat(imageFailure("https://evil.test/1.jpg").kind()).isEqualTo(UNAVAILABLE);
@@ -261,8 +261,32 @@ class InstagramEmbedClientTest {
 
         assertThat(videoFailure(baseUrl + "/reel.mp4", target).kind()).isEqualTo(TOO_LARGE);
         assertThat(videoFailure(baseUrl + "/chunked.mp4", target).kind()).isEqualTo(TOO_LARGE);
-        assertThat(videoFailure(baseUrl + "/empty.mp4", target).kind()).isEqualTo(UNAVAILABLE);
-        assertThat(videoFailure(baseUrl + "/not-video.mp4", target).kind()).isEqualTo(UNAVAILABLE);
+        assertThat(videoFailure(baseUrl + "/empty.mp4", target).failure()).isEqualTo(InstagramFailure.MEDIA_UNUSABLE);
+        assertThat(videoFailure(baseUrl + "/not-video.mp4", target).failure()).isEqualTo(InstagramFailure.MEDIA_UNUSABLE);
+    }
+
+    @Test
+    @DisplayName("미디어 단계의 비정상 상태는 embed 사유와 섞이지 않고 MEDIA_UNUSABLE 이다")
+    void classifiesMediaFailures(@TempDir Path dir) {
+        // 서명이 만료된 주소는 403·404 로, CDN 차단은 3xx·429 로 오는데 둘 다 "그 카드를 쓸 수 없다"이다.
+        serve("/expired.jpg", exchange -> write(exchange, 403, "text/html", "SENSITIVE_BODY"));
+        serve("/limited.jpg", exchange -> write(exchange, 429, "text/html", "SENSITIVE_BODY"));
+        serve("/moved.mp4", exchange -> {
+            exchange.getResponseHeaders().set("Location", baseUrl + "/reel.mp4");
+            write(exchange, 302, "text/html", "");
+        });
+        serve("/gone.mp4", exchange -> write(exchange, 404, "text/html", "SENSITIVE_BODY"));
+
+        for (String url : List.of("/expired.jpg", "/limited.jpg")) {
+            InstagramFetchException failure = imageFailure(baseUrl + url);
+            assertThat(failure.failure()).as(url).isEqualTo(InstagramFailure.MEDIA_UNUSABLE);
+            assertThat(failure.getMessage()).as(url).doesNotContain("SENSITIVE_BODY", "localhost");
+        }
+        assertThat(imageFailure("https://evil.test/1.jpg").failure()).isEqualTo(InstagramFailure.MEDIA_UNUSABLE);
+        assertThat(videoFailure(baseUrl + "/moved.mp4", dir.resolve("v.mp4")).failure())
+                .isEqualTo(InstagramFailure.MEDIA_UNUSABLE);
+        assertThat(videoFailure(baseUrl + "/gone.mp4", dir.resolve("v.mp4")).failure())
+                .isEqualTo(InstagramFailure.MEDIA_UNUSABLE);
     }
 
     @Test

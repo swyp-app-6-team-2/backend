@@ -240,15 +240,25 @@ public class IngestionJobProcessor {
         }
         long startedNanos = System.nanoTime();
         try {
-            ReelVideo video = resolver.resolve(url.canonicalUrl(), properties.apify().timeout()).orElse(null);
+            ReelVideo video = resolver.resolve(url.shortcode(), url.canonicalUrl(), properties.apify().timeout())
+                    .orElse(null);
             log.info("보조 수집 결과. ingestionJobId={}, attempt={}, found={}, elapsedMs={}",
                     snapshot.id(), snapshot.attempt(), video != null, elapsedMs(startedNanos));
             return video;
         } catch (RuntimeException e) {
+            // 월 한도 소진(402·429)과 timeout·해석 실패를 여기서 갈라야 "캡션 분석으로만 도는" 상태를 알아챈다.
             log.warn("보조 수집 호출이 실패했습니다. ingestionJobId={}, attempt={}, error={}, elapsedMs={}",
-                    snapshot.id(), snapshot.attempt(), e.getClass().getSimpleName(), elapsedMs(startedNanos));
+                    snapshot.id(), snapshot.attempt(), resolverReason(e), elapsedMs(startedNanos));
             return null;
         }
+    }
+
+    /**
+     * 보조 수집기 예외 메시지는 예외 클래스명과 상태 코드까지만 담기로 한 계약이라 그대로 남긴다
+     * ({@link ReelVideoResolver}). 메시지가 없으면 클래스명만 남긴다.
+     */
+    private static String resolverReason(RuntimeException e) {
+        return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
     }
 
     /**

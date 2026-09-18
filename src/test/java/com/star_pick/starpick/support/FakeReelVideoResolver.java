@@ -37,7 +37,7 @@ public class FakeReelVideoResolver implements ReelVideoResolver {
     }
 
     @Override
-    public Optional<ReelVideo> resolve(String url, Duration timeout) {
+    public Optional<ReelVideo> resolve(String shortcode, String url, Duration timeout) {
         calls.incrementAndGet();
         lastUrl = url;
         if (failure != null) {
