@@ -1,3 +1,7 @@
+# 프로젝트명을 파일에 고정한다. 비어 있으면 compose 가 디렉터리명을 쓰고,
+# 그러면 다른 볼륨(starpick_postgres-data)에 조용히 붙어 빈 DB 로 기동한다.
+name: swyp-backend
+
 services:
   postgres:
     image: postgres:18
@@ -15,29 +19,34 @@ services:
     image: ${APP_IMAGE}
     container_name: starpick-vm-app
     restart: unless-stopped
+    # 상한이 없으면 JVM 이 3.8Gi 기준 약 950MB 를 힙으로 잡는다. 컨테이너 인식 JVM 은 제한의 25%(512MB) 만
+    # 힙으로 쓰므로 50% 로 올려 지금과 같은 1GB 를 유지한다. 70% 면 비힙까지 더해 2g 상한에 붙는다.
+    # memswap_limit 을 같은 값으로 두어 swap 으로 새지 않게 한다.
+    mem_limit: 2g
+    memswap_limit: 2g
     depends_on:
       - postgres
+    # env_file 로 넘긴다. environment: 에 ${VAR} 로 나열하면 .env.vm 에 '없는' 키가 빈 문자열로 주입돼
+    # 앱의 fail-fast 가 무력화된다(ADMOB_AD_UNIT_ANDROID 실측). 값만 빈 줄(KEY=)은 이 방식으로도
+    # 걸러지지 않으므로 필수 키 검사는 deploy/check-env.sh 가 한다.
+    env_file:
+      - .env.vm
     environment:
+      # .env.vm 의 값을 조합해야 하는 것만 남긴다.
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      KAKAO_APP_ID: ${KAKAO_APP_ID}
-      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID}
-      GCS_BUCKET: ${GCS_BUCKET}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY}
-      INGREDIENT_ICON_BASE_URL: ${INGREDIENT_ICON_BASE_URL}
-      FCM_PROJECT_ID: ${FCM_PROJECT_ID}
-      NOTIFICATION_MEAL_BODY: ${NOTIFICATION_MEAL_BODY}
-      NOTIFICATION_DEEP_LINK: ${NOTIFICATION_DEEP_LINK}
-      ADMIN_USERNAME: ${ADMIN_USERNAME}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      INQUIRY_DISCORD_WEBHOOK_URL: ${INQUIRY_DISCORD_WEBHOOK_URL}
-      ADMOB_AD_UNIT_ANDROID: ${ADMOB_AD_UNIT_ANDROID}
-      ADMOB_AD_UNIT_IOS: ${ADMOB_AD_UNIT_IOS}
-      APIFY_TOKEN: ${APIFY_TOKEN}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=50
+    # 관리 포트는 호스트 loopback 에만 공개한다. 호스트에서 도는 Alloy 가 스크랩하고, 외부에서는 닿지 않는다.
+    ports:
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # 기동 실측 41.99초. 그 전의 실패를 unhealthy 로 세지 않는다.
+      start_period: 90s
     # SPRING_PROFILES_ACTIVE를 절대 지정하지 않는다 (§6 참고)
 
   caddy:
