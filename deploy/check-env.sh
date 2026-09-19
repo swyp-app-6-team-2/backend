@@ -13,9 +13,9 @@ F="${1:-.env.vm}"
 
 # application.yml 에서 기본값 없는 ${VAR} + compose 가 요구하는 값
 #
-# API_DOMAIN 은 아직 넣지 않는다. Caddyfile 이 도메인을 하드코딩하고 있어
-# 값이 없어도 아무것도 깨지지 않는다. Caddyfile 을 변수화할 때 함께 추가한다.
+# API_DOMAIN 이 비면 Caddy 기동이 실패해 80·443 이 통째로 죽는다(2026-09-19 실측).
 REQUIRED=(
+  API_DOMAIN
   POSTGRES_DB
   POSTGRES_USER
   POSTGRES_PASSWORD

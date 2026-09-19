@@ -1,3 +1,21 @@
-dev-api.starpick.cloud {
-    reverse_proxy app:8080
+{$API_DOMAIN} {
+	# 액세스 로그. 앱이 §9 기준으로 일부러 로그에서 뺀 것을 프록시가 되넣지 않도록 걸러낸다.
+	# 필터는 2026-09-19 에 버리는 컨테이너로 실제 출력까지 확인했다.
+	#
+	# IP 는 마스킹하지 않는다. 알림(관리자 로그인 실패 급증)에 대응하려면 어느 IP 인지 알아야 하고,
+	# 앱도 AdminLoginFailureHandler 에서 이미 전체 IP 를 남긴다. 보존기간(14일)과 접근 제한으로 관리한다.
+	log {
+		format filter {
+			wrap console
+			fields {
+				# 쿼리스트링을 통째로 지운다. 경로만 남아도 어떤 API 가 불렸는지는 안다.
+				# query 필터는 이름을 아는 파라미터만 지울 수 있어(delete * 는 아무것도 안 지움) regexp 를 쓴다.
+				request>uri regexp "[?].*" ""
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+			}
+		}
+	}
+
+	reverse_proxy app:8080
 }
