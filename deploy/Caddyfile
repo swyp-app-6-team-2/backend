@@ -1,3 +1,23 @@
+{
+	# Caddyfile 의 log 지시어는 액세스 로거만 설정한다. 502 같은 프록시 실패는
+	# http.log.error 라는 별도 로거로 나가 그 필터를 타지 않는다(2026-09-19 실측).
+	# 앱 기동 42초 동안 들어온 요청이 매 배포마다 여기에 원문으로 남는다.
+	# Authorization·Cookie 는 Caddy 가 자동으로 REDACTED 하지만 쿼리스트링과 나머지 헤더는 남는다.
+	log default {
+		exclude http.log.error
+	}
+	log errors {
+		include http.log.error
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "[?].*" ""
+				request>headers delete
+			}
+		}
+	}
+}
+
 {$API_DOMAIN} {
 	# 액세스 로그. 앱이 §9 기준으로 일부러 로그에서 뺀 것을 프록시가 되넣지 않도록 걸러낸다.
 	# 필터는 2026-09-19 에 버리는 컨테이너로 실제 출력까지 확인했다.
