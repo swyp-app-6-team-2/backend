@@ -28,6 +28,29 @@ spring:
         # Ingestion 선점(2초)·Ingestion 정리·알림 발송이 한 스레드씩. 알림 발송은 FCM 응답을 기다리며 스레드를 잡는다.
         size: 3
 
+management:
+  server:
+    # 관리 포트를 분리해 SecurityConfig 를 고치지 않고 인증 없는 health/metrics 를 연다.
+    # 컨테이너 안에서는 기본 바인딩(모든 인터페이스)을 유지한다 — 127.0.0.1 로 묶으면
+    # 호스트 프로세스(Alloy)가 스크랩할 수 없다. 외부 노출은 compose 가 127.0.0.1 로만 공개해 막는다.
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        # 켜면 라벨 조합 125개 × 버킷 약 70개 = 8,750 시리즈가 늘어 Grafana Cloud 무료 한도(10,000)를 넘는다.
+        http.server.requests: false
+
+springdoc:
+  # 안전한 쪽을 기본값으로 둔다. env 한 줄이 빠져도 운영에서 API 명세가 열리지 않는다.
+  api-docs:
+    enabled: ${SPRINGDOC_APIDOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGERUI_ENABLED:false}
+
 starpick:
   ingredient:
     icon-base-url: ${INGREDIENT_ICON_BASE_URL}
