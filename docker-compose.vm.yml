@@ -37,7 +37,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=50
-    # 관리 포트는 호스트 loopback 에만 공개한다. 호스트에서 도는 Alloy 가 스크랩하고, 외부에서는 닿지 않는다.
+    # 관리 포트는 호스트 loopback 에만 공개한다. 호스트의 Alloy 가 스크랩할 수 있게 열어두는 것이고
+    # (스크랩 설정은 대시보드 작업에서 추가한다), 외부에서는 닿지 않는다.
     ports:
       - "127.0.0.1:8081:8081"
     healthcheck:
@@ -53,6 +54,10 @@ services:
     image: caddy:2
     container_name: starpick-vm-caddy
     restart: unless-stopped
+    environment:
+      # Caddyfile 의 {$API_DOMAIN}. 비면 Caddy 기동이 실패해 80·443 이 통째로 죽는다.
+      # .env.vm 전체를 주지 않는다 — 인터넷에 직접 노출된 TLS 종단이 쓰지도 않는 비밀값을 받을 이유가 없다.
+      API_DOMAIN: ${API_DOMAIN}
     ports:
       - "80:80"
       - "443:443"
