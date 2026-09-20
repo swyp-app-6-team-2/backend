@@ -154,6 +154,44 @@ prometheus.relabel "integrations_node_exporter" {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 앱 메트릭 (Spring Boot Actuator)
+//
+// 관리 포트 8081 은 docker-compose.vm.yml 이 호스트 loopback 에만 공개한다.
+// 앱이 내려가면 up=0 이 되므로 다운 감지의 근거가 된다.
+//
+// node_exporter 와 달리 allowlist 를 두지 않는다. 그쪽 allowlist 는 Grafana 의
+// Linux Server 통합이 생성한 것이고 기본 대시보드·알림이 그 집합에 맞춰져 있다.
+// 앱은 현재 253 시리즈(한도 10,000)라 골라 받을 이유가 없고, 이름을 걸러두면
+// 나중에 장애 조사 때 "그 지표는 안 받고 있었다"가 된다. 소급 생성이 안 된다.
+// 실제 위험인 라벨 카디널리티는 요청 히스토그램을 끄는 것으로 막았다(application.yml).
+// 시리즈가 늘면 MeterFilter.maximumAllowableTags 로 uri 태그에 상한을 거는 쪽이 먼저다.
+
+discovery.relabel "starpick_app" {
+  targets = [{ __address__ = "127.0.0.1:8081" }]
+
+  rule {
+    target_label = "instance"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "starpick/app"
+  }
+}
+
+prometheus.scrape "starpick_app" {
+  targets      = discovery.relabel.starpick_app.output
+  forward_to   = [prometheus.remote_write.metrics_service.receiver]
+  metrics_path = "/actuator/prometheus"
+
+  // 기본값 60초로는 3~5분짜리 부하테스트의 데이터 포인트가 3~5개다.
+  // 앱 계열이 4 DPM 이 되지만 included 10,000 · DPM 1 기준으로 계산해도
+  // 전체가 2,000 계열 미만이다(실측 활성 854). node_exporter 는 60초 그대로 둔다.
+  scrape_interval = "15s"
+}
+
+// ─────────────────────────────────────────────────────────────
 // systemd 저널
 // OOM kill, docker 데몬 오류, 자동 재부팅처럼 컨테이너 밖에서 일어나는 일을 남긴다.
 
