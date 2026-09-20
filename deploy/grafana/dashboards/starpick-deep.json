@@ -652,8 +652,8 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "max by (code_function) (tasks_scheduled_execution_seconds_max{env=\"$env\"})",
-          "legendFormat": "{{code_function}}"
+          "expr": "label_replace(max by (code_namespace, code_function) (tasks_scheduled_execution_seconds_max{env=\"$env\"}), \"cls\", \"$1\", \"code_namespace\", \".*[.]([^.]+)\")",
+          "legendFormat": "{{cls}}.{{code_function}}"
         }
       ],
       "fieldConfig": {

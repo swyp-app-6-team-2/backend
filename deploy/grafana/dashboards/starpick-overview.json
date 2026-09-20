@@ -491,8 +491,8 @@
             "type": "prometheus",
             "uid": "grafanacloud-prom"
           },
-          "expr": "sum by (code_function) (rate(tasks_scheduled_execution_seconds_count{env=\"$env\"}[5m])) * 60",
-          "legendFormat": "{{code_function}}"
+          "expr": "label_replace(sum by (code_namespace, code_function) (rate(tasks_scheduled_execution_seconds_count{env=\"$env\"}[5m])) * 60, \"cls\", \"$1\", \"code_namespace\", \".*[.]([^.]+)\")",
+          "legendFormat": "{{cls}}.{{code_function}}"
         }
       ],
       "fieldConfig": {
@@ -512,7 +512,7 @@
           "showLegend": true
         }
       },
-      "description": "기대값: IngestionSchedule.poll 약 30/분(2초 주기), NotificationSchedule.run·requeueOrFailStale·failStuckQueued·UserWithdrawalSchedule.recover 각 1/분. 계열이 사라지거나 0으로 꺾이면 Worker 가 멈춘 것이다 — 이 경우 실패 로그도 5xx 도 나지 않아 다른 알림에 안 걸린다."
+      "description": "기대값: IngestionSchedule.poll 약 30/분(2초 주기), NotificationSchedule.run·requeueOrFailStale·failStuckQueued·UserWithdrawalSchedule.recover 각 1/분, 시간당 작업 3개는 5분 창에서 0.\npoll·run 두 계열은 「Ingestion Worker 정지」·「알림 Worker 정지」 알림이 감시한다(10분 0회 → 경보, 계열 소멸=Worker 미등록도 No Data 로 경보). 나머지 계열은 화면으로만 본다."
     },
     {
       "type": "timeseries",
