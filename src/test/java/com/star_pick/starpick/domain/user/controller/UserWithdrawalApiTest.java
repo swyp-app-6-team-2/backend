@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.star_pick.starpick.domain.auth.service.AuthService;
+import com.star_pick.starpick.domain.notification.domain.PushPlatform;
+import com.star_pick.starpick.domain.notification.service.PushTokenService;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.domain.user.service.UserWithdrawalService;
@@ -30,6 +32,7 @@ class UserWithdrawalApiTest {
     @Autowired AuthService auth;
     @Autowired UserWithdrawalService withdrawals;
     @Autowired UploadService uploads;
+    @Autowired PushTokenService pushTokens;
     @Autowired FakeObjectStorage storage;
     @Autowired Clock clock;
 
@@ -98,6 +101,26 @@ class UserWithdrawalApiTest {
         assertThatThrownBy(() -> auth.refresh(tokens.refreshToken())).isInstanceOf(RuntimeException.class);
         mvc.perform(get(PATH).header("Authorization",bearer(OWNER))).andExpect(status().isUnauthorized());
         mvc.perform(delete(PATH).header("Authorization",bearer(OWNER))).andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * 같은 기기 토큰을 다른 계정이 등록하면 push_token 은 행 id 를 유지한 채 주인만 바뀐다.
+     * 이전 주인이 남긴 push_log 가 그 토큰을 계속 참조하므로, 탈퇴 정리가 user_id 기준으로만
+     * 지우면 FK 위반으로 탈퇴 전체가 실패했다(이슈 #126).
+     */
+    @Test void withdrawalSucceedsWhenPushTokenWasTakenOverFromAnotherUser() throws Exception {
+        pushTokens.register(OTHER, "shared-device", PushPlatform.IOS);
+        jdbc.update("""
+                insert into push_log(user_id, push_token_id, scheduled_at, status)
+                select ?, id, now(), 'SENT' from push_token where token = 'shared-device'
+                """, OTHER);
+        pushTokens.register(OWNER, "shared-device", PushPlatform.IOS);
+
+        mvc.perform(delete(PATH).header("Authorization", bearer(OWNER))).andExpect(status().isOk());
+
+        assertThat(count("users", OWNER)).isZero();
+        assertThat(count("push_token", OWNER)).isZero();
+        assertThat(count("push_log", OTHER)).isZero();
     }
 
     @Test void requiresAuthentication() throws Exception {

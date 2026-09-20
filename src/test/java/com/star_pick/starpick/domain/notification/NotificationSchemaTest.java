@@ -59,6 +59,31 @@ class NotificationSchemaTest {
                 "uk_notification_setting_user_id", "fk_notification_setting_user",
                 "uk_push_token_token", "fk_push_token_user",
                 "uk_push_log_token_scheduled_at", "fk_push_log_user", "fk_push_log_push_token");
+        assertThat(deleteRule("fk_push_log_push_token")).isEqualTo("CASCADE");
+        assertThat(deleteRule("fk_push_log_user")).isEqualTo("NO ACTION");
+    }
+
+    /**
+     * 토큰은 다른 사용자가 등록하면 행 id 를 유지한 채 주인만 바뀐다. 그래서 로그 주인과 토큰 주인이
+     * 어긋날 수 있고, 그 상태로 토큰을 지우면 탈퇴가 FK 위반으로 실패했다(이슈 #126).
+     */
+    @Test
+    @DisplayName("푸시 토큰을 지우면 다른 사용자의 발송 기록도 함께 지워진다")
+    void deletingTokenCascadesToLogsOfPreviousOwner() {
+        long previousOwner = USER_ID;
+        Long tokenId = jdbcTemplate.queryForObject("""
+                insert into push_token (user_id, token, platform, active)
+                values (?, 'shared-device', 'IOS', true) returning id
+                """, Long.class, previousOwner);
+        jdbcTemplate.update("""
+                insert into push_log (user_id, push_token_id, scheduled_at, status)
+                values (?, ?, timestamptz '2026-09-20 03:00:00+00', 'SENT')
+                """, previousOwner, tokenId);
+
+        jdbcTemplate.update("delete from push_token where id = ?", tokenId);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from push_log where push_token_id = ?", Integer.class, tokenId)).isZero();
     }
 
     @Test
@@ -113,6 +138,13 @@ class NotificationSchemaTest {
                 select %s from information_schema.columns
                 where table_schema = 'public' and table_name = ? and column_name = ?
                 """.formatted(attribute), String.class, table, column);
+    }
+
+    private String deleteRule(String constraint) {
+        return jdbcTemplate.queryForObject("""
+                select delete_rule from information_schema.referential_constraints
+                where constraint_schema = 'public' and constraint_name = ?
+                """, String.class, constraint);
     }
 
     private List<String> constraintNames() {
