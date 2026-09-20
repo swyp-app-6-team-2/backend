@@ -184,6 +184,11 @@ prometheus.scrape "starpick_app" {
   targets      = discovery.relabel.starpick_app.output
   forward_to   = [prometheus.remote_write.metrics_service.receiver]
   metrics_path = "/actuator/prometheus"
+
+  // 기본값 60초로는 3~5분짜리 부하테스트의 데이터 포인트가 3~5개다.
+  // 앱 계열이 4 DPM 이 되지만 included 10,000 · DPM 1 기준으로 계산해도
+  // 전체가 2,000 계열 미만이다(실측 활성 854). node_exporter 는 60초 그대로 둔다.
+  scrape_interval = "15s"
 }
 
 // ─────────────────────────────────────────────────────────────
