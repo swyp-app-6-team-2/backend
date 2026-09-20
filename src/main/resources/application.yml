@@ -6,6 +6,11 @@ server:
   # TLS 는 Caddy 가 끝낸다. X-Forwarded-Proto 를 받아들여야 https 로 인식해 세션 쿠키에 Secure 가 붙고
   # 리다이렉트가 https 로 나가며, getRemoteAddr() 가 실제 접속 IP 가 된다.
   forward-headers-strategy: native
+  tomcat:
+    # 스레드 풀 지표(tomcat_threads_*)는 MBean 등록을 켜야 나온다. 기본값이 false 라
+    # 켜기 전에는 tomcat_sessions_* 만 있어 부하 시 스레드 풀 고갈이 보이지 않는다.
+    mbeanregistry:
+      enabled: true
 
 spring:
   datasource:
@@ -43,6 +48,11 @@ management:
       percentiles-histogram:
         # 켜면 라벨 조합 125개 × 버킷 약 70개 = 8,750 시리즈가 늘어 Grafana Cloud 무료 한도(10,000)를 넘는다.
         http.server.requests: false
+      percentiles:
+        # 버킷 대신 클라이언트 측 백분위를 쓴다. 조합당 2시리즈이고 실측 태그 조합이 8개다.
+        # 인스턴스가 1대라 "백분위는 합산할 수 없다"는 제약도 실제 문제가 되지 않는다.
+        # 대신 PromQL 에서 uri 별로만 그린다.
+        http.server.requests: 0.95, 0.99
 
 springdoc:
   # 안전한 쪽을 기본값으로 둔다. env 한 줄이 빠져도 운영에서 API 명세가 열리지 않는다.
