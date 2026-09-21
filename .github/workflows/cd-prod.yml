@@ -1,0 +1,45 @@
+name: CD - Prod
+
+# 운영 배포는 자동으로 돌지 않는다. 사람이 실행하고, Environment `prod` 의
+# 승인자가 승인해야 deploy 잡이 시작한다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_sha:
+        description: 배포할 커밋 SHA (비우면 선택한 브랜치의 HEAD)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-prod
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.pick.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: pick
+        run: |
+          set -euo pipefail
+          SHA="${{ inputs.image_sha }}"
+          [ -n "$SHA" ] || SHA="$(git rev-parse HEAD)"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "배포 대상: $SHA"
+
+  deploy:
+    needs: resolve
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+      image_sha: ${{ needs.resolve.outputs.sha }}
+    permissions:
+      contents: read
+      id-token: write
+    secrets: inherit
