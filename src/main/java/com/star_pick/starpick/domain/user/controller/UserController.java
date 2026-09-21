@@ -20,9 +20,16 @@ public class UserController {
     private final com.star_pick.starpick.domain.user.service.UserWithdrawalService withdrawals;
 
     @DeleteMapping
-    @Operation(summary = "회원 탈퇴", description = "계정과 사용자 데이터를 삭제합니다. 중간 실패는 서버에서 자동 복구합니다. 외부 소셜 연결 해제는 수행하지 않습니다.")
-    public ApiResponse<Void> withdraw(@AuthenticationPrincipal AuthenticatedUser user) {
-        withdrawals.withdraw(user.userId());
+    @Operation(summary = "회원 탈퇴", description = "외부 소셜 연결을 해제한 뒤 계정과 사용자 데이터를 삭제합니다. 네이버 로그인 사용자는 socialAccessToken이 필수이며, 연결 해제에 실패하면 계정을 삭제하지 않습니다. 중간 데이터 삭제 실패는 서버에서 자동 복구합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "회원 탈퇴 완료"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "네이버 access token 누락 또는 요청값 오류"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "인증 실패 또는 사용할 수 없는 사용자"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "502", description = "네이버 계정 연결 해제 실패")
+    })
+    public ApiResponse<Void> withdraw(@AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody(required = false) UserWithdrawalRequest request) {
+        withdrawals.withdraw(user.userId(), request == null ? null : request.socialAccessToken());
         return ApiResponse.ok("회원 탈퇴가 완료되었습니다.", null);
     }
 
