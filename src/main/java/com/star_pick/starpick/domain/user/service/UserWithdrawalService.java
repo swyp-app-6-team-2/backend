@@ -1,12 +1,16 @@
 package com.star_pick.starpick.domain.user.service;
 
 import com.star_pick.starpick.domain.ad.service.AdRewardCleanupService;
+import com.star_pick.starpick.domain.auth.client.naver.NaverTokenRevocationClient;
+import com.star_pick.starpick.domain.auth.exception.AuthErrorCode;
 import com.star_pick.starpick.domain.auth.service.AuthService;
 import com.star_pick.starpick.domain.ingestion.service.IngestionJobPurger;
 import com.star_pick.starpick.domain.inquiry.service.InquiryCleanupService;
 import com.star_pick.starpick.domain.notification.service.NotificationCleanupService;
 import com.star_pick.starpick.domain.recipe.service.RecipeService;
 import com.star_pick.starpick.domain.upload.service.UploadService;
+import com.star_pick.starpick.domain.user.entity.Provider;
+import com.star_pick.starpick.domain.user.repository.SocialCredentialRepository;
 import com.star_pick.starpick.domain.user.repository.UserRepository;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
@@ -24,6 +28,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class UserWithdrawalService {
     private final UserRepository users;
+    private final SocialCredentialRepository credentials;
+    private final NaverTokenRevocationClient naverTokens;
     private final AuthService auth;
     private final RecipeService recipes;
     private final IngestionJobPurger ingestion;
@@ -36,6 +42,11 @@ public class UserWithdrawalService {
     private final Clock clock;
 
     public void withdraw(Long userId) {
+        withdraw(userId, null);
+    }
+
+    public void withdraw(Long userId, String socialAccessToken) {
+        revokeNaverConnectionIfNeeded(userId, socialAccessToken);
         transactions.executeWithoutResult(status -> {
             var user = users.findByIdForUpdate(userId)
                     .orElseThrow(() -> new BusinessException(CommonErrorCode.AUTHENTICATION_REQUIRED));
@@ -44,6 +55,14 @@ public class UserWithdrawalService {
         });
         log.info("회원 탈퇴 접수. userId={}", userId);
         resume(userId);
+    }
+
+    private void revokeNaverConnectionIfNeeded(Long userId, String socialAccessToken) {
+        if (!credentials.existsByUser_UserIdAndProvider(userId, Provider.NAVER)) return;
+        if (socialAccessToken == null || socialAccessToken.isBlank()) {
+            throw new BusinessException(AuthErrorCode.NAVER_ACCESS_TOKEN_REQUIRED);
+        }
+        naverTokens.revoke(socialAccessToken.trim());
     }
 
     /** 서버 복구 전용. 정상 계정은 아래 각 단계의 잠금 안에서 거절한다. */

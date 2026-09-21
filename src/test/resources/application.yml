@@ -34,6 +34,10 @@ google:
 kakao:
   app-id: 1234
 
+naver:
+  client-id: test-naver-client-id
+  client-secret: test-naver-client-secret
+
 apple:
   client-id: test-apple-client-id
 

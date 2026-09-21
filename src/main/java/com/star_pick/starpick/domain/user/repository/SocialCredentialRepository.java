@@ -11,6 +11,7 @@ import java.util.Optional;
 public interface SocialCredentialRepository extends JpaRepository<SocialCredential, Long> {
     void deleteByUser_UserId(Long userId);
     Optional<SocialCredential> findByProviderAndSocialUid(Provider provider,String socialUid);
+    boolean existsByUser_UserIdAndProvider(Long userId, Provider provider);
 
     String userIn(Collection<User> users);
 }

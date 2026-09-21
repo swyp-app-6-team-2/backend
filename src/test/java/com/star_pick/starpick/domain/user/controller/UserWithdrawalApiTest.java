@@ -1,9 +1,12 @@
 package com.star_pick.starpick.domain.user.controller;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.star_pick.starpick.domain.auth.client.naver.NaverTokenRevocationClient;
+import com.star_pick.starpick.domain.auth.exception.AuthErrorCode;
 import com.star_pick.starpick.domain.auth.service.AuthService;
 import com.star_pick.starpick.domain.notification.domain.PushPlatform;
 import com.star_pick.starpick.domain.notification.service.PushTokenService;
@@ -11,13 +14,16 @@ import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.upload.service.UploadService;
 import com.star_pick.starpick.domain.user.service.UserWithdrawalService;
 import com.star_pick.starpick.domain.user.service.UserWithdrawalRecovery;
+import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.*;
 import java.time.Clock;
 import java.util.UUID;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @IntegrationTest
@@ -35,6 +41,7 @@ class UserWithdrawalApiTest {
     @Autowired PushTokenService pushTokens;
     @Autowired FakeObjectStorage storage;
     @Autowired Clock clock;
+    @MockitoBean NaverTokenRevocationClient naverTokens;
 
     @BeforeEach void setUp() {
         fixtures.reset();
@@ -128,6 +135,47 @@ class UserWithdrawalApiTest {
         mvc.perform(delete(PATH).header("Authorization","Bearer invalid")).andExpect(status().isUnauthorized());
         mvc.perform(delete(PATH).header("Authorization",bearer(99999999L))).andExpect(status().isUnauthorized());
         assertThat(count("users",OWNER)).isEqualTo(1);
+    }
+
+    @Test void naverWithdrawalRevokesConnectionBeforeDeletingTheAccount() throws Exception {
+        jdbc.update("insert into social_credentials (user_id,provider,social_uid,created_at) values (?,'NAVER','naver-withdraw',now())", OWNER);
+
+        mvc.perform(delete(PATH)
+                        .header("Authorization", bearer(OWNER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"socialAccessToken\":\"naver-access-token\"}"))
+                .andExpect(status().isOk());
+
+        verify(naverTokens).revoke("naver-access-token");
+        assertThat(count("users", OWNER)).isZero();
+    }
+
+    @Test void naverWithdrawalWithoutProviderTokenDoesNotDeleteTheAccount() throws Exception {
+        jdbc.update("insert into social_credentials (user_id,provider,social_uid,created_at) values (?,'NAVER','naver-withdraw',now())", OWNER);
+
+        mvc.perform(delete(PATH).header("Authorization", bearer(OWNER)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.data.code").value("NAVER_ACCESS_TOKEN_REQUIRED"));
+
+        verifyNoInteractions(naverTokens);
+        assertThat(count("users", OWNER)).isEqualTo(1);
+        assertThat(count("social_credentials", OWNER)).isEqualTo(1);
+    }
+
+    @Test void naverRevokeFailureDoesNotDeleteTheAccount() throws Exception {
+        jdbc.update("insert into social_credentials (user_id,provider,social_uid,created_at) values (?,'NAVER','naver-withdraw',now())", OWNER);
+        doThrow(new BusinessException(AuthErrorCode.NAVER_CONNECTION_REVOKE_FAILED))
+                .when(naverTokens).revoke("naver-access-token");
+
+        mvc.perform(delete(PATH)
+                        .header("Authorization", bearer(OWNER))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"socialAccessToken\":\"naver-access-token\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.data.code").value("NAVER_CONNECTION_REVOKE_FAILED"));
+
+        assertThat(count("users", OWNER)).isEqualTo(1);
+        assertThat(count("social_credentials", OWNER)).isEqualTo(1);
     }
 
     @Test void markedUserCanOnlyRetryWithdrawal() throws Exception {
