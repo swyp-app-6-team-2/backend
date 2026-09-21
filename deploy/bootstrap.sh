@@ -23,7 +23,7 @@
 set -euo pipefail
 
 ALLOY_VERSION="1.19.2"
-SWAP_SIZE="2G"
+SWAP_MB=2048
 BACKUP_HOUR="19"          # UTC. KST 04:00
 DOCKER_LOG_MAX_SIZE="10m"
 DOCKER_LOG_MAX_FILE="3"
@@ -41,15 +41,22 @@ die()     { echo "bootstrap: $*" >&2; exit 1; }
 changed() { CHANGED+=("$1"); echo "  [변경] $1"; }
 kept()    { KEPT+=("$1");    echo "  [유지] $1"; }
 
-# 내용이 다를 때만 쓴다. 쓰면 0, 이미 같으면 1 을 돌려준다.
+# 내용과 권한이 목표와 다를 때만 쓴다. 하나라도 고쳤으면 0, 이미 같으면 1 을 돌려준다.
+#
+# 권한을 내용과 따로 보는 이유: env.conf 는 Grafana 토큰을 담아 0600 이어야 하는데,
+# 내용이 같다고 건너뛰면 누가 0644 로 바꿔둔 상태가 그대로 남는다.
 write_if_diff() {
-  local path="$1" mode="$2" content="$3"
-  if [[ -f "$path" ]] && [[ "$(cat "$path")" == "$content" ]]; then
-    return 1
+  local path="$1" mode="$2" content="$3" touched=1
+  if [[ ! -f "$path" ]] || [[ "$(cat "$path")" != "$content" ]]; then
+    # umask 를 씌워 만든다. 만든 뒤 chmod 하면 그 사이 토큰이 world-readable 이다.
+    ( umask 077; printf '%s\n' "$content" > "$path" )
+    touched=0
   fi
-  printf '%s\n' "$content" > "$path"
-  chmod "$mode" "$path"
-  return 0
+  if [[ "$(stat -c '%a' "$path")" != "$mode" ]]; then
+    chmod "$mode" "$path"
+    touched=0
+  fi
+  return $touched
 }
 
 # ── 0. 전제 ────────────────────────────────────────────────────────────────
@@ -74,13 +81,13 @@ kept ".env.vm 필수 키"
 
 echo "[2/6] swap"
 if swapon --show=NAME --noheadings 2>/dev/null | grep -qx /swapfile; then
-  kept "swap $SWAP_SIZE"
+  kept "swap ${SWAP_MB}M"
 else
-  fallocate -l "$SWAP_SIZE" /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  fallocate -l "${SWAP_MB}M" /swapfile || dd if=/dev/zero of=/swapfile bs=1M count="$SWAP_MB"
   chmod 600 /swapfile
   mkswap /swapfile >/dev/null
   swapon /swapfile
-  changed "swap $SWAP_SIZE 생성"
+  changed "swap ${SWAP_MB}M 생성"
 fi
 
 # fstab 은 swapon 과 별개다. 빠져 있으면 재부팅 후 swap 이 사라진다.
@@ -149,10 +156,20 @@ print(json.dumps(cfg, indent=2, ensure_ascii=False))
 PY
 )"
 
+# 내용이 바뀐 경우에만 데몬을 재시작한다. 권한만 고치고 재시작하면
+# 운영 중인 컨테이너 3개가 함께 내려간다.
+DAEMON_CONTENT_CHANGED=0
+if [[ ! -f "$DAEMON_JSON" ]] || [[ "$(cat "$DAEMON_JSON")" != "$MERGED" ]]; then
+  DAEMON_CONTENT_CHANGED=1
+fi
 if write_if_diff "$DAEMON_JSON" 644 "$MERGED"; then
-  systemctl restart docker
-  changed "daemon.json (docker 재시작함)"
-  echo "  ! 로그 옵션은 컨테이너 생성 시점에 고정된다. 기존 컨테이너는 다음 배포부터 적용된다" >&2
+  if [[ $DAEMON_CONTENT_CHANGED -eq 1 ]]; then
+    systemctl restart docker
+    changed "daemon.json (docker 재시작함)"
+    echo "  ! 로그 옵션은 컨테이너 생성 시점에 고정된다. 기존 컨테이너는 다음 배포부터 적용된다" >&2
+  else
+    changed "daemon.json 권한 복구"
+  fi
 else
   kept "daemon.json"
 fi
@@ -242,7 +259,13 @@ Environment=\"STARPICK_ENV=$STARPICK_ENV\""
     kept "alloy 자격증명"
   fi
 elif [[ -f "$DROPIN" ]]; then
-  kept "alloy 자격증명 (기존 값 유지)"
+  # 값을 안 받았어도 권한은 본다. 토큰이 든 파일이라 0600 이 아니면 되돌린다.
+  if [[ "$(stat -c '%a' "$DROPIN")" != "600" ]]; then
+    chmod 600 "$DROPIN"
+    changed "alloy 자격증명 권한 복구 (0600)"
+  else
+    kept "alloy 자격증명 (기존 값 유지)"
+  fi
 else
   die "Grafana 자격증명이 없다. GCLOUD_RW_API_KEY 등을 주고 다시 실행한다"
 fi
@@ -271,7 +294,9 @@ if grep -Fxq "$CRON_LINE" <<<"$CURRENT_CRON"; then
   kept "백업 cron"
 else
   # backup.sh 를 부르는 줄만 교체한다. 다른 작업은 건드리지 않는다.
-  NEW_CRON="$(grep -vF 'deploy/backup.sh daily' <<<"$CURRENT_CRON" || true)"
+  # 주석 줄도 함께 걷어낸다. 안 그러면 재등록할 때마다 한 줄씩 쌓인다.
+  NEW_CRON="$(grep -vF 'deploy/backup.sh daily' <<<"$CURRENT_CRON" \
+    | grep -vF '# starpick 정기 백업' || true)"
   printf '%s\n%s\n%s\n' \
     "$NEW_CRON" \
     "# starpick 정기 백업 (bootstrap.sh 관리)" \

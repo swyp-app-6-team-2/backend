@@ -24,12 +24,24 @@ jobs:
     outputs:
       sha: ${{ steps.pick.outputs.sha }}
     steps:
+      # 짧은 SHA 를 풀어야 해서 전체 이력을 받는다.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # 이 잡은 승인 게이트 앞에서 돈다. 입력을 run 블록에 펼치면 승인 없이
+      # 임의 명령이 실행되므로 env 로만 받고 16진수인지 먼저 본다.
       - id: pick
+        env:
+          INPUT_SHA: ${{ inputs.image_sha }}
         run: |
           set -euo pipefail
-          SHA="${{ inputs.image_sha }}"
-          [ -n "$SHA" ] || SHA="$(git rev-parse HEAD)"
+          if [ -z "$INPUT_SHA" ]; then
+            SHA="$(git rev-parse HEAD)"
+          else
+            [[ "$INPUT_SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] \
+              || { echo "::error::커밋 SHA 만 허용합니다"; exit 1; }
+            SHA="$(git rev-parse --verify "${INPUT_SHA}^{commit}")"
+          fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "배포 대상: $SHA"
 
