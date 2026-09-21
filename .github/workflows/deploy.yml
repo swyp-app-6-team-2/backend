@@ -1,0 +1,192 @@
+name: Deploy
+
+# VM 배포 로직 한 벌. 호출하는 쪽(cd-prod.yml 등)이 대상만 정한다.
+#
+# image_sha 를 필수 입력으로 받는다. workflow_run 컨텍스트의 github.sha 는
+# 기본 브랜치 HEAD 이지 CI 가 통과한 커밋이 아니라서 내부에서 쓰지 않는다.
+#
+# vm_name 은 접속 직후 원격 hostname 과 대조한다. 저장소 레벨 변수(dev 용)가
+# 남아 있어, Environment 등록을 빠뜨리면 조용히 dev 값으로 폴백할 수 있다.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 배포 대상 GitHub Environment 이름
+        required: true
+        type: string
+      image_sha:
+        description: 배포할 이미지 태그(= CI 가 통과한 커밋 SHA)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  REGION: asia-northeast3
+  ARTIFACT_REPOSITORY: starpick
+  IMAGE_NAME: backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+
+    steps:
+      # 이미지 SHA 가 정말 main 에 있는 커밋인지 확인한다. 임의 SHA 로 승인 게이트를
+      # 통과한 배포를 막는다. 전체 이력이 필요해 fetch-depth: 0 이다.
+      - name: 코드 체크아웃
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # 입력은 env 로만 받는다. run 블록에 ${{ }} 로 펼치면 GitHub 이 셸 소스에 그대로 끼워 넣어
+      # 값 안의 명령 치환이 실행된다. 형식 검사도 함께 해 SHA 가 아닌 값을 뒤로 넘기지 않는다.
+      - name: 입력 검증과 조상 확인
+        env:
+          IMAGE_SHA: ${{ inputs.image_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "::error::40자 커밋 SHA 가 아닙니다"; exit 1; }
+          git merge-base --is-ancestor "$IMAGE_SHA" origin/main \
+            || { echo "::error::${IMAGE_SHA} 는 origin/main 의 조상이 아닙니다"; exit 1; }
+
+      - name: GCP 인증
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: gcloud 설정
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: 이미지가 Artifact Registry 에 있는지 확인
+        env:
+          IMAGE_SHA: ${{ inputs.image_sha }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          gcloud artifacts docker images describe \
+            "${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REPOSITORY}/${IMAGE_NAME}:${IMAGE_SHA}" \
+            >/dev/null
+
+      # 여기서부터 VM 을 만진다. 이후 단계는 실패해도 롤백 단계가 돌아야 하므로
+      # 상태를 GITHUB_ENV 에 남긴다.
+      - name: 대상 확인과 롤백 지점 기록
+        id: target
+        run: |
+          set -euo pipefail
+          [ -n "$DEPLOY_PATH" ] || { echo "::error::DEPLOY_PATH 가 비어 있습니다. Environment 변수를 확인하세요"; exit 1; }
+          # 호스트명은 디렉터리 존재와 무관하게 먼저 찍는다. 엉뚱한 VM 에 붙었을 때
+          # "디렉터리가 없다" 가 아니라 "호스트가 다르다" 로 끝나야 한다.
+          OUT="$(./.github/scripts/remote.sh "
+            echo \"HOSTNAME=\$(hostname)\"
+            if [ -d '$DEPLOY_PATH/.git' ]; then
+              cd '$DEPLOY_PATH'
+              echo \"IMAGE=\$(sudo grep -m1 '^APP_IMAGE=' .env.vm | cut -d= -f2-)\"
+              echo \"HEAD=\$(sudo git rev-parse HEAD)\"
+            fi")"
+          echo "$OUT"
+          REMOTE_HOST="$(sed -n 's/^HOSTNAME=//p' <<<"$OUT" | tr -d '\r')"
+          if [ "$REMOTE_HOST" != "$VM_NAME" ]; then
+            echo "::error::접속한 호스트가 '${REMOTE_HOST}' 입니다. '${VM_NAME}' 를 기대했습니다"
+            exit 1
+          fi
+          PREV_IMAGE="$(sed -n 's/^IMAGE=//p' <<<"$OUT")"
+          # 저장소가 없으면 VM 준비가 안 된 것이다. 여기서 clone 해봐야 .env.vm 이 없어
+          # 다음 백업 단계가 어차피 멈춘다. 준비 절차(clone + .env.vm + bootstrap)를 요구한다.
+          if [ -z "$PREV_IMAGE" ]; then
+            echo "::error::${DEPLOY_PATH} 에 저장소나 .env.vm 이 없습니다. VM 준비가 선행됩니다"
+            exit 1
+          fi
+          {
+            echo "PREV_IMAGE=$PREV_IMAGE"
+            echo "PREV_HEAD=$(sed -n 's/^HEAD=//p' <<<"$OUT")"
+          } >> "$GITHUB_ENV"
+        env:
+          VM_NAME: ${{ vars.VM_NAME }}
+          VM_ZONE: ${{ vars.VM_ZONE }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+
+      # 실패하면 여기서 멈춘다. 백업 없는 배포를 하지 않는다.
+      - name: 배포 전 DB 백업
+        env:
+          VM_NAME: ${{ vars.VM_NAME }}
+          VM_ZONE: ${{ vars.VM_ZONE }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+        run: ./.github/scripts/remote.sh "sudo $DEPLOY_PATH/deploy/backup.sh predeploy"
+
+      - name: 배포
+        id: rollout
+        run: ./.github/scripts/deploy-remote.sh
+        env:
+          VM_NAME: ${{ vars.VM_NAME }}
+          VM_ZONE: ${{ vars.VM_ZONE }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ inputs.image_sha }}
+          TARGET_SHA: ${{ inputs.image_sha }}
+
+      # 취소도 failure 가 아니므로 always() 로 둔다. compose up 직후 취소되면
+      # 검증되지 않은 이미지가 뜬 채로 끝나기 때문이다.
+      #
+      # 되돌리는 것은 이미지와 git HEAD 뿐이다. DB 는 되돌리지 않는다 — 직전 덤프는
+      # 사람이 복원한다. 컬럼 삭제·이름 변경 같은 파괴적 migration 을 적용한 뒤 실패하면
+      # 구버전 앱이 ddl-auto: validate 에서 기동을 거부해 롤백의 헬스 체크도 실패한다.
+      - name: 실패 시 롤백
+        # 배포가 실행조차 안 됐을 때(앞 단계 실패로 skipped)는 돌지 않는다. 그때 롤백하면
+        # 백업 없이 운영 앱을 재기동하게 되어 "백업 없는 배포를 하지 않는다" 와 정반대가 된다.
+        if: always() && (steps.rollout.outcome == 'failure' || steps.rollout.outcome == 'cancelled')
+        id: rollback
+        run: ./.github/scripts/deploy-remote.sh
+        env:
+          VM_NAME: ${{ vars.VM_NAME }}
+          VM_ZONE: ${{ vars.VM_ZONE }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          IMAGE: ${{ env.PREV_IMAGE }}
+          TARGET_SHA: ${{ env.PREV_HEAD }}
+
+      - name: 성공 시 current 태그와 이미지 정리
+        if: steps.rollout.outcome == 'success'
+        env:
+          IMAGE_SHA: ${{ inputs.image_sha }}
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          BASE="${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REPOSITORY}/${IMAGE_NAME}"
+          gcloud artifacts docker tags add \
+            "${BASE}:${IMAGE_SHA}" "${BASE}:${ENVIRONMENT}-current"
+
+      - name: Discord 알림
+        if: always()
+        run: |
+          set -euo pipefail
+          # 시크릿이 없으면 알림만 건너뛴다. 알림 실패로 배포를 실패로 만들지 않는다.
+          [ -n "$WEBHOOK_URL" ] || { echo "웹훅이 없어 알림을 건너뜁니다"; exit 0; }
+          if [ "${{ steps.rollout.outcome }}" = "success" ]; then
+            MSG="✅ ${ENVIRONMENT} 배포 완료 · \`${SHORT:0:7}\` · <${RUN_URL}>"
+          elif [ "${{ steps.rollback.outcome }}" = "success" ]; then
+            MSG="⚠️ ${ENVIRONMENT} 배포 실패 — 이전 버전으로 되돌렸습니다 · \`${SHORT:0:7}\` · <${RUN_URL}>"
+          elif [ "${{ steps.rollback.outcome }}" = "skipped" ]; then
+            MSG="❌ ${ENVIRONMENT} 배포가 시작 전에 멈췄습니다. 앱은 그대로입니다 · <${RUN_URL}>"
+          else
+            MSG="🚨 ${ENVIRONMENT} 배포 실패 **그리고 롤백도 실패**했습니다. 수동 개입이 필요합니다 · <${RUN_URL}>"
+          fi
+          jq -n --arg c "$MSG" \
+            '{content: $c, allowed_mentions: {parse: []}, flags: 4}' \
+            | curl -sS -X POST -H 'Content-Type: application/json' -d @- \
+                "$WEBHOOK_URL" >/dev/null
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          SHORT: ${{ inputs.image_sha }}
+          WEBHOOK_URL: ${{ secrets.DISCORD_OPS_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

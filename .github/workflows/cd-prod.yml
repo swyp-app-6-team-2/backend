@@ -1,0 +1,57 @@
+name: CD - Prod
+
+# 운영 배포는 자동으로 돌지 않는다. 사람이 실행하고, Environment `prod` 의
+# 승인자가 승인해야 deploy 잡이 시작한다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_sha:
+        description: 배포할 커밋 SHA (비우면 선택한 브랜치의 HEAD)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-prod
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.pick.outputs.sha }}
+    steps:
+      # 짧은 SHA 를 풀어야 해서 전체 이력을 받는다.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # 이 잡은 승인 게이트 앞에서 돈다. 입력을 run 블록에 펼치면 승인 없이
+      # 임의 명령이 실행되므로 env 로만 받고 16진수인지 먼저 본다.
+      - id: pick
+        env:
+          INPUT_SHA: ${{ inputs.image_sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$INPUT_SHA" ]; then
+            SHA="$(git rev-parse HEAD)"
+          else
+            [[ "$INPUT_SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] \
+              || { echo "::error::커밋 SHA 만 허용합니다"; exit 1; }
+            SHA="$(git rev-parse --verify "${INPUT_SHA}^{commit}")"
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "배포 대상: $SHA"
+
+  deploy:
+    needs: resolve
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+      image_sha: ${{ needs.resolve.outputs.sha }}
+    permissions:
+      contents: read
+      id-token: write
+    secrets: inherit
