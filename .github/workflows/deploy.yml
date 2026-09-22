@@ -154,6 +154,10 @@ jobs:
           IMAGE: ${{ env.PREV_IMAGE }}
           TARGET_SHA: ${{ env.PREV_HEAD }}
 
+      # `docker tags add` 는 이미 있는 태그를 옮길 때 delete + create 로 동작해
+      # artifactregistry.tags.delete 를 요구한다. CD SA 의 artifactregistry.writer 에는
+      # 그 권한이 없어서, 태그가 없던 첫 배포만 통과하고 두 번째부터 실패했다(2026-09-22).
+      # tags update/create 는 writer 가 가진 tags.update/tags.create 만 쓴다.
       - name: 성공 시 current 태그와 이미지 정리
         if: steps.rollout.outcome == 'success'
         env:
@@ -163,8 +167,14 @@ jobs:
         run: |
           set -euo pipefail
           BASE="${REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${ARTIFACT_REPOSITORY}/${IMAGE_NAME}"
-          gcloud artifacts docker tags add \
-            "${BASE}:${IMAGE_SHA}" "${BASE}:${ENVIRONMENT}-current"
+          DIGEST="$(gcloud artifacts docker images describe "${BASE}:${IMAGE_SHA}" \
+            --format='value(image_summary.digest)')"
+          TARGET=(--version="$DIGEST" --package="${IMAGE_NAME}"
+                  --repository="${ARTIFACT_REPOSITORY}" --location="${REGION}")
+          # 태그가 없는 첫 배포면 update 가 실패한다. 그때만 create 로 만든다.
+          # 권한 문제라면 create 도 같은 이유로 실패하므로 오류가 묻히지 않는다.
+          gcloud artifacts tags update "${ENVIRONMENT}-current" "${TARGET[@]}" \
+            || gcloud artifacts tags create "${ENVIRONMENT}-current" "${TARGET[@]}"
 
       - name: Discord 알림
         if: always()
