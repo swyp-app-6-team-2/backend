@@ -340,6 +340,8 @@ Authorization: Bearer {accessToken}
 
 `/images/**`는 인증 없이 조회할 수 있다. Spring Security의 기본 `no-store` 헤더는 이 경로에서만 끄고, 정적 리소스에는 `Cache-Control: max-age=604800`(7일)을 적용한다. API Security 체인과 캐시 정책은 바꾸지 않는다.
 
+에셋은 디자이너가 제공한 PNG 원본을 **긴 변 512px로 축소하고 WebP(q=80, alpha 무손실)로 변환**해 커밋한다. 원본은 피사체에 맞춰 잘려 있어 짧은 변과 비율이 파일마다 다르며, 통일되는 값은 긴 변뿐이다. 512px는 4배율 기준 128pt까지를 커버한다. URL에 버전이 없어 교체해도 기존 클라이언트는 최대 7일간 이전 이미지를 본다.
+
 ---
 
 ## 8. Recipe Integration
