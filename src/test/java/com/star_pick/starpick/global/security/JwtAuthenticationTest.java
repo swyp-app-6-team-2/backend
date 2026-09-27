@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.IntegrationTest;
+import com.star_pick.starpick.support.TestFixtures;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +33,15 @@ import org.springframework.test.web.servlet.MockMvc;
 class JwtAuthenticationTest {
 
     private static final String PROTECTED_PATH = "/api/v1/__security-probe";
+    private static final long USER_ID = 988902L;
+
+    @Autowired private TestFixtures fixtures;
+
+    @BeforeEach
+    void seedActiveUser() {
+        // 필터는 JWT 서명뿐 아니라 활성 사용자 행도 확인한다. 다른 테스트의 데이터에 의존하지 않는다.
+        fixtures.seedUser(USER_ID);
+    }
 
     @Autowired
     private MockMvc mockMvc;
@@ -42,11 +53,11 @@ class JwtAuthenticationTest {
     private String secret;
 
     private String validAccessToken() {
-        return jwtProvider.generateTokens(1L).accessToken();
+        return jwtProvider.generateTokens(USER_ID).accessToken();
     }
 
     private String expiredAccessToken() {
-        return new JwtProvider(secret, -1_000L, 1_000L, 1_000L).generateTokens(1L).accessToken();
+        return new JwtProvider(secret, -1_000L, 1_000L, 1_000L).generateTokens(USER_ID).accessToken();
     }
 
     @Test
@@ -95,7 +106,7 @@ class JwtAuthenticationTest {
     @Test
     @DisplayName("A6 refresh token 을 access 자리에 보내면 401 이다")
     void refreshTokenRejected() throws Exception {
-        String refreshToken = jwtProvider.generateTokens(1L).refreshToken();
+        String refreshToken = jwtProvider.generateTokens(USER_ID).refreshToken();
 
         mockMvc.perform(get(PROTECTED_PATH).header(HttpHeaders.AUTHORIZATION, "Bearer " + refreshToken))
                 .andExpect(status().isUnauthorized())
@@ -137,7 +148,7 @@ class JwtAuthenticationTest {
     @DisplayName("A10 존재하지 않는 경로도 공통 Envelope 를 유지한다")
     void unknownPath() throws Exception {
         String body = mockMvc.perform(get("/api/v1/auth/no-such-endpoint")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtProvider.generateTokens(1L).accessToken()))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + validAccessToken()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andReturn().getResponse().getContentAsString();

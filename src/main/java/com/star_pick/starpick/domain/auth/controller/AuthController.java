@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import jakarta.validation.Valid;
 import com.star_pick.starpick.domain.auth.dto.SignupRequest;
 import com.star_pick.starpick.domain.auth.dto.SignupResponse;
+import com.star_pick.starpick.domain.auth.dto.GuestResponse;
 import com.star_pick.starpick.domain.auth.dto.TokenRefreshRequest;
 import com.star_pick.starpick.domain.auth.dto.TokenRefreshResponse;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -22,14 +23,34 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/auth")
-@Tag(name = "인증", description = "소셜 로그인 및 인증 관련 API")
+@Tag(name = "인증", description = "게스트 생성, 소셜 로그인 및 인증 관련 API")
 public class AuthController {
 
     private final AuthService authService;
+
+    @Operation(summary = "게스트 생성", description = """
+            인증 헤더와 요청 바디 없이 게스트 사용자, 기본 프로필, 별 10개와 인증 토큰을 생성합니다.
+            개인정보나 소셜 인증, 약관 동의 완료를 요구하거나 자동 기록하지 않습니다.
+            요청마다 새 게스트를 생성하므로 재실행/토큰 갱신 목적으로 호출하지 마세요.
+            발급 토큰은 기존 API와 토큰 재발급 API에서 사용합니다. 기존 토큰 만료 정책을 따릅니다.
+            회원가입 시 데이터 정리와 만료된 게스트 인증의 복구는 이 API의 범위가 아닙니다.
+            """)
+    @io.swagger.v3.oas.annotations.security.SecurityRequirements
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "게스트 생성 완료"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "생성 실패. 사용자·프로필·토큰 저장 롤백")
+    })
+    @PostMapping("/guest")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<GuestResponse> createGuest() {
+        return ApiResponse.created("게스트 이용이 시작되었습니다.", authService.createGuest());
+    }
 
     @Operation(summary = "토큰 재발급", description = """
             유효한 refreshToken으로 accessToken과 refreshToken을 새로 발급합니다.

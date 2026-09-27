@@ -21,6 +21,11 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long userId;
 
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private AccountType accountType = AccountType.MEMBER;
+
     // 기존 회원은 확인 이력이 없으므로 null. 신규 가입은 true만 허용한다.
     @Column(name = "age_over_14_agreed")
     private Boolean ageOver14Agreed;
@@ -42,7 +47,7 @@ public class User {
 
     private Instant serviceAgreedAt;
 
-    @Column(nullable = false)
+    // 게스트는 소셜 회원가입을 완료하지 않았으므로 null.
     private Instant signupCompletedAt;
 
     private Instant marketingAgreedAt;
@@ -71,6 +76,13 @@ public class User {
 
     @Column(name = "onboarding_completed_at")
     private Instant onboardingCompletedAt;
+
+    public static User guest(Instant now) {
+        return User.builder()
+                .accountType(AccountType.GUEST)
+                .lastLoginAt(now)
+                .build();
+    }
 
     public void beginWithdrawal(Instant now) {
         if (deletedAt == null) deletedAt = now;
