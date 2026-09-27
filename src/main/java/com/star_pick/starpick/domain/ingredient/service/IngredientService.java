@@ -16,11 +16,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class IngredientService {
 
-    // 카테고리 안에서는 이름 가나다순이다. 완성형 한글은 유니코드 순이 곧 가나다순이라
-    // Collator 없이 자연 순서로 충분하다. code 는 시트 입력 순서라 사용자에게 의미가 없다.
+    // 카테고리와 무관하게 이름 가나다순이다. 앱은 배열을 카테고리로 거르기만 하므로 카테고리 탭도
+    // 가나다순이 유지된다. 완성형 한글은 유니코드 순이 곧 가나다순이라 Collator 없이 자연 순서로
+    // 충분하다. DB collation 은 한글을 가나다순으로 정렬하지 않아 조회 뒤 여기서 정렬한다.
+    // name 은 UNIQUE 가 아니라 id 로 동률을 끊는다.
     private static final Comparator<Ingredient> DISPLAY_ORDER =
-            Comparator.comparing(Ingredient::getCategory)
-                    .thenComparing(Ingredient::getName);
+            Comparator.comparing(Ingredient::getName)
+                    .thenComparing(Ingredient::getId);
 
     private final IngredientRepository ingredientRepository;
     private final String iconBaseUrl;

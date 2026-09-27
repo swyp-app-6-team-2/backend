@@ -62,40 +62,36 @@ class IngredientQueryApiTest {
     }
 
     @Test
-    @DisplayName("활성 재료 104개를 enum 카테고리 순서와 이름 가나다순으로 반환한다")
+    @DisplayName("활성 재료 104개를 카테고리와 무관하게 이름 가나다순으로 반환한다")
     void returnsActiveIngredientsInDisplayOrder() throws Exception {
         read()
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.message").value("재료 목록을 조회했습니다."))
                 .andExpect(jsonPath("$.data.ingredients.length()").value(104))
-                // 카테고리 경계. 각 카테고리의 첫 항목과 마지막 항목이 가나다순 양끝이다.
-                .andExpect(jsonPath("$.data.ingredients[0].name").value("닭가슴살"))
-                .andExpect(jsonPath("$.data.ingredients[12].name").value("오리고기"))
-                .andExpect(jsonPath("$.data.ingredients[13].name").value("갈치"))
-                .andExpect(jsonPath("$.data.ingredients[27].name").value("홍합"))
-                .andExpect(jsonPath("$.data.ingredients[28].name").value("가지"))
-                .andExpect(jsonPath("$.data.ingredients[54].name").value("홍고추"))
-                .andExpect(jsonPath("$.data.ingredients[55].name").value("고추장"))
-                .andExpect(jsonPath("$.data.ingredients[80].name").value("후추"))
-                .andExpect(jsonPath("$.data.ingredients[81].name").value("가쓰오부시"))
-                .andExpect(jsonPath("$.data.ingredients[103].name").value("파스타면"))
+                // 카테고리로 묶지 않는다. 앞 세 개가 기타·채소·해산물로 섞여 있다.
+                .andExpect(jsonPath("$.data.ingredients[0].name").value("가쓰오부시"))
+                .andExpect(jsonPath("$.data.ingredients[0].categoryCode").value("ETC"))
+                .andExpect(jsonPath("$.data.ingredients[1].name").value("가지"))
+                .andExpect(jsonPath("$.data.ingredients[1].categoryCode").value("VEGETABLE"))
+                .andExpect(jsonPath("$.data.ingredients[2].name").value("갈치"))
+                .andExpect(jsonPath("$.data.ingredients[2].categoryCode").value("SEAFOOD"))
+                .andExpect(jsonPath("$.data.ingredients[103].name").value("후추"))
                 // 초성이 같은 묶음 안에서도 가나다순이다(ㅅ < ㅆ, ㅐ < ㅓ).
-                .andExpect(jsonPath("$.data.ingredients[91].name").value("배"))
-                .andExpect(jsonPath("$.data.ingredients[92].name").value("버터"))
-                .andExpect(jsonPath("$.data.ingredients[96].name").value("식빵"))
-                .andExpect(jsonPath("$.data.ingredients[97].name").value("쌀"))
+                .andExpect(jsonPath("$.data.ingredients[44].name").value("배"))
+                .andExpect(jsonPath("$.data.ingredients[47].name").value("버터"))
+                .andExpect(jsonPath("$.data.ingredients[66].name").value("식빵"))
+                .andExpect(jsonPath("$.data.ingredients[69].name").value("쌀"))
                 .andExpect(jsonPath("$.data.ingredients[0].ingredientId").isNumber())
-                .andExpect(jsonPath("$.data.ingredients[0].code").value("MET008"))
-                .andExpect(jsonPath("$.data.ingredients[0].categoryCode").value("MEAT"))
+                .andExpect(jsonPath("$.data.ingredients[0].code").value("ETC015"))
                 .andExpect(jsonPath("$.data.ingredients[0].iconUrl")
-                        .value("http://localhost/images/ingredients/chicken.webp"))
+                        .value("http://localhost/images/ingredients/box.webp"))
                 .andExpect(jsonPath("$.data.ingredients[*].iconUrl",
                         everyItem(startsWith("http://localhost/images/ingredients/"))))
                 .andExpect(jsonPath("$.data.ingredients[0].active").doesNotExist())
                 // 별칭이 있는 항목과 없는 항목을 각각 확인한다.
-                .andExpect(jsonPath("$.data.ingredients[4].name").value("돼지고기(삼겹살)"))
-                .andExpect(jsonPath("$.data.ingredients[4].aliases",
+                .andExpect(jsonPath("$.data.ingredients[26].name").value("돼지고기(삼겹살)"))
+                .andExpect(jsonPath("$.data.ingredients[26].aliases",
                         containsInAnyOrder("삼겹살", "돼지고기")))
                 .andExpect(jsonPath("$.data.ingredients[0].aliases").isArray())
                 .andExpect(jsonPath("$.data.ingredients[0].aliases.length()").value(0));

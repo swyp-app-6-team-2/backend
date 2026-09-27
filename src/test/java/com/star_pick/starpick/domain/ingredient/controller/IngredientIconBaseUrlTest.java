@@ -40,7 +40,7 @@ class IngredientIconBaseUrlTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.ingredients[0].iconUrl")
-                        .value("http://localhost:9999/images/ingredients/chicken.webp"))
+                        .value("http://localhost:9999/images/ingredients/box.webp"))
                 .andExpect(jsonPath("$.data.ingredients[*].iconUrl",
                         everyItem(not(containsString("//images/")))));
     }
