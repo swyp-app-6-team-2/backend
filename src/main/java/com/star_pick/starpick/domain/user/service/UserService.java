@@ -192,7 +192,7 @@ public class UserService {
         String url = profile == null ? null : profile.getProfileImageKey() == null
                 ? profile.getProfileImageUrl() : uploads.getViewUrl(userId, profile.getProfileImageKey());
         return new MyInfoResponse(userId, profile == null ? null : profile.getNickname(), url,
-                user.getRemainingRecipeSlots(), user.getRecipeSlotLimit(), user.getCumulativeRecipeCount());
+                user.getRemainingRecipeSlots(), user.getRecipeSlotLimit(), user.getCumulativeRecipeCount(), user.getAccountType());
     }
 
     @Transactional

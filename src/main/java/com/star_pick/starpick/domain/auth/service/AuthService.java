@@ -5,6 +5,7 @@ import com.star_pick.starpick.domain.auth.client.SocialUserInfo;
 import com.star_pick.starpick.domain.auth.client.SocialUserInfoClient;
 import com.star_pick.starpick.domain.auth.client.SocialUserInfoClientResolver;
 import com.star_pick.starpick.domain.auth.dto.SignupRequest;
+import com.star_pick.starpick.domain.auth.dto.GuestResponse;
 import com.star_pick.starpick.domain.auth.dto.SignupResponse;
 import com.star_pick.starpick.domain.auth.dto.SocialLoginRequest;
 import com.star_pick.starpick.domain.auth.dto.SocialLoginResponse;
@@ -27,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.Clock;
 import java.util.HexFormat;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +49,17 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final SocialUserInfoClientResolver socialUserInfoClientResolver;
     private final TransactionTemplate transactions;
+    private final Clock clock;
+
+    /** 재호출마다 독립 게스트를 만든다. 재진입에는 발급된 토큰을 사용한다. */
+    @Transactional
+    public GuestResponse createGuest() {
+        User user = users.save(User.guest(clock.instant()));
+        profiles.save(com.star_pick.starpick.domain.user.entity.Profile.initial(user));
+        JwtProvider.TokenPair tokens = issueForActiveUser(user.getUserId());
+        return new GuestResponse(user.getUserId(), user.getAccountType(), tokens.accessToken(),
+                tokens.refreshToken(), user.getRemainingRecipeSlots(), user.isOnboardingRequired());
+    }
 
     public SignupResponse signup(SignupRequest request) {
         if (!Boolean.TRUE.equals(request.ageOver14Agreed())

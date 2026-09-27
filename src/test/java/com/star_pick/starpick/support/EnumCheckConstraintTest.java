@@ -16,6 +16,7 @@ import com.star_pick.starpick.domain.recipe.domain.RecipeCategory;
 import com.star_pick.starpick.domain.recipe.domain.RegistrationMethod;
 import com.star_pick.starpick.domain.upload.domain.UploadPurpose;
 import com.star_pick.starpick.domain.user.entity.Provider;
+import com.star_pick.starpick.domain.user.entity.AccountType;
 import java.time.DayOfWeek;
 import java.util.Arrays;
 import java.util.List;
@@ -42,6 +43,7 @@ class EnumCheckConstraintTest {
     private record Constraint(String name, Class<? extends Enum<?>> enumType) { }
 
     private static final List<Constraint> CONSTRAINTS = List.of(
+            new Constraint("ck_users_account_type", AccountType.class),
             new Constraint("ck_ad_reward_session_platform", AdRewardPlatform.class),
             new Constraint("ck_ad_reward_session_status", AdRewardSessionStatus.class),
             new Constraint("ck_ad_reward_transaction_status", AdRewardTransactionStatus.class),
@@ -96,6 +98,7 @@ class EnumCheckConstraintTest {
         // ck_ad_reward_session_reward_amount(양수 확인), ck_ad_reward_transaction_granted_amount
         // (상태·지급 금액·시각 조합)도 enum 값 집합이 아니라 제외한다.
         // ck_user_custom_ingredient_name_not_blank 도 공백만 입력한 이름을 막는 제약이라 enum 과 무관해 제외한다.
+        // ck_users_signup_completion 은 계정 유형과 가입 시각의 조합 제약이다.
         List<String> inDatabase = jdbcTemplate.queryForList("""
                 select conname from pg_constraint
                 where contype = 'c'
@@ -105,7 +108,7 @@ class EnumCheckConstraintTest {
                                       'ck_inquiry_attachment_keys', 'ck_inquiry_answer',
                                       'ck_ad_reward_daily_quota_non_negative', 'ck_ad_reward_daily_quota_limit',
                                       'ck_ad_reward_session_reward_amount', 'ck_ad_reward_transaction_granted_amount',
-                                      'ck_user_custom_ingredient_name_not_blank')
+                                      'ck_user_custom_ingredient_name_not_blank', 'ck_users_signup_completion')
                 """, String.class);
 
         assertThat(inDatabase)

@@ -46,6 +46,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // ERROR dispatch 까지 인증을 요구하면 실제 오류 대신 401 이 나간다.
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/guest").permitAll()
                         .requestMatchers(
                                 "/api/v1/auth/social-login",
                                 "/api/v1/auth/signup",
