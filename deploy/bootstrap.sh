@@ -10,7 +10,7 @@
 # 교정하는 것이 목적이라, 이미 맞는 항목은 건드리지 않고 `유지` 로만 보고한다.
 # 그래서 이미 구성된 VM 에 실행하면 아무것도 바뀌지 않는 것이 정상이다.
 #
-# Docker 설치부터 swap·로그 상한·Alloy·백업 cron 까지가 범위다.
+# Docker 설치부터 swap·로그 상한·Alloy·백업 cron·일일 보고 cron 까지가 범위다.
 # compose up 은 하지 않는다. startup-script 로 등록됐을 때 .env.vm 의 낡은
 # APP_IMAGE 로 구버전이 조용히 뜨는 경로를 없앤다.
 #
@@ -18,6 +18,14 @@
 #
 #   GCLOUD_RW_API_KEY=... GCLOUD_HOSTED_METRICS_URL=... GCLOUD_HOSTED_METRICS_ID=... \
 #   GCLOUD_HOSTED_LOGS_URL=... GCLOUD_HOSTED_LOGS_ID=... STARPICK_ENV=prod \
+#   sudo -E deploy/bootstrap.sh /opt/starpick
+#
+# 일일 보고(prod 만)도 같은 방식으로 받는다. 한 번 넣으면 다음부터는 생략해도 유지된다.
+# 토큰이 셸 history 에 남지 않도록 read -rs 로 입력받는다.
+#
+#   read -rs DAILY_REPORT_GRAFANA_TOKEN; read -rs DAILY_REPORT_DISCORD_WEBHOOK_URL
+#   export DAILY_REPORT_GRAFANA_URL=https://<스택>.grafana.net \
+#          DAILY_REPORT_GRAFANA_TOKEN DAILY_REPORT_DISCORD_WEBHOOK_URL
 #   sudo -E deploy/bootstrap.sh /opt/starpick
 
 set -euo pipefail
@@ -71,7 +79,7 @@ echo "bootstrap: 배포경로 $DEPLOY_PATH"
 #
 # 빈 JWT_SECRET·ADMIN_PASSWORD 로 앱이 조용히 뜨는 것을 여기서 막는다.
 
-echo "[1/6] 환경변수"
+echo "[1/7] 환경변수"
 "$SCRIPT_DIR/check-env.sh" "$ENV_FILE" || die "필수 환경변수가 비어 있다"
 kept ".env.vm 필수 키"
 
@@ -79,7 +87,7 @@ kept ".env.vm 필수 키"
 #
 # swap 이 없으면 메모리가 모자랄 때 커널이 postgres 를 먼저 죽일 수 있다.
 
-echo "[2/6] swap"
+echo "[2/7] swap"
 if swapon --show=NAME --noheadings 2>/dev/null | grep -qx /swapfile; then
   kept "swap ${SWAP_MB}M"
 else
@@ -110,7 +118,7 @@ fi
 # 로그 기본값은 무제한이라 컨테이너 로그가 디스크를 채운다.
 # 사람이 넣었을 수 있는 다른 키를 지우지 않도록 병합한다.
 
-echo "[3/6] Docker"
+echo "[3/7] Docker"
 
 # 버전을 고정하지 않는다. 보안 업데이트를 받아야 하고, dev 도 저장소 방식이라
 # 여기만 고정하면 두 환경이 갈라진다. Alloy 를 고정한 것과 기준이 다른 이유다.
@@ -189,7 +197,7 @@ fi
 # 컨테이너가 아니라 호스트에 둔다. 배포·롤백 중에도 로그가 끊기면 안 되고,
 # 알림을 거는 메모리·디스크가 호스트 지표라 컨테이너에서 보기에 맞지 않는다.
 
-echo "[4/6] Alloy"
+echo "[4/7] Alloy"
 ALLOY_TOUCHED=0
 
 # backup.sh 가 마지막 성공 시각을 여기에 쓰고 config.alloy 의 textfile collector 가 읽는다.
@@ -285,7 +293,7 @@ fi
 #
 # cron 의 기본 PATH 에는 /snap/bin 이 없다. backup.sh 가 gcloud 를 절대경로로 부른다.
 
-echo "[5/6] 백업 cron"
+echo "[5/7] 백업 cron"
 CRON_CMD="$DEPLOY_PATH/deploy/backup.sh daily >> /var/log/starpick-backup.log 2>&1"
 CRON_LINE="0 $BACKUP_HOUR * * * $CRON_CMD"
 CURRENT_CRON="$(crontab -l 2>/dev/null || true)"
@@ -305,9 +313,64 @@ else
   changed "백업 cron 등록"
 fi
 
-# ── 6. 요약 ────────────────────────────────────────────────────────────────
+# ── 6. 일일 보고 ───────────────────────────────────────────────────────────
+#
+# 설정은 .env.vm 이 아니라 별도 파일에 둔다. compose 가 .env.vm 을 통째로 앱 컨테이너에
+# 넣어서, 앱이 쓰지도 않는 Grafana 토큰을 받게 된다(Alloy 자격증명과 같은 이유).
+# 설정이 없는 VM(dev)은 건너뛰고, 설정이 없는데 cron 만 남아 매일 실패하지 않도록 걷어낸다.
 
-echo "[6/6] 요약"
+echo "[6/7] 일일 보고"
+REPORT_DIR=/etc/starpick
+REPORT_ENV="$REPORT_DIR/daily-report.env"
+
+if [[ -n "${DAILY_REPORT_GRAFANA_URL:-}${DAILY_REPORT_GRAFANA_TOKEN:-}${DAILY_REPORT_DISCORD_WEBHOOK_URL:-}" ]]; then
+  for v in DAILY_REPORT_GRAFANA_URL DAILY_REPORT_GRAFANA_TOKEN DAILY_REPORT_DISCORD_WEBHOOK_URL; do
+    [[ -n "${!v:-}" ]] || die "$v 가 비어 있다. 일일 보고 값은 전부 함께 준다"
+  done
+  install -d -m 700 "$REPORT_DIR"
+  if write_if_diff "$REPORT_ENV" 600 "GRAFANA_URL=$DAILY_REPORT_GRAFANA_URL
+GRAFANA_TOKEN=$DAILY_REPORT_GRAFANA_TOKEN
+DISCORD_WEBHOOK_URL=$DAILY_REPORT_DISCORD_WEBHOOK_URL"; then
+    changed "일일 보고 설정"
+  else
+    kept "일일 보고 설정"
+  fi
+elif [[ -f "$REPORT_ENV" ]]; then
+  if [[ "$(stat -c '%a' "$REPORT_ENV")" != "600" ]]; then
+    chmod 600 "$REPORT_ENV"
+    changed "일일 보고 설정 권한 복구 (0600)"
+  else
+    kept "일일 보고 설정 (기존 값 유지)"
+  fi
+else
+  echo "  [건너뜀] 일일 보고 (설정 없음)"
+fi
+
+# 00:00 UTC = 09:00 KST. 백업 cron 과 같은 방식으로 이 스크립트의 줄만 교체한다.
+REPORT_CRON_LINE="0 0 * * * /usr/bin/python3 $DEPLOY_PATH/deploy/daily-report.py >> /var/log/starpick-daily-report.log 2>&1"
+CURRENT_CRON="$(crontab -l 2>/dev/null || true)"
+OTHER_CRON="$(grep -vF 'deploy/daily-report.py' <<<"$CURRENT_CRON" \
+  | grep -vF '# starpick 일일 보고' || true)"
+
+if [[ -f "$REPORT_ENV" ]]; then
+  if grep -Fxq "$REPORT_CRON_LINE" <<<"$CURRENT_CRON"; then
+    kept "일일 보고 cron"
+  else
+    printf '%s\n%s\n%s\n' \
+      "$OTHER_CRON" \
+      "# starpick 일일 보고 (bootstrap.sh 관리)" \
+      "$REPORT_CRON_LINE" \
+      | grep -v '^$' | crontab -
+    changed "일일 보고 cron 등록"
+  fi
+elif grep -qF 'deploy/daily-report.py' <<<"$CURRENT_CRON"; then
+  printf '%s\n' "$OTHER_CRON" | grep -v '^$' | crontab -
+  changed "일일 보고 cron 제거 (설정 없음)"
+fi
+
+# ── 7. 요약 ────────────────────────────────────────────────────────────────
+
+echo "[7/7] 요약"
 echo "  변경 ${#CHANGED[@]}건 / 유지 ${#KEPT[@]}건"
 if [[ ${#CHANGED[@]} -eq 0 ]]; then
   echo "  이미 목표 구성이다."
