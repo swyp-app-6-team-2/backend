@@ -14,6 +14,7 @@ import com.star_pick.starpick.domain.auth.exception.AuthErrorCode;
 import com.star_pick.starpick.domain.auth.exception.SignupException;
 import com.star_pick.starpick.domain.auth.repository.RefreshTokenRepository;
 import com.star_pick.starpick.domain.user.entity.Provider;
+import com.star_pick.starpick.domain.user.entity.AccountType;
 import com.star_pick.starpick.domain.user.entity.SocialCredential;
 import com.star_pick.starpick.domain.user.entity.User;
 import com.star_pick.starpick.domain.user.repository.SocialCredentialRepository;
@@ -62,6 +63,11 @@ public class AuthService {
     }
 
     public SignupResponse signup(SignupRequest request) {
+        return signup(request, null);
+    }
+
+    /** 헤더 생략은 일반 가입, 헤더 제공은 인증된 게스트를 정리하는 신규 가입이다. */
+    public SignupResponse signup(SignupRequest request, String authorization) {
         if (!Boolean.TRUE.equals(request.ageOver14Agreed())
                 || !Boolean.TRUE.equals(request.serviceTermsAgreed()) || !Boolean.TRUE.equals(request.privacyAgreed())) {
             throw SignupException.termsRequired();
@@ -72,8 +78,20 @@ public class AuthService {
         } catch (JwtException | IllegalArgumentException e) {
             throw SignupException.invalidToken();
         }
+        String guestToken = guestToken(authorization);
+        Long guestId = guestToken == null ? null : parseGuestId(guestToken);
         try {
-            return transactions.execute(status -> createUser(identity, request));
+            return transactions.execute(status -> {
+                User guest = guestId == null ? null : lockGuest(guestId, guestToken);
+                SignupResponse response = createUser(identity, request);
+                if (guest != null) {
+                    // 회원 생성과 함께 커밋한다. 이후 파일/데이터 정리는 기존 복구 스케줄러가 맡는다.
+                    // 커밋 직후 프로세스가 종료돼도 deleted_at으로 대상을 다시 발견할 수 있다.
+                    guest.beginWithdrawal(clock.instant());
+                    refreshTokenRepository.deleteByUserId(guestId);
+                }
+                return response;
+            });
         } catch (DataIntegrityViolationException e) {
             // 동일 소셜 계정의 동시 가입은 DB UNIQUE가 최종 방어한다. 롤백 후에 번역한다.
             if (e.getCause() instanceof ConstraintViolationException violation
@@ -84,11 +102,43 @@ public class AuthService {
         }
     }
 
+    private String guestToken(String authorization) {
+        if (authorization == null) return null;
+        if (!authorization.regionMatches(true, 0, "Bearer ", 0, 7)
+                || authorization.substring(7).isBlank()) {
+            throw new BusinessException(AuthErrorCode.GUEST_TOKEN_INVALID);
+        }
+        return authorization.substring(7).trim();
+    }
+
+    private Long parseGuestId(String token) {
+        try {
+            Long id = jwtProvider.parseAccessToken(token);
+            if (id == null || id <= 0) throw new IllegalArgumentException();
+            return id;
+        } catch (JwtException | IllegalArgumentException e) {
+            throw new BusinessException(AuthErrorCode.GUEST_TOKEN_INVALID);
+        }
+    }
+
+    private User lockGuest(Long guestId, String token) {
+        // 동일 게스트가 서로 다른 소셜 계정으로 동시에 가입해도 한 건만 성공한다.
+        // JDBC 잠금으로 대기 후 최신 상태를 확인하고, 그 다음 JPA 엔티티를 읽는다.
+        lockActiveUser(guestId, AuthErrorCode.GUEST_TOKEN_INVALID);
+        parseGuestId(token); // 잠금 대기 중 만료된 토큰도 거절한다.
+        User guest = users.findById(guestId)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.GUEST_TOKEN_INVALID));
+        if (guest.getAccountType() != AccountType.GUEST) {
+            throw new BusinessException(AuthErrorCode.GUEST_ACCOUNT_REQUIRED);
+        }
+        return guest;
+    }
+
     private SignupResponse createUser(SignupIdentity identity, SignupRequest request) {
         if (credentials.findByProviderAndSocialUid(identity.provider(), identity.socialUid()).isPresent()) {
             throw SignupException.alreadyRegistered();
         }
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         User user = users.save(User.builder()
                 .ageOver14Agreed(true)
                 .ageOver14AgreedAt(now)

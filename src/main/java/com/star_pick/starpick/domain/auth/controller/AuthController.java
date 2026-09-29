@@ -22,6 +22,9 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.http.HttpHeaders;
+import io.swagger.v3.oas.annotations.Parameter;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.http.HttpStatus;
@@ -71,18 +74,26 @@ public class AuthController {
     @Operation(summary = "회원가입", security = {}, description = """
             신규 소셜 사용자의 signupToken과 약관 동의를 받아 가입합니다.
             만 14세 이상, 이용약관, 개인정보 동의는 true 필수이며 선택 동의는 false로 가입할 수 있습니다.
-            accessToken은 필요하지 않습니다. 성공 시 바로 로그인할 수 있는 토큰을 반환합니다.
+            일반 가입은 Authorization 헤더 없이 호출합니다. 성공 시 새 회원의 토큰을 반환합니다.
+            게스트 이용 후 신규 가입은 Authorization: Bearer {게스트 accessToken}을 함께 전달합니다.
+            게스트 기록을 이전하지 않고 새 회원(별 10개, 온보딩 필요)을 생성합니다.
+            새 회원 생성과 게스트 정리 대상 전환은 하나의 트랜잭션으로 처리됩니다.
+            성공 즉시 기존 게스트의 일반 API 접근·토큰 갱신은 차단되고 데이터는 서버에서 순차 정리합니다.
+            헤더를 전달했지만 인증에 실패한 경우 일반 가입으로 대체하지 않습니다.
+            가입 실패 시 게스트 기록은 유지됩니다. 기존 회원 로그인은 이 전환을 수행하지 않습니다.
             """)
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "회원가입 완료"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "필수 약관 미동의 또는 요청값 오류"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "가입 토큰이 잘못되었거나 만료됨"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "가입 토큰 오류 또는 GUEST_TOKEN_INVALID: 게스트 토큰 오류·만료·계정 없음·정리 중"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "GUEST_ACCOUNT_REQUIRED: Authorization에 정식 회원 토큰을 전달함"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "이미 가입된 소셜 계정")
     })
     @PostMapping("/signup")
     @io.swagger.v3.oas.annotations.security.SecurityRequirements
-    public ApiResponse<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
-        return ApiResponse.ok("회원가입이 완료되었습니다.", authService.signup(request));
+    public ApiResponse<SignupResponse> signup(@Valid @RequestBody SignupRequest request,
+            @Parameter(hidden = true) @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return ApiResponse.ok("회원가입이 완료되었습니다.", authService.signup(request, authorization));
     }
 
     @Operation(
