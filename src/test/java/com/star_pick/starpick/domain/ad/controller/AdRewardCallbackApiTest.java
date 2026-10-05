@@ -2,9 +2,12 @@ package com.star_pick.starpick.domain.ad.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.star_pick.starpick.global.security.jwt.JwtProvider;
 import com.star_pick.starpick.support.FakeAdRewardCallbackVerifier;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
@@ -22,7 +25,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -46,6 +53,7 @@ class AdRewardCallbackApiTest {
     @Autowired TestFixtures fixtures;
     @Autowired JdbcTemplate jdbc;
     @Autowired FakeAdRewardCallbackVerifier verifier;
+    @Autowired JwtProvider jwt;
 
     @BeforeEach
     void setUp() {
@@ -82,7 +90,7 @@ class AdRewardCallbackApiTest {
 
     private Map<String, String> validParams(UUID sessionId, String transactionId) {
         Map<String, String> params = new LinkedHashMap<>();
-        params.put("ad_unit", AD_UNIT);
+        params.put("ad_unit", "5224354917");
         params.put("custom_data", sessionId.toString());
         params.put("reward_amount", "2");
         params.put("reward_item", "recipe_slot");
@@ -165,6 +173,86 @@ class AdRewardCallbackApiTest {
         assertThat(transactionStatus("txn-grant-1")).isEqualTo("GRANTED");
     }
 
+    @ParameterizedTest
+    @CsvSource({
+            "IOS, ca-app-pub-3919694536797443/1546357209, 1546357209",
+            "ANDROID, ca-app-pub-3919694536797443/5449853907, 5449853907"
+    })
+    @DisplayName("전체 ID가 저장된 기존 세션에 숫자형 콜백이 와도 한 번만 지급한다")
+    void grantsNumericCallbackForStoredFullAdUnit(String platform, String expected, String received) throws Exception {
+        seedQuota(0, 1);
+        UUID sessionId = seedSession("PENDING", Instant.now(), Instant.now().plusSeconds(1800),
+                Instant.now().plus(1, ChronoUnit.DAYS));
+        jdbc.update("update ad_reward_session set platform = ?, expected_ad_unit = ? where id = ?",
+                platform, expected, sessionId);
+        int slotBefore = recipeSlotLimit();
+        Map<String, String> params = validParams(sessionId, "txn-numeric");
+        params.put("ad_unit", received);
+
+        callCallback(params).andExpect(status().isOk());
+        callCallback(params).andExpect(status().isOk());
+
+        assertThat(sessionStatus(sessionId)).isEqualTo("GRANTED");
+        assertThat(recipeSlotLimit()).isEqualTo(slotBefore + 2);
+        assertThat(quotaGranted()).isOne();
+        assertThat(quotaReserved()).isZero();
+        assertThat(transactionCount("txn-numeric")).isOne();
+        assertThat(jdbc.queryForObject(
+                "select ad_unit from ad_reward_transaction where transaction_id = ?", String.class, "txn-numeric"))
+                .isEqualTo(received);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "ANDROID, ca-app-pub-3940256099942544/5224354917, 5224354917",
+            "IOS, ca-app-pub-3940256099942544/1712485313, 1712485313"
+    })
+    @DisplayName("세션 발급은 SDK용 전체 ID를 반환하고 숫자형 콜백 지급 결과를 앱에서 조회할 수 있다")
+    void sessionCreationKeepsSdkIdAndAcceptsNumericCallback(String platform, String sdkId, String callbackId)
+            throws Exception {
+        String bearer = "Bearer " + jwt.generateTokens(OWNER).accessToken();
+        int slotBefore = recipeSlotLimit();
+        String response = mvc.perform(post("/api/v1/ads/rewards/sessions")
+                        .header("Authorization", bearer)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"platform":"%s","requestId":"numeric-flow"}
+                                """.formatted(platform)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.adUnitId").value(sdkId))
+                .andReturn().getResponse().getContentAsString();
+        UUID sessionId = UUID.fromString(com.jayway.jsonpath.JsonPath.read(response, "$.data.sessionId"));
+        String customData = com.jayway.jsonpath.JsonPath.read(response, "$.data.customData");
+        assertThat(customData).isEqualTo(sessionId.toString());
+        Map<String, String> params = validParams(sessionId, "txn-issued");
+        params.put("ad_unit", callbackId);
+        params.put("custom_data", customData);
+
+        callCallback(params).andExpect(status().isOk());
+
+        mvc.perform(get("/api/v1/ads/rewards/sessions/{sessionId}", sessionId)
+                        .header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("GRANTED"))
+                .andExpect(jsonPath("$.data.grantedAmount").value(2))
+                .andExpect(jsonPath("$.data.recipeSlotLimit").value(slotBefore + 2));
+    }
+
+    @Test
+    @DisplayName("기대값과 동일한 전체 ID 콜백도 계속 처리한다")
+    void grantsMatchingFullAdUnit() throws Exception {
+        seedQuota(0, 1);
+        UUID sessionId = seedSession("PENDING", Instant.now(), Instant.now().plusSeconds(1800),
+                Instant.now().plus(1, ChronoUnit.DAYS));
+        Map<String, String> params = validParams(sessionId, "txn-full");
+        params.put("ad_unit", AD_UNIT);
+
+        callCallback(params).andExpect(status().isOk());
+
+        assertThat(sessionStatus(sessionId)).isEqualTo("GRANTED");
+        assertThat(quotaGranted()).isOne();
+    }
+
     @Test
     @DisplayName("이미 처리한 거래 ID는 다시 지급하지 않는다")
     void duplicateTransactionIdDoesNotGrantAgain() throws Exception {
@@ -202,14 +290,21 @@ class AdRewardCallbackApiTest {
         assertThat(transactionReasonCode("txn-second")).isEqualTo("SESSION_ALREADY_GRANTED");
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "0000000000",
+            "24354917",
+            "05224354917",
+            "ca-app-pub-0000000000000000/5224354917",
+            "untrusted/5224354917"
+    })
     @DisplayName("세션의 기대 광고 단위와 다르면 거절하고 세션은 PENDING을 유지한다")
-    void rejectsAdUnitMismatch() throws Exception {
+    void rejectsAdUnitMismatch(String receivedAdUnit) throws Exception {
         seedQuota(0, 1);
         UUID sessionId = seedSession("PENDING", Instant.now(), Instant.now().plusSeconds(1800),
                 Instant.now().plus(1, ChronoUnit.DAYS));
         Map<String, String> params = validParams(sessionId, "txn-adunit");
-        params.put("ad_unit", "ca-app-pub-0000000000000000/0000000000");
+        params.put("ad_unit", receivedAdUnit);
 
         callCallback(params).andExpect(status().isOk()).andExpect(content().string(""));
 
@@ -220,14 +315,15 @@ class AdRewardCallbackApiTest {
         assertThat(transactionReasonCode("txn-adunit")).isEqualTo("AD_UNIT_MISMATCH");
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"coins", "Recipe"})
     @DisplayName("reward_item이 정책과 다르면 거절한다")
-    void rejectsRewardItemMismatch() throws Exception {
+    void rejectsRewardItemMismatch(String receivedRewardItem) throws Exception {
         seedQuota(0, 1);
         UUID sessionId = seedSession("PENDING", Instant.now(), Instant.now().plusSeconds(1800),
                 Instant.now().plus(1, ChronoUnit.DAYS));
         Map<String, String> params = validParams(sessionId, "txn-item");
-        params.put("reward_item", "coins");
+        params.put("reward_item", receivedRewardItem);
 
         callCallback(params).andExpect(status().isOk());
 
