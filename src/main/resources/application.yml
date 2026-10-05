@@ -165,16 +165,17 @@ ad-reward:
   # REWARDED_AD_SSV.md §2, §2.1 의 정책값. 한도를 바꾸면 ck_ad_reward_daily_quota_limit 도 함께 바꾼다.
   daily-limit: 3
   reward-amount: 2
+  # AdMob의 Android/iOS 리워드 설정도 이름 recipe_slot, 수량 2로 맞춘다(대소문자 구분).
   reward-type: recipe_slot
   session-validity: 30m
   verification-deadline: 24h
   clock-skew-tolerance: 5m
   android:
     ad-unit-id: ${ADMOB_AD_UNIT_ANDROID}
-    # 콜백 ad_unit 표기가 실제로 같은지 AdMob SSV 테스트 도구로 확인 전이라 우선 같은 값을 쓴다(§5.6).
+    # 전체 ID를 저장하고, SSV 검증 시 숫자형 ad_unit과 비교한다. 환경변수를 숫자만으로 바꾸지 않는다.
     expected-callback-ad-unit: ${ADMOB_AD_UNIT_ANDROID}
   ios:
-    # 아직 iOS 광고 단위가 없다. 비어 있으면 iOS 플랫폼의 세션 발급은 후속 이슈에서 막는다.
+    # SDK용 전체 ID. 비어 있으면 iOS 세션 발급을 차단한다.
     ad-unit-id: ${ADMOB_AD_UNIT_IOS:}
     expected-callback-ad-unit: ${ADMOB_AD_UNIT_IOS:}
   external:

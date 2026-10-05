@@ -18,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -42,6 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class AdRewardCallbackService {
 
+    private static final Pattern SDK_AD_UNIT = Pattern.compile("ca-app-pub-[0-9]+/([0-9]+)");
     private static final String REASON_SESSION_NOT_FOUND = "SESSION_NOT_FOUND";
     private static final String REASON_VERIFICATION_DEADLINE_PASSED = "VERIFICATION_DEADLINE_PASSED";
     private static final String REASON_AD_UNIT_MISMATCH = "AD_UNIT_MISMATCH";
@@ -159,7 +161,7 @@ public class AdRewardCallbackService {
         if (now.isAfter(session.getVerificationDeadline())) {
             return REASON_VERIFICATION_DEADLINE_PASSED;
         }
-        if (!session.getExpectedAdUnit().equals(parsed.adUnit())) {
+        if (!matchesAdUnit(session.getExpectedAdUnit(), parsed.adUnit())) {
             return REASON_AD_UNIT_MISMATCH;
         }
         if (!properties.rewardType().equals(parsed.rewardItem())) {
@@ -183,6 +185,19 @@ public class AdRewardCallbackService {
             return REASON_DAILY_LIMIT_REACHED;
         }
         return null;
+    }
+
+    /**
+     * SDK용 전체 ID와 SSV의 숫자형 ad_unit을 비교한다. 기존 세션의 저장값도 그대로 사용한다.
+     * 서명 검증에 쓰는 원문 및 거래에 기록할 수신값은 변경하지 않는다.
+     */
+    private boolean matchesAdUnit(String expected, String received) {
+        if (expected.equals(received)) {
+            return true;
+        }
+        // 기대값만 변환한다. 수신값까지 잘라 비교하면 다른 게시자의 전체 ID도 허용하게 된다.
+        var matcher = SDK_AD_UNIT.matcher(expected);
+        return matcher.matches() && matcher.group(1).equals(received);
     }
 
     private void recordRejectedSafely(AdRewardCallbackParams parsed, UUID sessionId, Long userId,

@@ -27,9 +27,9 @@ public record AdRewardProperties(
      * 플랫폼별 광고 설정.
      *
      * @param adUnitId               앱이 광고를 로드할 때 쓰는 광고 단위.
-     * @param expectedCallbackAdUnit SSV 콜백의 {@code ad_unit} 과 대조할 기대값. SDK 표기와 콜백
-     *                               표기가 실제로 같은지는 AdMob 테스트로 확인해야 한다(§5.6) —
-     *                               확인 전까지는 {@code adUnitId} 와 같은 값을 쓴다.
+     * @param expectedCallbackAdUnit SSV 콜백의 {@code ad_unit} 과 대조할 기대값. SDK용 전체 ID를
+     *                               저장한 경우 콜백 검증 시 숫자 부분과도 비교한다. 이미 숫자형인
+     *                               기대값은 그대로 비교하며, 앱에는 {@code adUnitId} 를 반환한다.
      */
     public record Platform(String adUnitId, String expectedCallbackAdUnit) {
     }
