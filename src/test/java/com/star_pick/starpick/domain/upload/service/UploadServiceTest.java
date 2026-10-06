@@ -9,7 +9,9 @@ import com.star_pick.starpick.domain.upload.repository.UploadObjectRepository;
 import com.star_pick.starpick.support.FakeObjectStorage;
 import com.star_pick.starpick.support.IntegrationTest;
 import com.star_pick.starpick.support.TestFixtures;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -239,6 +241,55 @@ class UploadServiceTest {
         objectStorage.startFailing();
 
         assertThat(uploadService.getViewUrl(OWNER_ID, "recipe-covers/1/a.jpg")).isNull();
+    }
+
+    @Test
+    @DisplayName("여러 Key 의 조회 URL 을 입력 순서대로 주고, 없거나 남의 Key 는 그 자리만 null 이다")
+    void viewUrlsKeepInputOrder() {
+        String othersKey = fixtures.uploadedKey(OTHER_USER_ID, UploadPurpose.RECIPE_COVER);
+
+        List<String> urls = uploadService.getViewUrls(OWNER_ID,
+                Arrays.asList("recipe-covers/1/a.jpg", null, othersKey, "recipe-covers/1/b.jpg"));
+
+        assertThat(urls).containsExactly(
+                FakeObjectStorage.VIEW_URL_PREFIX + "recipe-covers/1/a.jpg",
+                null,
+                null,
+                FakeObjectStorage.VIEW_URL_PREFIX + "recipe-covers/1/b.jpg");
+    }
+
+    @Test
+    @DisplayName("여러 장 서명이 실패해도 예외 없이 해당 자리를 null 로 준다")
+    void viewUrlsDegradeToNullOnStorageFailure() {
+        objectStorage.startFailing();
+
+        assertThat(uploadService.getViewUrls(OWNER_ID, List.of("recipe-covers/1/a.jpg", "recipe-covers/1/b.jpg")))
+                .containsExactly(null, null);
+    }
+
+    @Test
+    @DisplayName("빈 목록이면 빈 목록을 준다")
+    void viewUrlsOfEmptyListIsEmpty() {
+        assertThat(uploadService.getViewUrls(OWNER_ID, List.of())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("여러 장을 동시에 서명한다 — 서명 1번이 원격 호출이라 순서대로 하면 장수만큼 기다린다")
+    void signsViewUrlsConcurrently() {
+        // 20장 × 50ms 를 순서대로 하면 1초다. 동시에 하면 한 장 시간에 가깝다.
+        objectStorage.delayViewUrls(Duration.ofMillis(50));
+        List<String> keys = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            keys.add("recipe-covers/1/" + i + ".jpg");
+        }
+
+        long started = System.nanoTime();
+        List<String> urls = uploadService.getViewUrls(OWNER_ID, keys);
+        long elapsedMillis = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(urls).hasSize(20).doesNotContainNull();
+        assertThat(objectStorage.maxConcurrentViewUrls()).isGreaterThan(1);
+        assertThat(elapsedMillis).isLessThan(500);
     }
 
     @Test

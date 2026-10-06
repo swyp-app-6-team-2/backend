@@ -30,6 +30,7 @@ import com.star_pick.starpick.domain.user.service.UserRecipeStatsService;
 import com.star_pick.starpick.domain.user.service.UserService;
 import com.star_pick.starpick.global.exception.BusinessException;
 import com.star_pick.starpick.global.exception.CommonErrorCode;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -179,18 +180,30 @@ public class RecipeService {
                         selectedCategories, selectedIngredients),
                 PageRequest.of(page, size, toSort(sort)));
 
-        List<Long> recipeIds = found.getContent().stream().map(Recipe::getId).toList();
+        List<Recipe> recipes = found.getContent();
+        List<Long> recipeIds = recipes.stream().map(Recipe::getId).toList();
         Map<Long, List<String>> ingredientNames = findIngredientNames(userId, recipeIds);
 
-        List<RecipeListResponse.RecipeSummary> summaries = found.getContent().stream()
-                .map(recipe -> new RecipeListResponse.RecipeSummary(
-                        recipe.getId(),
-                        recipe.getTitle(),
-                        recipe.getCategoryCode(),
-                        uploadService.getViewUrl(userId, recipe.getCoverImageKey()),
-                        sourceThumbnailUrl(userId, recipe),
-                        ingredientNames.getOrDefault(recipe.getId(), List.of())))
-                .toList();
+        // 서명 1번이 원격 호출이라 커버와 원본 대표 이미지를 한 번에 모아 동시에 서명한다.
+        // 앞쪽 n 개가 커버, 뒤쪽 n 개가 원본 대표 이미지다.
+        int n = recipes.size();
+        List<String> keys = new ArrayList<>(n * 2);
+        recipes.forEach(recipe -> keys.add(recipe.getCoverImageKey()));
+        recipes.forEach(recipe -> keys.add(sourceThumbnailKey(recipe)));
+        List<String> urls = uploadService.getViewUrls(userId, keys);
+
+        List<RecipeListResponse.RecipeSummary> summaries = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            Recipe recipe = recipes.get(i);
+            String thumbnailUrl = keys.get(n + i) != null ? urls.get(n + i) : youTubeThumbnailUrl(recipe);
+            summaries.add(new RecipeListResponse.RecipeSummary(
+                    recipe.getId(),
+                    recipe.getTitle(),
+                    recipe.getCategoryCode(),
+                    urls.get(i),
+                    thumbnailUrl,
+                    ingredientNames.getOrDefault(recipe.getId(), List.of())));
+        }
 
         return new RecipeListResponse(found.getTotalElements(), summaries);
     }
@@ -249,12 +262,19 @@ public class RecipeService {
      * Instagram 레시피) null 이다. {@code YouTubeUrl} 은 의존성 없는 값 객체라 직접 쓴다.
      */
     private String sourceThumbnailUrl(Long userId, Recipe recipe) {
+        String key = sourceThumbnailKey(recipe);
+        return key != null ? uploadService.getViewUrl(userId, key) : youTubeThumbnailUrl(recipe);
+    }
+
+    /** 서명해야 하는 원본 대표 이미지 Key. 서명에 실패해도 YouTube 로 넘어가지 않도록 Key 유무로만 갈린다. */
+    private String sourceThumbnailKey(Recipe recipe) {
         if (recipe.getSourceThumbnailKey() != null) {
-            return uploadService.getViewUrl(userId, recipe.getSourceThumbnailKey());
+            return recipe.getSourceThumbnailKey();
         }
-        if (!recipe.getSourceImageKeys().isEmpty()) {
-            return uploadService.getViewUrl(userId, recipe.getSourceImageKeys().getFirst());
-        }
+        return recipe.getSourceImageKeys().isEmpty() ? null : recipe.getSourceImageKeys().getFirst();
+    }
+
+    private String youTubeThumbnailUrl(Recipe recipe) {
         if (recipe.getSourceUrl() == null) {
             return null;
         }

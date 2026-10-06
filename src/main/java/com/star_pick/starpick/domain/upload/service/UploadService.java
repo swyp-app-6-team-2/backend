@@ -10,6 +10,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -201,6 +204,26 @@ public class UploadService {
             log.warn("조회 URL 서명에 실패했습니다. objectKey={}", objectKey, e);
             return null;
         }
+    }
+
+    /**
+     * 여러 Key 의 조회 URL 을 같은 순서로 돌려준다. 각 원소의 규칙은 {@link #getViewUrl} 과 같다.
+     *
+     * <p>서명 1번이 IAM 원격 호출 1번이라(약 60ms) 순서대로 하면 목록 20건이 1.2초가 된다.
+     * 호출을 기다리는 동안 스레드는 CPU 를 쓰지 않으므로 가상 스레드로 동시에 보낸다.
+     * 동시 개수는 호출자의 페이지 상한을 넘지 않아 따로 제한하지 않는다.
+     *
+     * <p>{@code close()} 가 모든 작업을 기다리므로 {@code resultNow()} 는 끝난 값만 읽는다.
+     * {@link #getViewUrl} 이 실패를 null 로 낮추므로 예외로 끝난 작업은 없다.
+     */
+    public List<String> getViewUrls(Long userId, List<String> objectKeys) {
+        List<Future<String>> futures;
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            futures = objectKeys.stream()
+                    .map(key -> executor.submit(() -> getViewUrl(userId, key)))
+                    .toList();
+        }
+        return futures.stream().map(Future::resultNow).toList();
     }
 
     /** {@link #generateObjectKey} 가 만든 형식에 의존한다. 형식의 소유자가 이 클래스라 경계를 넘지 않는다. */

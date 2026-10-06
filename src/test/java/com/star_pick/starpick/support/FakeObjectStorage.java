@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 테스트용 저장소. 실제 GCS 대신 메모리에서 객체 존재 여부만 흉내낸다.
@@ -37,6 +38,11 @@ public class FakeObjectStorage implements ObjectStorage {
 
     /** {@link #write} 만 실패시킨다. {@link #startFailing} 은 조회 서명까지 실패시켜 쓰기만 따로 볼 수 없다. */
     private volatile boolean failingWrites = false;
+
+    /** 조회 URL 서명의 원격 왕복을 흉내내는 지연. 여러 장을 동시에 서명하는지 확인할 때 켠다. */
+    private volatile Duration viewUrlDelay = Duration.ZERO;
+    private final AtomicInteger viewUrlsInFlight = new AtomicInteger();
+    private final AtomicInteger maxViewUrlsInFlight = new AtomicInteger();
 
     public void putObject(String objectKey) {
         putObject(objectKey, new byte[]{0});
@@ -97,11 +103,23 @@ public class FakeObjectStorage implements ObjectStorage {
         this.failingWrites = true;
     }
 
+    public void delayViewUrls(Duration delay) {
+        this.viewUrlDelay = delay;
+    }
+
+    /** 지금까지 동시에 진행된 조회 URL 서명의 최대 개수. */
+    public int maxConcurrentViewUrls() {
+        return maxViewUrlsInFlight.get();
+    }
+
     public void clear() {
         uploaded.clear();
         operations.clear();
         failing = false;
         failingWrites = false;
+        viewUrlDelay = Duration.ZERO;
+        viewUrlsInFlight.set(0);
+        maxViewUrlsInFlight.set(0);
     }
 
     private void failIfConfigured() {
@@ -122,6 +140,17 @@ public class FakeObjectStorage implements ObjectStorage {
     @Override
     public String generateViewUrl(String objectKey) {
         failIfConfigured();
+        maxViewUrlsInFlight.accumulateAndGet(viewUrlsInFlight.incrementAndGet(), Math::max);
+        try {
+            if (!viewUrlDelay.isZero()) {
+                Thread.sleep(viewUrlDelay);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        } finally {
+            viewUrlsInFlight.decrementAndGet();
+        }
         return VIEW_URL_PREFIX + objectKey;
     }
 
