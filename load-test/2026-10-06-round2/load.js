@@ -67,6 +67,9 @@ function buildThresholds() {
   }
   if (!SMOKE) {
     for (const s of ORDER) thresholds[`checks{scenario:${s.id}}`] = ['rate>=0'];
+    // 요청률 고정 구간은 VU 가 모자라면 요청을 보내지 못하고 이 지표에만 남긴다.
+    // 그러면 지연이 남은 요청으로만 계산되므로 한 건이라도 있으면 실패로 본다.
+    thresholds.dropped_iterations = ['count==0'];
   }
   return thresholds;
 }
@@ -242,6 +245,10 @@ export function handleSummary(data) {
   if (setup.setupError) lines.push(`setup 실패: ${setup.setupError}`);
   const checks = data.metrics.checks;
   if (checks) lines.push(`check 통과율: ${(checks.values.rate * 100).toFixed(2)}% (실패 ${checks.values.fails}건)`);
+  if (!SMOKE) {
+    const dropped = data.metrics.dropped_iterations;
+    lines.push(`보내지 못한 요청(dropped_iterations): ${dropped ? dropped.values.count : 0}건`);
+  }
   lines.push('', apiTable(data.metrics));
   if (!SMOKE && setup.scenarioStartMs) lines.push('', windowTable(data.metrics, setup.scenarioStartMs));
 
