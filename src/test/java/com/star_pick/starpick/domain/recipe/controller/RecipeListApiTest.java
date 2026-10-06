@@ -51,6 +51,8 @@ class RecipeListApiTest {
     @BeforeEach
     void setUp() {
         recipeRepository.deleteAll();
+        // 인증 필터가 users 행을 확인한다. 레시피를 만들지 않는 테스트가 앞선 테스트의 행에 기대지 않게 한다.
+        fixtures.seedUser(OWNER_ID);
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }
 
