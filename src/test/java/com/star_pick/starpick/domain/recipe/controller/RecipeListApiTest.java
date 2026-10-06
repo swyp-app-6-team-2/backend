@@ -51,6 +51,8 @@ class RecipeListApiTest {
     @BeforeEach
     void setUp() {
         recipeRepository.deleteAll();
+        // 인증 필터가 users 행을 확인한다. 레시피를 만들지 않는 테스트가 앞선 테스트의 행에 기대지 않게 한다.
+        fixtures.seedUser(OWNER_ID);
         accessToken = jwtProvider.generateTokens(OWNER_ID).accessToken();
     }
 
@@ -150,6 +152,42 @@ class RecipeListApiTest {
         java.util.Map<Long, java.util.Map<String, Object>> byId = new java.util.HashMap<>();
         List<java.util.Map<String, Object>> recipes = com.jayway.jsonpath.JsonPath.parse(body).read("$.data.recipes");
         recipes.forEach(item -> byId.put(((Number) item.get("recipeId")).longValue(), item));
+        org.assertj.core.api.Assertions.assertThat(byId.get(manual)).containsEntry("thumbnailUrl", null);
+        org.assertj.core.api.Assertions.assertThat(byId.get(youTube))
+                .containsEntry("thumbnailUrl", "https://i.ytimg.com/vi/kjG6h_LTklo/hqdefault.jpg");
+        org.assertj.core.api.Assertions.assertThat(byId.get(instagram.getId()))
+                .containsEntry("thumbnailUrl", FakeObjectStorage.VIEW_URL_PREFIX + instagram.getSourceThumbnailKey());
+        org.assertj.core.api.Assertions.assertThat(byId.get(image.getId()))
+                .containsEntry("thumbnailUrl", FakeObjectStorage.VIEW_URL_PREFIX + image.getSourceImageKeys().getFirst());
+    }
+
+    /**
+     * 커버와 원본 대표 이미지를 한 번에 모아 서명하므로, 결과를 항목에 되돌려 붙일 때 순서가
+     * 어긋나면 남의 이미지가 나간다. 종류가 섞인 목록으로 각 항목이 자기 Key 의 URL 을 받는지 고정한다.
+     */
+    @Test
+    @DisplayName("커버와 원본 대표 이미지가 섞여 있어도 각 항목은 자기 이미지의 URL 을 받는다")
+    void matchesEachRecipeWithItsOwnImageUrls() throws Exception {
+        Long manual = fixtures.saveRecipe(OWNER_ID);
+        Long youTube = fixtures.saveUrlRecipe(OWNER_ID, "https://www.youtube.com/watch?v=kjG6h_LTklo").getId();
+        Recipe instagram = fixtures.saveInstagramRecipe(OWNER_ID);
+        Recipe image = fixtures.saveImageRecipe(OWNER_ID);
+        java.util.Map<Long, String> covers = new java.util.HashMap<>();
+        for (Long id : List.of(manual, youTube, instagram.getId(), image.getId())) {
+            covers.put(id, fixtures.attachCover(OWNER_ID, id));
+        }
+        Long noCover = fixtures.saveRecipe(OWNER_ID);
+
+        String body = list("")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        java.util.Map<Long, java.util.Map<String, Object>> byId = new java.util.HashMap<>();
+        List<java.util.Map<String, Object>> recipes = com.jayway.jsonpath.JsonPath.parse(body).read("$.data.recipes");
+        recipes.forEach(item -> byId.put(((Number) item.get("recipeId")).longValue(), item));
+        covers.forEach((id, key) -> org.assertj.core.api.Assertions.assertThat(byId.get(id))
+                .containsEntry("coverImageUrl", FakeObjectStorage.VIEW_URL_PREFIX + key));
+        org.assertj.core.api.Assertions.assertThat(byId.get(noCover)).containsEntry("coverImageUrl", null);
         org.assertj.core.api.Assertions.assertThat(byId.get(manual)).containsEntry("thumbnailUrl", null);
         org.assertj.core.api.Assertions.assertThat(byId.get(youTube))
                 .containsEntry("thumbnailUrl", "https://i.ytimg.com/vi/kjG6h_LTklo/hqdefault.jpg");
