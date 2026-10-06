@@ -1,0 +1,4 @@
+# 게스트 토큰이 들어 있다
+guests.json
+# k6 원본 결과. 결과 표는 회차 README 에 적는다
+*/results/
