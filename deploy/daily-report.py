@@ -47,18 +47,19 @@ ALERT_FOLDERS = {
 # 2초 주기 poll 43,200회 · 매분 run 1,440회의 90%. 배포로 멈추는 1~2분을 감안한 값이다.
 WORKER_MIN = {"poll": 38_880, "run": 1_296}
 PROBE_MIN = 0.99
+CERT_MIN_DAYS = 14  # Caddy 가 자동 갱신하지만 실패해도 아무도 모른다. 만료 2주 전부터 알린다
 DISK_MAX = 0.70
+MEMORY_MAX = 0.85
 BACKUP_MAX_AGE = 26 * 3600
 
-SERVICE_ENDPOINTS = [  # (표기, uri, status 접두사)
-    ("가입", "/api/v1/auth/signup", "2"),
-    ("로그인", "/api/v1/auth/social-login", "2"),
-    ("온보딩 완료", "/api/v1/users/me/onboarding/complete", "2"),
-    ("레시피 저장", "/api/v1/recipes", "201"),
-    ("조리 기록", "/api/v1/recipes/{recipeId}/cook-histories", "201"),
-    ("분석 요청", "/api/v1/ingestion-jobs", "202"),
-    ("문의", "/api/v1/inquiries", "2"),
-]
+# 하루 요청이 수백 건이라 p95 는 느린 요청 한 건에 흔들린다(2026-10-07 배포 3분 뒤 0.83s 오판).
+# 구간 평균을 보되 건수가 너무 적은 API 는 뺀다.
+LATENCY_MIN_COUNT = 10
+SERVER_URI_EXCLUDE = "UNKNOWN|REDIRECTION|/images/.*"
+
+# 서비스 숫자(가입·로그인·레시피 저장 등)는 FE 보고와 겹쳐서 뺐다. 분석 줄의 "요청 N" 하나만 남긴다.
+ANALYSIS_REQUEST_URI = "/api/v1/ingestion-jobs"
+POSTGRES_ERROR_QUERY = '{env="prod",container="starpick-vm-postgres"} |~ "ERROR|FATAL|PANIC"'
 
 APP_LOG_QUERY = (
     '{env="prod",container="starpick-vm-app"} |~ "'
@@ -138,8 +139,8 @@ class Grafana:
         })
         return [(r["stream"], line) for r in data["result"] for _, line in r["values"]]
 
-    def counter_total(self, selector, by, start, end):
-        """카운터가 구간 안에서 늘어난 양을 라벨 조합별로 센다.
+    def increase(self, selector, by, start, end):
+        """카운터가 구간 안에서 늘어난 양을 라벨 조합별로 센다(소수 그대로).
 
         increase() 를 쓰지 않는다. Micrometer 는 (uri,status) 조합의 시리즈를 첫 요청이 올 때
         만들어서, 구간 안에서 새로 생긴 시리즈의 첫 값을 increase() 가 세지 못한다.
@@ -151,7 +152,12 @@ class Grafana:
             for (_, prev), (_, cur) in zip(samples, samples[1:]):
                 total += cur - prev if cur >= prev else cur  # 내려가면 재시작으로 인한 리셋
             key = tuple(labels.get(b, "") for b in by)
-            totals[key] = totals.get(key, 0) + round(total)
+            totals[key] = totals.get(key, 0) + total
+        return totals
+
+    def counter_total(self, selector, by, start, end):
+        """건수 카운터용. 반올림한 정수이고 0건인 조합은 뺀다."""
+        totals = {k: round(v) for k, v in self.increase(selector, by, start, end).items()}
         return {k: v for k, v in totals.items() if v > 0}
 
 
@@ -196,7 +202,16 @@ def check_probe(g, start, end):
         return WARN, "외부 접속 지표 없음"
     rows.sort(key=lambda r: r[0].get("probe", ""))
     text = " · ".join(f"{m.get('probe', '?')} {v * 100:.2f}%" for m, v in rows)
-    return (WARN if any(v < PROBE_MIN for _, v in rows) else OK), f"외부 접속 {text}"
+    warn = any(v < PROBE_MIN for _, v in rows)
+
+    cert = g.instant(f'min(probe_ssl_earliest_cert_expiry{{instance="{PROBE_INSTANCE}"}}) - time()', end)
+    if cert:
+        days = cert[0][1] / 86400
+        text += f" · 인증서 {days:.0f}일 남음"
+        warn = warn or days < CERT_MIN_DAYS
+    else:
+        text += " · 인증서 지표 없음"
+    return (WARN if warn else OK), f"외부 접속 {text}"
 
 
 def prod_deploys(start):
@@ -267,9 +282,20 @@ def check_errors(g, start, end):
     errors = logs.get(("error",), 0)
     warns = logs.get(("warn",), 0)
     text = f"5xx {n(s5xx)}건 · ERROR {n(errors)}건 · WARN {n(warns)}건"
+
+    # 앱 로그에 안 잡히는 DB 쪽 오류(연결 거부·교착·디스크)를 본다. 이 조회만 실패해도 나머지는 살린다.
+    db_errors = 0
+    try:
+        db_errors = len(g.logs(LOGS, POSTGRES_ERROR_QUERY, start, end, 1000))
+        text += f" · DB 오류 로그 {n(db_errors)}건"
+    except AuthError:
+        raise
+    except QueryError as e:
+        text += f" · DB 오류 로그 조회 실패 ({e})"
+
     if server:
         text += " — " + top([(f"{m} {short_uri(u)} {s} ×{c}", c) for (m, u, s), c in server.items()], 3)
-    return (WARN if s5xx or errors else OK), text
+    return (WARN if s5xx or errors or db_errors else OK), text
 
 
 def check_worker(g, start, end):
@@ -281,7 +307,9 @@ def check_worker(g, start, end):
     poll = totals.get(("poll",), 0)
     run = totals.get(("run",), 0)
     ok = poll >= WORKER_MIN["poll"] and run >= WORKER_MIN["run"]
-    return (OK if ok else WARN), f"Worker 분석 {n(poll)}회 · 알림 {n(run)}회"
+    # 분석 폴링은 2초마다 도는 횟수다(분석 건수가 아니다). 건수는 서비스 섹션에 있다.
+    label = "Worker 동작 중" if ok else "Worker 멈춤 의심"
+    return (OK if ok else WARN), f"{label} (분석 폴링 {n(poll)} · 알림 실행 {n(run)})"
 
 
 def check_backup(g, start, end):
@@ -318,13 +346,38 @@ def check_alerts(g, start, end):
     return WARN, "울린 알림: " + top([(x, 0) for x in names], 8)
 
 
-def check_disk(g, start, end):
-    rows = g.instant('max(1 - node_filesystem_avail_bytes{env="prod",mountpoint="/"}'
-                     ' / node_filesystem_size_bytes{env="prod",mountpoint="/"})', end)
-    if not rows:
-        return WARN, "디스크 지표 없음"
-    used = rows[0][1]
-    return (WARN if used >= DISK_MAX else OK), f"디스크 {used * 100:.0f}%"
+def check_resources(g, start, end):
+    """포화도. 메모리·스왑이 가장 빠듯하다(VM 4GB). OOM·DB 커넥션은 0이 아닐 때만 문구에 붙인다."""
+
+    def value(promql):
+        rows = g.instant(promql, end)
+        return rows[0][1] if rows else None
+
+    memory = value('max(max_over_time(instance:node_memory_utilisation:ratio{env="prod"}[24h]))')
+    swap = value('sum(increase(node_vmstat_pswpin{env="prod"}[24h]) + increase(node_vmstat_pswpout{env="prod"}[24h]))')
+    heap = value('max(max_over_time(jvm_memory_usage_after_gc{env="prod",area="heap"}[24h]))')
+    disk = value('max(1 - node_filesystem_avail_bytes{env="prod",mountpoint="/"}'
+                 ' / node_filesystem_size_bytes{env="prod",mountpoint="/"})')
+    oom = value('sum(increase(node_vmstat_oom_kill{env="prod"}[24h]))') or 0
+    db_pending = value('max(max_over_time(hikaricp_connections_pending{env="prod"}[24h]))') or 0
+    db_timeout = value('sum(increase(hikaricp_connections_timeout_total{env="prod"}[24h]))') or 0
+
+    if memory is None or disk is None:
+        return WARN, "자원 지표 없음"
+
+    parts = [f"메모리 VM {memory * 100:.0f}%"]
+    if swap is not None:
+        parts.append(f"스왑 {n(swap)}페이지")
+    if heap is not None:
+        parts.append(f"힙(GC 후) {heap * 100:.0f}%")
+    parts.append(f"디스크 {disk * 100:.0f}%")
+    if oom >= 1:
+        parts.append(f"OOM kill {n(oom)}회")
+    if db_pending >= 1 or db_timeout >= 1:
+        parts.append(f"DB 커넥션 대기 {n(db_pending)} · 타임아웃 {n(db_timeout)}")
+
+    warn = memory >= MEMORY_MAX or disk >= DISK_MAX or oom >= 1 or db_pending >= 1 or db_timeout >= 1
+    return (WARN if warn else OK), " · ".join(parts)
 
 
 # ── 참고 (판정 없음) ────────────────────────────────────────────────────────
@@ -343,27 +396,36 @@ def info_4xx(g, start, end):
     return INFO, "4xx " + top(items, 5).replace(", ", " · ")
 
 
+def info_traffic(g, start, end):
+    totals = g.counter_total(
+        f'http_server_requests_seconds_count{{env="prod",uri!~"{SERVER_URI_EXCLUDE}"}}', ("uri",), start, end)
+    return INFO, f"요청 {n(sum(totals.values()))}건"
+
+
 def info_latency(g, start, end):
-    rows = g.instant(
-        'topk(3, max by (method,uri) (max_over_time(http_server_requests_seconds{env="prod",'
-        'quantile="0.95",uri!~"UNKNOWN|REDIRECTION|/images/.*"}[24h])))', end)
+    """API 별 구간 평균. p95 는 하루 수백 건에서는 요청 한 건이 그대로 값이 되어 쓰지 않는다."""
+    selector = (f'http_server_requests_seconds_%s{{env="prod",status=~"2..",'
+                f'uri!~"{SERVER_URI_EXCLUDE}"}}')
+    by = ("method", "uri")
+    counts = g.counter_total(selector % "count", by, start, end)
+    seconds = g.increase(selector % "sum", by, start, end)
+    rows = [(key, seconds.get(key, 0.0) / count, count)
+            for key, count in counts.items() if count >= LATENCY_MIN_COUNT]
     if not rows:
-        return INFO, "구간 최악 p95 지표 없음"
+        return INFO, f"느린 API 없음 (건수 {LATENCY_MIN_COUNT}건 이상인 API 기준)"
     rows.sort(key=lambda r: -r[1])
-    text = " · ".join(f"{m.get('method')} {short_uri(m.get('uri', ''))} {v:.2f}s" for m, v in rows)
-    return INFO, f"구간 최악 p95 {text}"
+    text = " · ".join(f"{m} {short_uri(u)} {avg * 1000:.0f}ms·{n(count)}건" for (m, u), avg, count in rows[:3])
+    return INFO, f"느린 API(평균) {text}"
 
 
 # ── 서비스 숫자 ─────────────────────────────────────────────────────────────
 
 
-def service_requests(g, start, end):
-    totals = g.counter_total('http_server_requests_seconds_count{env="prod",method="POST"}',
-                             ("uri", "status"), start, end)
-    counts = {}
-    for label, uri, status in SERVICE_ENDPOINTS:
-        counts[label] = sum(c for (u, s), c in totals.items() if u == uri and s.startswith(status))
-    return counts
+def analysis_requests(g, start, end):
+    totals = g.counter_total(
+        f'http_server_requests_seconds_count{{env="prod",method="POST",uri="{ANALYSIS_REQUEST_URI}"}}',
+        ("status",), start, end)
+    return sum(c for (s,), c in totals.items() if s == "202")
 
 
 def parse_app_logs(lines):
@@ -400,10 +462,7 @@ def parse_app_logs(lines):
 def service_lines(g, start, end):
     lines = []
     try:
-        c = service_requests(g, start, end)
-        lines.append((PLAIN, f"가입 {n(c['가입'])} · 로그인 {n(c['로그인'])} · 온보딩 완료 {n(c['온보딩 완료'])}"))
-        lines.append((PLAIN, f"레시피 저장 {n(c['레시피 저장'])} · 조리 기록 {n(c['조리 기록'])} · 문의 {n(c['문의'])}"))
-        requested = f"분석 요청 {n(c['분석 요청'])} → "
+        requested = f"분석 요청 {n(analysis_requests(g, start, end))} → "
     except AuthError:
         raise
     except QueryError as e:
@@ -433,51 +492,58 @@ def service_lines(g, start, end):
 
 # ── 조립 ────────────────────────────────────────────────────────────────────
 
-STATUS_CHECKS = [
-    ("앱 지표", check_app),
-    ("외부 접속", check_probe),
-    ("배포·재시작", check_deploy),
-    ("5xx·로그", check_errors),
-    ("Worker", check_worker),
-    ("백업", check_backup),
-    ("외부 API", check_external),
-    ("울린 알림", check_alerts),
-    ("디스크", check_disk),
-    ("4xx", info_4xx),
-    ("p95", info_latency),
+# 골든 시그널(오류·지연·트래픽·포화도) 순서로 묶는다. 판정 없는 줄(ℹ️)은 참고용이다.
+SECTIONS = [
+    ("가용성·오류", [
+        ("외부 접속", check_probe),
+        ("5xx·로그", check_errors),
+        ("외부 API", check_external),
+        ("4xx", info_4xx),
+    ]),
+    ("지연·트래픽", [
+        ("트래픽", info_traffic),
+        ("지연", info_latency),
+    ]),
+    ("자원 (24시간 최대)", [
+        ("자원", check_resources),
+    ]),
+    ("운영", [
+        ("앱 지표", check_app),
+        ("배포·재시작", check_deploy),
+        ("Worker", check_worker),
+        ("백업", check_backup),
+        ("울린 알림", check_alerts),
+    ]),
 ]
 
 
 def build_report(g, grafana_url, end):
     start = end - WINDOW
-    status = []
-    for name, check in STATUS_CHECKS:
-        try:
-            status.append(check(g, start, end))
-        except AuthError:
-            raise
-        except QueryError as e:
-            status.append((WARN, f"{name} 조회 실패 ({e})"))
-    service = service_lines(g, start, end)
-
-    warns = sum(1 for mark, _ in status + service if mark == WARN)
-    header = "✅ 이상 없음" if warns == 0 else f"⚠️ 확인 필요 {warns}건"
 
     def render(lines):
         return "\n".join(f"{mark} {text}" if mark else text for mark, text in lines)
 
-    message = "\n".join([
-        f"📋 prod 일일 보고 · {kst(start)} ~ {kst(end)} KST",
-        header,
-        "",
-        "**상태**",
-        render(status),
-        "",
-        "**서비스**",
-        render(service),
-        "",
-        f"<{grafana_url}/d/starpick-overview>",
-    ])
+    sections = []
+    for title, checks in SECTIONS:
+        lines = []
+        for name, check in checks:
+            try:
+                lines.append(check(g, start, end))
+            except AuthError:
+                raise
+            except QueryError as e:
+                lines.append((WARN, f"{name} 조회 실패 ({e})"))
+        sections.append((title, lines))
+    sections.append(("서비스 (서버만 아는 것)", service_lines(g, start, end)))
+
+    warns = sum(1 for _, lines in sections for mark, _ in lines if mark == WARN)
+    header = "✅ 이상 없음" if warns == 0 else f"⚠️ 확인 필요 {warns}건"
+
+    parts = [f"📋 prod 일일 보고 · {kst(start)} ~ {kst(end)} KST", header]
+    for title, lines in sections:
+        parts += ["", f"**{title}**", render(lines)]
+    parts += ["", f"<{grafana_url}/d/starpick-overview>"]
+    message = "\n".join(parts)
     # 목록은 항목마다 이미 잘라 두었다. 그래도 넘치면 끝을 자른다 — 헤더가 앞에 있어 판단은 남는다.
     if len(message) > MESSAGE_LIMIT:
         message = message[:MESSAGE_LIMIT - 1] + "…"
