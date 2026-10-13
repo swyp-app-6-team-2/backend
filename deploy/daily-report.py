@@ -7,6 +7,8 @@
 설정은 /etc/starpick/daily-report.env (GRAFANA_URL·GRAFANA_TOKEN·DISCORD_WEBHOOK_URL).
 .env.vm 에 두지 않는다 — compose 가 그 파일을 통째로 앱 컨테이너에 넣는다.
 
+Grafana Cloud 인스턴스는 접속이 없으면 잠든다. 조회 전에 깨우고 준비될 때까지 기다린다.
+
 prod VM 이 Ubuntu 22.04 라 Python 3.10 문법만 쓰고 표준 라이브러리만 쓴다.
 
 로그와 Discord 에는 HTTP 상태 코드와 예외 이름만 남긴다. cron 로그 파일은 0644 라
@@ -28,6 +30,9 @@ WINDOW = 24 * 3600
 STEP = 60
 TIMEOUT = 30
 MESSAGE_LIMIT = 1900  # Discord 는 2,000자. 글자 수 세는 방식 차이를 감안해 여유를 둔다
+# 잠든 Grafana Cloud 인스턴스는 `/` 요청 뒤 10~20초면 깨어난다(2026-10-12·13 실측).
+WAKE_INTERVAL = 10
+WAKE_LIMIT = 120
 
 PROM = "grafanacloud-prom"
 LOGS = "grafanacloud-logs"
@@ -159,6 +164,38 @@ class Grafana:
         """건수 카운터용. 반올림한 정수이고 0건인 조합은 뺀다."""
         totals = {k: round(v) for k, v in self.increase(selector, by, start, end).items()}
         return {k: v for k, v in totals.items() if v > 0}
+
+
+def _status(url, timeout):
+    req = urllib.request.Request(url, headers={"User-Agent": "starpick-daily-report"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            return res.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (urllib.error.URLError, TimeoutError) as e:
+        return type(e).__name__
+
+
+def wake_grafana(url):
+    """잠든 인스턴스를 깨운다. (깨어났는지, 걸린 초 또는 마지막 응답) 을 돌려준다.
+
+    잠든 동안 /api/health 는 404, / 는 503 이다. 토큰을 붙인 API 요청으로는 깨지 않고
+    / 요청이 깨운다(2026-10-12 실측). 그래서 토큰 없이 / 를 부른다.
+    요청 timeout 과 대기를 남은 시간으로 잘라 WAKE_LIMIT 를 넘기지 않는다.
+    """
+    started = time.monotonic()
+    deadline = started + WAKE_LIMIT
+    status = None
+    while (left := deadline - time.monotonic()) > 0:
+        status = _status(f"{url}/api/health", min(WAKE_INTERVAL, left))
+        if status == 200:
+            return True, int(time.monotonic() - started)
+        if (left := deadline - time.monotonic()) <= 0:
+            break
+        _status(f"{url}/", min(WAKE_INTERVAL, left))
+        time.sleep(max(0.0, min(WAKE_INTERVAL, deadline - time.monotonic())))
+    return False, status
 
 
 # ── 표기 ────────────────────────────────────────────────────────────────────
@@ -575,9 +612,18 @@ def main():
         log(f"설정을 읽지 못했습니다 — {path} ({type(e).__name__})")
         return 1
 
+    # 깨우느라 기다린 시간만큼 구간이 밀리지 않도록 끝 시각을 먼저 잡는다.
+    end = int(time.time())
+    woke, info = wake_grafana(cfg["GRAFANA_URL"])
+    if not woke:
+        # 그대로 진행한다. 조회 실패는 보고에 ⚠️ 로 드러나고, 원인은 이 로그에 남는다.
+        log(f"Grafana 가 {WAKE_LIMIT}초 안에 깨어나지 않았습니다 — 마지막 응답 {info}")
+    elif info > 0:
+        log(f"Grafana 깨움 — {info}초")
+
     g = Grafana(cfg["GRAFANA_URL"], cfg["GRAFANA_TOKEN"])
     try:
-        message, warns = build_report(g, cfg["GRAFANA_URL"], int(time.time()))
+        message, warns = build_report(g, cfg["GRAFANA_URL"], end)
         code = 0
     except AuthError as e:
         message, warns, code = f"❌ prod 일일 보고를 만들지 못했습니다 — {e}", None, 1
