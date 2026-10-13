@@ -144,35 +144,6 @@ class Grafana:
         })
         return [(r["stream"], line) for r in data["result"] for _, line in r["values"]]
 
-
-def _status(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "starpick-daily-report"})
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as res:
-            return res.status
-    except urllib.error.HTTPError as e:
-        return e.code
-    except (urllib.error.URLError, TimeoutError) as e:
-        return type(e).__name__
-
-
-def wake_grafana(url):
-    """잠든 인스턴스를 깨운다. (깨어났는지, 걸린 초 또는 마지막 응답) 을 돌려준다.
-
-    잠든 동안 /api/health 는 404, / 는 503 이다. 토큰을 붙인 API 요청으로는 깨지 않고
-    / 요청이 깨운다(2026-10-12 실측). 그래서 토큰 없이 / 를 부른다.
-    """
-    started = time.monotonic()
-    while True:
-        status = _status(f"{url}/api/health")
-        waited = int(time.monotonic() - started)
-        if status == 200:
-            return True, waited
-        if waited >= WAKE_LIMIT:
-            return False, status
-        _status(f"{url}/")
-        time.sleep(WAKE_INTERVAL)
-
     def increase(self, selector, by, start, end):
         """카운터가 구간 안에서 늘어난 양을 라벨 조합별로 센다(소수 그대로).
 
@@ -193,6 +164,38 @@ def wake_grafana(url):
         """건수 카운터용. 반올림한 정수이고 0건인 조합은 뺀다."""
         totals = {k: round(v) for k, v in self.increase(selector, by, start, end).items()}
         return {k: v for k, v in totals.items() if v > 0}
+
+
+def _status(url, timeout):
+    req = urllib.request.Request(url, headers={"User-Agent": "starpick-daily-report"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            return res.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except (urllib.error.URLError, TimeoutError) as e:
+        return type(e).__name__
+
+
+def wake_grafana(url):
+    """잠든 인스턴스를 깨운다. (깨어났는지, 걸린 초 또는 마지막 응답) 을 돌려준다.
+
+    잠든 동안 /api/health 는 404, / 는 503 이다. 토큰을 붙인 API 요청으로는 깨지 않고
+    / 요청이 깨운다(2026-10-12 실측). 그래서 토큰 없이 / 를 부른다.
+    요청 timeout 과 대기를 남은 시간으로 잘라 WAKE_LIMIT 를 넘기지 않는다.
+    """
+    started = time.monotonic()
+    deadline = started + WAKE_LIMIT
+    status = None
+    while (left := deadline - time.monotonic()) > 0:
+        status = _status(f"{url}/api/health", min(WAKE_INTERVAL, left))
+        if status == 200:
+            return True, int(time.monotonic() - started)
+        if (left := deadline - time.monotonic()) <= 0:
+            break
+        _status(f"{url}/", min(WAKE_INTERVAL, left))
+        time.sleep(max(0.0, min(WAKE_INTERVAL, deadline - time.monotonic())))
+    return False, status
 
 
 # ── 표기 ────────────────────────────────────────────────────────────────────
